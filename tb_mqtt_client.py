@@ -1,6 +1,7 @@
 import paho.mqtt.client as paho
 import logging, time
-from json import dumps
+from copy import deepcopy
+from json import dumps, dump, loads
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 infoHandler = logging.FileHandler('info.log')
@@ -18,19 +19,12 @@ class TB_client:
         self.client = paho.Client()
         self.host = host
         self.client.username_pw_set(token)
+        self.callback = None
 
         def _on_log(client, userdata, level, buf):
             log.info(buf)
 
         def _on_connect(client, userdata, flags, rc, *extra_params):
-
-            # used to re-activate subscriptions if reconnect
-            #client.subscribe('v1/devices/me/attributes')
-            #client.subscribe('v1/devices/me/attributes/response/+')
-            #client.publish('v1/devices/me/attributes/request/1',
-             #              '{"clientKeys":"attribute1,attribute2", "sharedKeys":"shared1,shared2"}')
-
-
             result_codes = {
                 1: "incorrect protocol version",
                 2: "invalid client identifier",
@@ -60,12 +54,19 @@ class TB_client:
             log.info("subscribe ", result)
 
         def _on_message(client, userdata, message):
-
-
             log.info(message.payload.decode("utf-8"))
-            log.info(message.topic)#), " TOPIC ", str(message.topic))
-                     #" QOS ", str(message.qos.decode("utf-8")),
-                     #" RETAIN ", str(message.retain.decode("utf-8")))
+            log.info(message.topic)
+            if message.topic == 'v1/devices/me/attributes':
+                self.callback = message.payload.decode("utf-8")
+                full_json = loads(self.callback)
+                new_json = deepcopy(full_json)
+                for i in full_json:
+                    if i not in self.attributes:
+                        new_json.pop(i, None)
+                with open('callback.json', 'w') as outfile:
+                    dump(new_json, outfile)
+
+
 
         self.client.on_disconnect = _on_disconnect
         self.client.on_connect = _on_connect
@@ -73,6 +74,9 @@ class TB_client:
         self.client.on_publish = _on_publish
         self.client.on_message = _on_message
        # self.client.on_subscribe = _on_subscribe
+
+    def loop(self):
+        return self.client.loop()
 
     def connect(self):
         self.client.connect(self.host)
@@ -91,12 +95,6 @@ class TB_client:
                 self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
                 time.sleep(1)
 
-
-            # self.client.loop_start()
-            # while True:
-            #     self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
-            # self.client.loop_forever()
-
     def send_attributes(self, attributes, send_nonstop=False, quality_of_service=0):
         if not send_nonstop:
             self.client.loop_start()
@@ -109,16 +107,9 @@ class TB_client:
                 time.sleep(1)
 
 
-    def subscribe_to_attributes(self, callback=None, attr1=None):
-        self.client.publish('v1/devices/me/attributes', "SUBSCRIBE")
-        #self.client.publish('v1/devices/me/attributes/request/1', "{\"clientKeys\":\"temp\"}", 1)
-        #self.client.subscribe('v1/devices/me/attributes')
+    def subscribe_to_attributes(self, *attributes):
+        self.attributes = attributes
+        self.client.loop_start()
+        self.client.subscribe('v1/devices/me/attributes', qos=2)
         self.client.loop_forever()
-    def subscribe_to_attributes_blocking(self, Callback, key):
-        val = "{\"clientKeys\":\""+key+"\"}"
-        #self.client.publish('v1/devices/me/attributes/request/1', val, 1)
-        self.client.subscribe("$SYS/#", 0)
 
-            #self.client.subscribe('v1/devices/me/attributes')
-        self.client.loop_forever()
-         #   time.sleep(5)
