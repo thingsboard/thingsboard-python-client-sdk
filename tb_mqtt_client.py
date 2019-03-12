@@ -18,7 +18,6 @@ log.addHandler(infoHandler)
 log.addHandler(errorHandler)
 
 
-
 class TbClient:
     def __init__(self, host, token):
         self.client = paho.Client()
@@ -65,15 +64,11 @@ class TbClient:
             content = message.payload.decode("utf-8")
             log.info(content)
             log.info(message.topic)
-            # TODO: extract constant
             if message.topic == attributes_url:
                 message = eval(content)
                 for key in self.sub_dict.keys():
                     if self.sub_dict.get(key):
                         for item in self.sub_dict.get(key):
-                            # TODO: remove prints
-                            print(type(item))
-                            print(item)
                             item["callback"](message)
 
         self.client.on_disconnect = on_disconnect
