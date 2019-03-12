@@ -69,7 +69,6 @@ class TbClient:
                             print(item)
                             item["callback"](message)
 
-
         self.client.on_disconnect = on_disconnect
         self.client.on_connect = on_connect
         self.client.on_log = on_log
@@ -108,8 +107,8 @@ class TbClient:
         for key in empty_keys:
             del self.sub_dict[key]
 
-    def subscribe(self, callback, key="*"):
-        self.client.subscribe('v1/devices/me/attributes', qos=2)
+    def subscribe(self, callback, key="*", qos=2):
+        self.client.subscribe('v1/devices/me/attributes', qos=qos)
         self.callback = callback
 
         def find_max_sub_id():
