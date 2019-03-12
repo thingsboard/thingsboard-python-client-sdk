@@ -1,7 +1,6 @@
+#TODO ресайклить файл логирования время от времени
 import paho.mqtt.client as paho
 import logging, time
-from copy import deepcopy
-from json import dumps, dump, loads
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 infoHandler = logging.FileHandler('info.log')
@@ -15,6 +14,7 @@ log.addHandler(errorHandler)
 
 
 class TB_client:
+    is_connected = False
     def __init__(self, host, token):
         self.client = paho.Client()
         self.host = host
@@ -33,6 +33,7 @@ class TB_client:
                 5: "not authorised",
             }
             if rc == 0:
+                self.is_connected = True
                 log.info("connection SUCCESS")
 
             else:
@@ -49,22 +50,21 @@ class TB_client:
 
         def _on_publish(client, userdata, result):
             log.info("data published")
-        def _on_subscribe(client, userdata, result):
-
-            log.info("subscribe ", result)
 
         def _on_message(client, userdata, message):
             log.info(message.payload.decode("utf-8"))
             log.info(message.topic)
             if message.topic == 'v1/devices/me/attributes':
-                self.callback = message.payload.decode("utf-8")
-                full_json = loads(self.callback)
-                new_json = deepcopy(full_json)
-                for i in full_json:
-                    if i not in self.attributes:
-                        new_json.pop(i, None)
-                with open('callback.json', 'w') as outfile:
-                    dump(new_json, outfile)
+                self.sub_message_processing({message.topic: message.payload.decode("utf-8")})
+
+
+        def _on_subscribe(client, userdata, mid, granted_qos):
+            log.info("Subscribe")
+            #TODO добавить больше информации
+
+        def _on_unsubscribe(client, userdata, mid, granted_qos):
+            log.info("Unsubscribe")
+            #TODO добавить больше информации
 
 
 
@@ -73,43 +73,49 @@ class TB_client:
         self.client.on_log = _on_log
         self.client.on_publish = _on_publish
         self.client.on_message = _on_message
-       # self.client.on_subscribe = _on_subscribe
+        self.client.on_subscribe = _on_subscribe
+        self.client.on_unsubscribe = _on_unsubscribe
 
     def loop(self):
         return self.client.loop()
 
     def connect(self):
         self.client.connect(self.host)
+        self.client.loop_start()
+        while self.is_connected != True:  # Wait for connection
+            time.sleep(0.2)
+
 
     def disconnect(self):
         self.client.disconnect()
 
-    def send_telemetry(self, telemetry, send_nonstop=False, quality_of_service=0):
-        if not send_nonstop:
-            self.client.loop_start()
-            self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
-            self.client.loop_stop()
-        else:
-            self.client.loop_start()
-            while True:
-                self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
-                time.sleep(1)
+    def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
 
-    def send_attributes(self, attributes, send_nonstop=False, quality_of_service=0):
-        if not send_nonstop:
-            self.client.loop_start()
-            self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
-            self.client.loop_stop()
-        else:
-            self.client.loop_start()
-            while True:
-                ret = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
-                time.sleep(1)
+        info = self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
+        if blocking: info.wait_for_publish()
+
+    def send_attributes(self, attributes, quality_of_service=0, blocking=False):
+
+        info = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
+        if blocking: info.wait_for_publish()
 
 
-    def subscribe_to_attributes(self, *attributes):
-        self.attributes = attributes
-        self.client.loop_start()
+    def __subscribe_to_attributes_blocking(self, callback, *attributes):
+        # как мне использовать колбек?
         self.client.subscribe('v1/devices/me/attributes', qos=2)
-        self.client.loop_forever()
 
+
+    def subscribe_to_attributes(self, callback, attr_name):
+        pass
+    #def unsubscribe_to_attributes(self, subscriptionId):
+
+    def sub_message_processing(self):
+        pass
+
+    def subscribe_to_attributes(self, callback, key="*"):
+        #TODO впилить валидацию аттрибутов
+        subscription_id = None
+        self.attributes = key
+        self.client.subscribe('v1/devices/me/attributes', qos=2)
+        self.sub_message_processing = callback
+        return(subscription_id)
