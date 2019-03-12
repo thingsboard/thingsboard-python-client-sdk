@@ -1,6 +1,7 @@
 #TODO ресайклить файл логирования время от времени
 import paho.mqtt.client as paho
-import logging, time
+import logging
+import time
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 infoHandler = logging.FileHandler('info.log')
@@ -13,10 +14,11 @@ log.addHandler(infoHandler)
 log.addHandler(errorHandler)
 
 
-class TB_client:
+class TbClient:
     callback = None
     is_connected = False
     sub_dict = {}
+
     def __init__(self, host, token):
         self.client = paho.Client()
         self.host = host
@@ -54,21 +56,19 @@ class TB_client:
             log.info("data published")
 
         def on_message(client, userdata, message):
-            log.info(message.payload.decode("utf-8"))
+            content = message.payload.decode("utf-8")
+            log.info(content)
             log.info(message.topic)
+
             if message.topic == 'v1/devices/me/attributes':
-
-                self.callback(message.payload.decode("utf-8"))
-
-
-        def on_subscribe(client, userdata, mid, granted_qos):
-            log.info("Subscribe")
-            #TODO добавить больше информации
-
-        def on_unsubscribe(client, userdata, mid, granted_qos):
-            log.info("Unsubscribe")
-            #TODO добавить больше информации
-
+                message = eval(content)
+                for key in self.sub_dict.keys():
+                    if message.get(key):
+                        if self.sub_dict.get(key):
+                            for item in self.sub_dict.get(key):
+                                print(type(item))
+                                print(item)
+                                item["callback"](message)
 
 
         self.client.on_disconnect = on_disconnect
@@ -76,8 +76,6 @@ class TB_client:
         self.client.on_log = on_log
         self.client.on_publish = on_publish
         self.client.on_message = on_message
-        self.client.on_subscribe = on_subscribe
-        self.client.on_unsubscribe = on_unsubscribe
 
     def loop(self):
         return self.client.loop()
@@ -85,7 +83,7 @@ class TB_client:
     def connect(self):
         self.client.connect(self.host)
         self.client.loop_start()
-        while self.is_connected != True:  # Wait for connection
+        while self.is_connected is not True:  # Wait for connection
             time.sleep(0.2)
 
 
@@ -102,28 +100,17 @@ class TB_client:
         info = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
         if blocking: info.wait_for_publish()
 
-
     def unsubscribe_to_attributes(self, subscription_id):
         empty_keys = []
         for attribute in self.sub_dict.keys():
             for x in self.sub_dict[attribute]:
                 if x["subscription_id"] == subscription_id:
                     self.sub_dict[attribute].remove(x)
+                    log.info("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
             if self.sub_dict[attribute] == []:
                 empty_keys.append(attribute)
         for key in empty_keys:
             del self.sub_dict[key]
-
-    def process_callback(self, id, callback):
-        subs_list = []
-        for key in self.sub_dict.keys():
-            for x in self.sub_dict[key]:
-                if x["subscription_id"] == id:
-                    subs_list.append(key)
-        for x in subs_list:
-            if callback.get(x):
-                return((x, callback.get(x)))
-
 
     def subscribe_to_attributes(self, callback, key="*"):
         self.client.subscribe('v1/devices/me/attributes', qos=2)
@@ -140,20 +127,23 @@ class TB_client:
         subscription_id = find_max_sub_id()
         inst = {
             "subscription_id": subscription_id,
-            "callback": callback.__name__
+            "callback": callback
         }
 
         def sub(inst, attribute):
             # subscribe to everything
             if attribute == "*":
-                for key in self.sub_dict.keys():
-                    if inst not in self.sub_dict[key]:
-                        self.sub_dict[key].append(inst)
+                for attr in self.sub_dict.keys():
+                    if inst not in self.sub_dict[attr]:
+                        self.sub_dict[attr].append(inst)
+                        log.info("Subscribed to " + attr + ", subscription id " + str(subscription_id))
             # if attribute doesnot exist create it with subscription
             elif attribute not in self.sub_dict.keys():
                 self.sub_dict.update({attribute: [inst]})
+                log.info("Subscribed to " + attribute + ", subscription id " + str(subscription_id))
             # if attribute exists create subscription
             else:
                 self.sub_dict[attribute].append(inst)
+                log.info("Subscribed to " + attribute + ", subscription id " + str(subscription_id))
         sub(inst, key)
         return(subscription_id)
