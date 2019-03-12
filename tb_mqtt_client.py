@@ -63,12 +63,11 @@ class TbClient:
             if message.topic == 'v1/devices/me/attributes':
                 message = eval(content)
                 for key in self.sub_dict.keys():
-                    if message.get(key):
-                        if self.sub_dict.get(key):
-                            for item in self.sub_dict.get(key):
-                                print(type(item))
-                                print(item)
-                                item["callback"](message)
+                    if self.sub_dict.get(key):
+                        for item in self.sub_dict.get(key):
+                            print(type(item))
+                            print(item)
+                            item["callback"](message)
 
 
         self.client.on_disconnect = on_disconnect
@@ -77,15 +76,11 @@ class TbClient:
         self.client.on_publish = on_publish
         self.client.on_message = on_message
 
-    def loop(self):
-        return self.client.loop()
-
     def connect(self):
         self.client.connect(self.host)
         self.client.loop_start()
-        while self.is_connected is not True:  # Wait for connection
+        while self.is_connected is not True:
             time.sleep(0.2)
-
 
     def disconnect(self):
         self.client.disconnect()
@@ -100,7 +95,7 @@ class TbClient:
         info = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
         if blocking: info.wait_for_publish()
 
-    def unsubscribe_to_attributes(self, subscription_id):
+    def unsubscribe(self, subscription_id):
         empty_keys = []
         for attribute in self.sub_dict.keys():
             for x in self.sub_dict[attribute]:
@@ -109,10 +104,11 @@ class TbClient:
                     log.info("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
             if self.sub_dict[attribute] == []:
                 empty_keys.append(attribute)
+
         for key in empty_keys:
             del self.sub_dict[key]
 
-    def subscribe_to_attributes(self, callback, key="*"):
+    def subscribe(self, callback, key="*"):
         self.client.subscribe('v1/devices/me/attributes', qos=2)
         self.callback = callback
 
