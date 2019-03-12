@@ -1,7 +1,8 @@
-#TODO ресайклить файл логирования время от времени
+# TODO ресайклить файл логирования время от времени
 import paho.mqtt.client as paho
 import logging
 import time
+
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 infoHandler = logging.FileHandler('info.log')
@@ -12,6 +13,7 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 infoHandler.setFormatter(formatter)
 log.addHandler(infoHandler)
 log.addHandler(errorHandler)
+
 
 
 class TbClient:
@@ -34,6 +36,7 @@ class TbClient:
                 4: "bad username or password",
                 5: "not authorised",
             }
+            self.__connect_callback()
             if rc == 0:
                 self.is_connected = True
                 log.info("connection SUCCESS")
@@ -45,6 +48,8 @@ class TbClient:
                     log.error("connection FAIL with unknown error")
 
         def on_disconnect(client, userdata, rc):
+            self.is_connected = False
+            self.__disconnect_callback(userdata, rc)
             if rc == 0:
                 log.info("disconnect SUCCESS")
             else:
@@ -57,12 +62,13 @@ class TbClient:
             content = message.payload.decode("utf-8")
             log.info(content)
             log.info(message.topic)
-
+            # TODO: extract constant
             if message.topic == 'v1/devices/me/attributes':
                 message = eval(content)
                 for key in self.sub_dict.keys():
                     if self.sub_dict.get(key):
                         for item in self.sub_dict.get(key):
+                            # TODO: remove prints
                             print(type(item))
                             print(item)
                             item["callback"](message)
@@ -73,24 +79,32 @@ class TbClient:
         self.client.on_publish = on_publish
         self.client.on_message = on_message
 
-    def connect(self):
+    def __connect_callback(self, *args):
+        pass
+
+    def connect(self, callback=None):
+        #add timeout parameter + return True/False
         self.client.connect(self.host)
         self.client.loop_start()
+        self.__connect_callback = callback
         while self.is_connected is not True:
             time.sleep(0.2)
 
     def disconnect(self):
         self.client.disconnect()
 
-    def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
+    def __disconnect_callback(self, *args):
+        pass
 
+    def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
         info = self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
-        if blocking: info.wait_for_publish()
+        if blocking:
+            info.wait_for_publish()
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
-
         info = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
-        if blocking: info.wait_for_publish()
+        if blocking:
+            info.wait_for_publish()
 
     def unsubscribe(self, subscription_id):
         empty_keys = []
@@ -99,7 +113,7 @@ class TbClient:
                 if x["subscription_id"] == subscription_id:
                     self.sub_dict[attribute].remove(x)
                     log.info("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
-            if self.sub_dict[attribute] == []:
+            if not self.sub_dict[attribute]:
                 empty_keys.append(attribute)
 
         for key in empty_keys:
@@ -137,4 +151,4 @@ class TbClient:
             self.sub_dict[key].append(inst)
             log.info("Subscribed to " + key + ", subscription id " + str(subscription_id))
 
-        return(subscription_id)
+        return subscription_id
