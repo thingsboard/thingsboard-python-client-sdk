@@ -1,7 +1,10 @@
-# TODO ресайклить файл логирования время от времени
 import paho.mqtt.client as paho
 import logging
 import time
+
+attributes_url = 'v1/devices/me/attributes'
+telemetry_url = 'v1/devices/me/telemetry'
+
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -63,7 +66,7 @@ class TbClient:
             log.info(content)
             log.info(message.topic)
             # TODO: extract constant
-            if message.topic == 'v1/devices/me/attributes':
+            if message.topic == attributes_url:
                 message = eval(content)
                 for key in self.sub_dict.keys():
                     if self.sub_dict.get(key):
@@ -97,12 +100,12 @@ class TbClient:
         pass
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
-        info = self.client.publish('v1/devices/me/telemetry', telemetry, quality_of_service)
+        info = self.client.publish(telemetry_url, telemetry, quality_of_service)
         if blocking:
             info.wait_for_publish()
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
-        info = self.client.publish('v1/devices/me/attributes', attributes, quality_of_service)
+        info = self.client.publish(attributes_url, attributes, quality_of_service)
         if blocking:
             info.wait_for_publish()
 
@@ -120,13 +123,13 @@ class TbClient:
             del self.sub_dict[key]
 
     def subscribe(self, callback, key="*", qos=2):
-        self.client.subscribe('v1/devices/me/attributes', qos=qos)
+        self.client.subscribe(attributes_url, qos=qos)
         self.callback = callback
 
         def find_max_sub_id():
             res = 1
-            for key in self.sub_dict.keys():
-                for item in self.sub_dict[key]:
+            for attrib in self.sub_dict.keys():
+                for item in self.sub_dict[attrib]:
                     if item["subscription_id"] > res:
                         res = item["subscription_id"]
             return res
