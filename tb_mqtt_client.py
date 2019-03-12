@@ -15,15 +15,13 @@ log.addHandler(errorHandler)
 
 
 class TbClient:
-    callback = None
-    is_connected = False
-    sub_dict = {}
-
     def __init__(self, host, token):
         self.client = paho.Client()
         self.host = host
         self.client.username_pw_set(token)
         self.callback = None
+        self.is_connected = False
+        self.sub_dict = {}
 
         def on_log(client, userdata, level, buf):
             log.info(buf)
@@ -124,21 +122,19 @@ class TbClient:
             "subscription_id": subscription_id,
             "callback": callback
         }
+        # subscribe to everything
+        if key == "*":
+            for attr in self.sub_dict.keys():
+                if inst not in self.sub_dict[attr]:
+                    self.sub_dict[attr].append(inst)
+                    log.info("Subscribed to " + attr + ", subscription id " + str(subscription_id))
+        # if attribute doesnot exist create it with subscription
+        elif key not in self.sub_dict.keys():
+            self.sub_dict.update({key: [inst]})
+            log.info("Subscribed to " + key + ", subscription id " + str(subscription_id))
+        # if attribute exists create subscription
+        else:
+            self.sub_dict[key].append(inst)
+            log.info("Subscribed to " + key + ", subscription id " + str(subscription_id))
 
-        def sub(inst, attribute):
-            # subscribe to everything
-            if attribute == "*":
-                for attr in self.sub_dict.keys():
-                    if inst not in self.sub_dict[attr]:
-                        self.sub_dict[attr].append(inst)
-                        log.info("Subscribed to " + attr + ", subscription id " + str(subscription_id))
-            # if attribute doesnot exist create it with subscription
-            elif attribute not in self.sub_dict.keys():
-                self.sub_dict.update({attribute: [inst]})
-                log.info("Subscribed to " + attribute + ", subscription id " + str(subscription_id))
-            # if attribute exists create subscription
-            else:
-                self.sub_dict[attribute].append(inst)
-                log.info("Subscribed to " + attribute + ", subscription id " + str(subscription_id))
-        sub(inst, key)
         return(subscription_id)
