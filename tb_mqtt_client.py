@@ -21,7 +21,7 @@ class TbClient:
         self.sub_dict = {}
 
         def on_log(client, userdata, level, buf):
-            log.info(buf)
+            log.debug(buf)
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -91,6 +91,7 @@ class TbClient:
 
     def disconnect(self):
         self.client.disconnect()
+        log.info("DISCONNECT")
 
     def __disconnect_callback(self, *args):
         pass
@@ -112,7 +113,7 @@ class TbClient:
             for x in self.sub_dict[attribute]:
                 if x.subscription_id == subscription_id:
                     self.sub_dict[attribute].remove(x)
-                    log.info("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
+                    log.debug("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
             if not self.sub_dict[attribute]:
                 empty_keys.append(attribute)
 
@@ -137,13 +138,13 @@ class TbClient:
             for attr in self.sub_dict.keys():
                 if inst not in self.sub_dict[attr]:
                     self.sub_dict[attr].append(inst)
-                    log.info("Subscribed to " + attr + ", subscription id " + str(inst.subscription_id))
+                    log.debug("Subscribed to " + attr + ", subscription id " + str(inst.subscription_id))
         # if attribute doesnot exist create it with subscription
         elif key not in self.sub_dict.keys():
             self.sub_dict.update({key: [inst]})
-            log.info("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
+            log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         # if attribute exists create subscription
         else:
             self.sub_dict[key].append(inst)
-            log.info("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
+            log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         return inst.subscription_id
