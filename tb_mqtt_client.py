@@ -113,15 +113,15 @@ class TbClient:
             for x in self.sub_dict[attribute]:
                 if x.subscription_id == subscription_id:
                     self.sub_dict[attribute].remove(x)
-                    log.debug("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
+                    log.debug("Unsubscribed from " + attribute + ". subscription id " + str(subscription_id))
             if not self.sub_dict[attribute]:
                 empty_keys.append(attribute)
 
         for key in empty_keys:
             del self.sub_dict[key]
 
-    def subscribe(self, callback, key="*", qos=2):
-        self.client.subscribe(attributes_url, qos=qos)
+    def subscribe(self, callback, key="*", quality_of_service=2):
+        self.client.subscribe(attributes_url, qos=quality_of_service)
 
         def find_max_sub_id():
             res = 1
