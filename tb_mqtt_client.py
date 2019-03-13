@@ -6,6 +6,7 @@ attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
 log = logging.getLogger(__name__)
 
+
 class TbClient:
     class MsgInfo:
         def __init__(self, sub_id, cb):
@@ -120,7 +121,6 @@ class TbClient:
     def subscribe(self, callback, key="*", qos=2):
         self.client.subscribe(attributes_url, qos=qos)
 
-
         def find_max_sub_id():
             res = 1
             for attrib in self.sub_dict.keys():
@@ -145,5 +145,4 @@ class TbClient:
         else:
             self.sub_dict[key].append(inst)
             log.info("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
-
         return inst.subscription_id
