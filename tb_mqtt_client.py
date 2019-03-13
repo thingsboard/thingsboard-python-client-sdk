@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 
 
 class TbClient:
-    class MsgInfo:
+    class SubscriptionInfo:
         def __init__(self, sub_id, cb):
             self.subscription_id = sub_id
             self.callback = cb
@@ -98,6 +98,7 @@ class TbClient:
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
         info = self.client.publish(telemetry_url, telemetry, quality_of_service)
+
         if blocking:
             info.wait_for_publish()
 
@@ -130,7 +131,7 @@ class TbClient:
                         res = item.subscription_id
             return res
 
-        inst = self.MsgInfo(find_max_sub_id(), callback)
+        inst = self.SubscriptionInfo(find_max_sub_id(), callback)
 
         # subscribe to everything
         if key == "*":
