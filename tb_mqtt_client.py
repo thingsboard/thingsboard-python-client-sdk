@@ -1,14 +1,7 @@
 import paho.mqtt.client as paho
 import logging
 import time
-import platform
 import asyncio
-try:
-    import uvloop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-except ImportError:
-    pass
-
 
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
