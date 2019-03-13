@@ -79,7 +79,7 @@ class TbClient:
                 for key in self.sub_dict.keys():
                     if self.sub_dict.get(key):
                         for item in self.sub_dict.get(key):
-                            item["callback"](message)
+                            item.callback(message)
 
         self.client.on_disconnect = on_disconnect
         self.client.on_connect = on_connect
@@ -123,7 +123,7 @@ class TbClient:
         empty_keys = []
         for attribute in self.sub_dict.keys():
             for x in self.sub_dict[attribute]:
-                if x["subscription_id"] == subscription_id:
+                if x.subscription_id == subscription_id:
                     self.sub_dict[attribute].remove(x)
                     log.info("Unsubscribed to " + attribute + ". subscription id " + str(subscription_id))
             if not self.sub_dict[attribute]:
@@ -140,8 +140,8 @@ class TbClient:
             res = 1
             for attrib in self.sub_dict.keys():
                 for item in self.sub_dict[attrib]:
-                    if item["subscription_id"] > res:
-                        res = item["subscription_id"]
+                    if item.subscription_id > res:
+                        res = item.subscription_id
             return res
 
         inst = self.MsgInfo(find_max_sub_id(), callback)
