@@ -1,17 +1,9 @@
 import psutil
 import time
 import logging
-
-uploadFrequency = 10
-psutil.virtual_memory()
-
-logging.basicConfig(level=logging.INFO)
-
-
-dict(psutil.virtual_memory()._asdict())
-dict(psutil.cpu_percent()._asdict())
-
 from tb_mqtt_client import TbClient
+logging.basicConfig(level=logging.INFO)
+uploadFrequency = 10
 
 #это под большим вопросом сейчас
 def freq_cb(freq):
