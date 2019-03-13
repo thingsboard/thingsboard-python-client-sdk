@@ -38,11 +38,12 @@ class TbClient:
                 4: "bad username or password",
                 5: "not authorised",
             }
-            self.__connect_callback()
+            if self.__connect_callback:
+                self.__connect_callback(client, userdata, flags, rc, *extra_params)
+                #TODO какие параметры нужно передавать?
             if rc == 0:
                 self.is_connected = True
                 log.info("connection SUCCESS")
-
             else:
                 if rc in result_codes:
                     log.error("connection FAIL with error '%i':'%s'" % (rc, result_codes[rc]))
@@ -51,7 +52,9 @@ class TbClient:
 
         def on_disconnect(client, userdata, rc):
             self.is_connected = False
-            self.__disconnect_callback(userdata, rc)
+            if self.__disconnect_callback:
+                #TODO нужно передавать юзердату?
+                self.__disconnect_callback(userdata, rc)
             if rc == 0:
                 log.info("disconnect SUCCESS")
             else:
@@ -80,13 +83,18 @@ class TbClient:
     def __connect_callback(self, *args):
         pass
 
-    def connect(self, callback=None):
+    def connect(self, callback=None, timeout=10):
         #add timeout parameter + return True/False
+
         self.client.connect(self.host)
         self.client.loop_start()
         self.__connect_callback = callback
+        t = time.time()
         while self.is_connected is not True:
             time.sleep(0.2)
+            if time.time()-t > timeout:
+                return(False)
+        return(True)
 
     def disconnect(self):
         self.client.disconnect()
