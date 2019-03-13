@@ -1,7 +1,6 @@
 import paho.mqtt.client as paho
 import logging
 import time
-import asyncio
 
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
