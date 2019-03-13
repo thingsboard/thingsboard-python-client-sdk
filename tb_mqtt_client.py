@@ -18,12 +18,19 @@ log.addHandler(infoHandler)
 log.addHandler(errorHandler)
 
 
+
+
+
 class TbClient:
+    class MsgInfo:
+        def __init__(self, sub_id, cb):
+            self.subscription_id = sub_id
+            self.callback = cb
+
     def __init__(self, host, token):
         self.client = paho.Client()
         self.host = host
         self.client.username_pw_set(token)
-        self.callback = None
         self.is_connected = False
         self.sub_dict = {}
 
@@ -127,7 +134,7 @@ class TbClient:
 
     def subscribe(self, callback, key="*", qos=2):
         self.client.subscribe(attributes_url, qos=qos)
-        self.callback = callback
+
 
         def find_max_sub_id():
             res = 1
@@ -137,24 +144,21 @@ class TbClient:
                         res = item["subscription_id"]
             return res
 
-        subscription_id = find_max_sub_id()
-        inst = {
-            "subscription_id": subscription_id,
-            "callback": callback
-        }
+        inst = self.MsgInfo(find_max_sub_id(), callback)
+
         # subscribe to everything
         if key == "*":
             for attr in self.sub_dict.keys():
                 if inst not in self.sub_dict[attr]:
                     self.sub_dict[attr].append(inst)
-                    log.info("Subscribed to " + attr + ", subscription id " + str(subscription_id))
+                    log.info("Subscribed to " + attr + ", subscription id " + str(inst.subscription_id))
         # if attribute doesnot exist create it with subscription
         elif key not in self.sub_dict.keys():
             self.sub_dict.update({key: [inst]})
-            log.info("Subscribed to " + key + ", subscription id " + str(subscription_id))
+            log.info("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         # if attribute exists create subscription
         else:
             self.sub_dict[key].append(inst)
-            log.info("Subscribed to " + key + ", subscription id " + str(subscription_id))
+            log.info("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
 
-        return subscription_id
+        return inst.subscription_id
