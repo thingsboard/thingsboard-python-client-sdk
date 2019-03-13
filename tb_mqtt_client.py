@@ -4,22 +4,7 @@ import time
 
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
-
-
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-infoHandler = logging.FileHandler('info.log')
-errorHandler = logging.FileHandler('errors.log')
-infoHandler.setLevel(logging.INFO)
-errorHandler.setLevel(logging.ERROR)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-infoHandler.setFormatter(formatter)
-log.addHandler(infoHandler)
-log.addHandler(errorHandler)
-
-
-
-
 
 class TbClient:
     class MsgInfo:
