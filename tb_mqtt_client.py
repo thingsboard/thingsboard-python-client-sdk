@@ -120,7 +120,12 @@ class TbClient:
         for key in empty_keys:
             del self.sub_dict[key]
 
-    def subscribe(self, callback, key="*", quality_of_service=2):
+    def subscribe(self, callback=None, key="*", quality_of_service=2, to_rpc=False):
+
+        if to_rpc:
+            self.client.subscribe('v1/devices/me/rpc/request/')
+            return True
+
         self.client.subscribe(attributes_url, qos=quality_of_service)
 
         def find_max_sub_id():
