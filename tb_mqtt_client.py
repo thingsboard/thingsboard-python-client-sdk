@@ -77,8 +77,6 @@ class TbClient:
         pass
 
     def connect(self, callback=None, timeout=10):
-        #add timeout parameter + return True/False
-
         self.client.connect(self.host)
         self.client.loop_start()
         self.__connect_callback = callback
