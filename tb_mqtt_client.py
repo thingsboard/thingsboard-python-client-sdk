@@ -81,11 +81,12 @@ class TbClient:
         self.client.loop_start()
         self.__connect_callback = callback
         t = time.time()
+        self.is_connected = 0
         while self.is_connected is not True:
             time.sleep(0.2)
             if time.time()-t > timeout:
-                return(False)
-        return(True)
+                return False
+        return True
 
     def disconnect(self):
         self.client.disconnect()
@@ -96,7 +97,6 @@ class TbClient:
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
         info = self.client.publish(telemetry_url, telemetry, quality_of_service)
-
         if blocking:
             info.wait_for_publish()
 

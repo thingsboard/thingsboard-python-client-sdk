@@ -8,9 +8,10 @@ uploadFrequency = 5
 
 client = TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 
-def freq_cb(input = None):
+
+def freq_cb(value=None):
     global uploadFrequency
-    uploadFrequency = int(input["uploadFrequency"])
+    uploadFrequency = int(value["uploadFrequency"])
 
 
 client.connect()
