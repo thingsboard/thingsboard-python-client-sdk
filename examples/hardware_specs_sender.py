@@ -10,7 +10,8 @@ client = TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 
 def freq_cb(input = None):
     global uploadFrequency
-    uploadFrequency = int((input["uploadFrequency"]))
+    uploadFrequency = int(input["uploadFrequency"])
+
 
 client.connect()
 client.subscribe(to_rpc=True)
@@ -27,4 +28,4 @@ while True:
 
 
 
-# curl -X POST -d '{"method": "getTemperature", "params":{}}' http://localhost:8080/api/v1/IAkHBb9N7kKD9ieLRMFN/rpc --header "Content-Type:application/json"
+# curl -X POST -d '{"method": "getCPUusage", "params":{}}' http://localhost:8080/api/v1/IAkHBb9N7kKD9ieLRMFN/rpc --header "Content-Type:application/json"
