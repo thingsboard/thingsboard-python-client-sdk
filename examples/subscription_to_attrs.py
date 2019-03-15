@@ -3,9 +3,9 @@ import os.path
 import tb_mqtt_client as tb
 logging.basicConfig(level=logging.INFO)
 
+
 def callback(result):
     print(result)
-
 
 
 client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
