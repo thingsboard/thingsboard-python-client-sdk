@@ -23,8 +23,7 @@ def on_server_side_rpc_request(request_id, request_body):
 
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
-client.subscribe(to_rpc=True)
-client.subscribe(callback=freq_cb, key="uploadFrequency", quality_of_service=2)
+client.subscribe(key="uploadFrequency", quality_of_service=1, callback=freq_cb)
 while True:
     client.send_telemetry(dumps({"CPU percent": psutil.cpu_percent()}))
     client.send_telemetry(dumps({"Memory": psutil.virtual_memory().percent}))

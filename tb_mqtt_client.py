@@ -27,6 +27,7 @@ class TbClient:
         self.__client.on_message = None
         self.on_server_side_rpc_response = None
         self.__connect_callback = None
+        self.__rpc_set = None
 
         def on_log(client, userdata, level, buf):
             log.info(buf)
@@ -43,6 +44,8 @@ class TbClient:
                 self.__connect_callback(client, userdata, flags, rc, *extra_params)
             if rc == 0:
                 self.__is_connected = True
+                if self.__rpc_set:
+                    self.__client.subscribe('v1/devices/me/rpc/request/+')
                 log.info("connection SUCCESS")
             else:
                 if rc in result_codes:
@@ -92,6 +95,9 @@ class TbClient:
         pass
 
     def set_server_side_rpc_request_handler(self, handler):
+        self.__rpc_set = True
+        if self.__is_connected:
+            self.__client.subscribe('v1/devices/me/rpc/request/+')
         self.on_server_side_rpc_response = handler
 
     def __connect_callback(self, *args):
@@ -139,11 +145,7 @@ class TbClient:
         for key in empty_keys:
             del self.__sub_dict[key]
 
-    def subscribe(self, callback=None, key="*", quality_of_service=1, to_rpc=False):
-        if to_rpc:
-            self.__client.subscribe('v1/devices/me/rpc/request/+')
-            return True
-
+    def subscribe(self, key="*", quality_of_service=1, callback=None):
         self.__client.subscribe(attributes_url, qos=quality_of_service)
 
         def find_max_sub_id():
