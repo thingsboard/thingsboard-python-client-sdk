@@ -3,8 +3,8 @@ import json
 import logging
 
 logging.basicConfig(level=logging.INFO)
-telemetry = json.dumps({"temp": 1001})
-attributes = json.dumps({"firmwareVersion": "v2.3.2", "temp": 1})
+telemetry = {"temp": 1001}
+attributes = {"firmwareVersion": "v2.3.2", "temp": 1}
 
 client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 client.connect()
@@ -14,7 +14,10 @@ client.disconnect()
 
 
 
-#использовать треды
+#использовать треды ++++++
+
+
+
 #{"temp": 1001}
 #вложеннные джейсоны нет
 #другие возможные ошибки валидации

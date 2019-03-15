@@ -3,7 +3,7 @@ import json
 import logging
 
 #logging.basicConfig(level=logging.INFO)
-telemetry = json.dumps({"temp": 1001})
+telemetry = {"temp": 1001}
 client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 
 
