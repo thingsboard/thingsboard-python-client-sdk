@@ -15,15 +15,6 @@ class TbClient:
             self.subscription_id = sub_id
             self.callback = cb
 
-
-    def on_server_side_rpc_response(self, req_id, request_body):
-        pass
-
-    def set_server_side_rpc_request_handler(self, handler):
-        #тут присваеваем своему хендлеру пришедший хендлер
-        pass
-
-
     def __init__(self, host, token):
         self.__client = paho.Client()
         self.__host = host
@@ -31,8 +22,9 @@ class TbClient:
         self.__is_connected = False
         self.__sub_dict = {}
 
+
         def on_log(client, userdata, level, buf):
-            log.debug(buf)
+            log.info(buf)
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -71,6 +63,11 @@ class TbClient:
             content = message.payload.decode("utf-8")
             log.info(content)
             log.info(message.topic)
+            if message.topic.startswith('v1/devices/me/rpc/request/'):
+                requestId = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
+                #print('This is a RPC call. RequestID: ' + requestId + '. Going to reply now!')
+                self.on_server_side_rpc_response(requestId, message.payload)
+
             if message.topic == attributes_url:
                 message = eval(content)
                 for key in self.__sub_dict.keys():
@@ -83,6 +80,14 @@ class TbClient:
         self.__client.on_log = on_log
         self.__client.on_publish = on_publish
         self.__client.on_message = on_message
+
+    def on_server_side_rpc_response(self, req_id, request_body):
+        pass
+
+    def set_server_side_rpc_request_handler(self, handler):
+        self.on_server_side_rpc_response = handler
+        #тут присваеваем своему хендлеру пришедший хендлер
+
 
     def __connect_callback(self, *args):
         pass
@@ -132,7 +137,9 @@ class TbClient:
     def subscribe(self, callback=None, key="*", quality_of_service=2, to_rpc=False):
 
         if to_rpc:
-            self.__client.subscribe('v1/devices/me/rpc/request/')
+            self.__client.subscribe('v1/devices/me/rpc/request/+')
+            # todo зачем это тут? спросить у Андрея
+            #self.__client.subscribe('v1/devices/me/attributes/response/+')
             return True
 
         self.__client.subscribe(attributes_url, qos=quality_of_service)

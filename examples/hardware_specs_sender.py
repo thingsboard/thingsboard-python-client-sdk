@@ -14,19 +14,30 @@ def freq_cb(value=None):
     uploadFrequency = int(value["uploadFrequency"])
 
 
+def on_server_side_rpc_request (requestId, requestBody):
+    if requestBody["method"] == "getCPULoad":
+        client.send_telemetry(dumps({"CPU percent": psutil.cpu_percent()}))
+
+        #client.publish('v1/devices/me/rpc/response/' + requestId, "{\"value1\":\"A\", \"value2\":\"B\"}", 1)
+    if requestBody["method"] == "getMemoryUsage":
+        client.send_telemetry(dumps({"Memory": psutil.virtual_memory().percent}))
+
+client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
+
+def on_server_side_rpc_response(requestId, requestBody):
+    print(requestBody + 11111111111111111111111)
+
+
 client.connect()
 client.subscribe(to_rpc=True)
 client.subscribe(callback=freq_cb, key="uploadFrequency", quality_of_service=2)
 while True:
-    client.send_telemetry(dumps({"CPU percent": psutil.cpu_percent()}))
-    client.send_telemetry(dumps({"Memory": psutil.virtual_memory().percent}))
-    time.sleep(uploadFrequency)
-
-
-#def on_server_side_rpc_request (requestId, requestBody):
-#    client.on_server_side_rpc_response(requestId, {"ololo":"trololo"})
-#client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
+    #client.send_telemetry(dumps({"CPU percent": psutil.cpu_percent()}))
+    #client.send_telemetry(dumps({"Memory": psutil.virtual_memory().percent}))
+    #time.sleep(uploadFrequency)
+    pass
 
 
 
-# curl -X POST -d '{"method": "getCPUusage", "params":{}}' http://localhost:8080/api/v1/IAkHBb9N7kKD9ieLRMFN/rpc --header "Content-Type:application/json"
+
+
