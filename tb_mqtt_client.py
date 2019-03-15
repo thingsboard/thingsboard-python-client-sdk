@@ -26,7 +26,7 @@ class TbClient:
         self.__client.on_publish = None
         self.__client.on_message = None
         self.on_server_side_rpc_response = None
-
+        self.__connect_callback = None
 
         def on_log(client, userdata, level, buf):
             log.info(buf)
@@ -139,8 +139,7 @@ class TbClient:
         for key in empty_keys:
             del self.__sub_dict[key]
 
-    def subscribe(self, callback=None, key="*", quality_of_service=2, to_rpc=False):
-
+    def subscribe(self, callback=None, key="*", quality_of_service=1, to_rpc=False):
         if to_rpc:
             self.__client.subscribe('v1/devices/me/rpc/request/+')
             return True
