@@ -3,8 +3,6 @@ import logging
 import time
 from json import loads
 
-
-# todo исправить конекшн таймаут
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
 log = logging.getLogger(__name__)
@@ -37,7 +35,6 @@ class TbClient:
             }
             if self.__connect_callback:
                 self.__connect_callback(client, userdata, flags, rc, *extra_params)
-                # TODO какие параметры нужно передавать?
             if rc == 0:
                 self.__is_connected = True
                 log.info("connection SUCCESS")
@@ -50,7 +47,6 @@ class TbClient:
         def on_disconnect(client, userdata, rc):
             self.__is_connected = False
             if self.__disconnect_callback:
-                # TODO нужно передавать юзердату?
                 self.__disconnect_callback(userdata, rc)
             if rc == 0:
                 log.info("disconnect SUCCESS")
@@ -92,8 +88,6 @@ class TbClient:
 
     def set_server_side_rpc_request_handler(self, handler):
         self.on_server_side_rpc_response = handler
-        #тут присваеваем своему хендлеру пришедший хендлер
-
 
     def __connect_callback(self, *args):
         pass
@@ -144,8 +138,6 @@ class TbClient:
 
         if to_rpc:
             self.__client.subscribe('v1/devices/me/rpc/request/+')
-            # todo зачем это тут? спросить у Андрея
-            #self.__client.subscribe('v1/devices/me/attributes/response/+')
             return True
 
         self.__client.subscribe(attributes_url, qos=quality_of_service)
