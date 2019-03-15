@@ -1,6 +1,7 @@
 import paho.mqtt.client as paho
 import logging
 import time
+from json import loads
 
 
 # todo исправить конекшн таймаут
@@ -60,15 +61,15 @@ class TbClient:
             log.info("data published")
 
         def on_message(client, userdata, message):
-            content = message.payload.decode("utf-8")
+            content = loads(message.payload.decode("utf-8"))
             log.info(content)
             log.info(message.topic)
             if message.topic.startswith('v1/devices/me/rpc/request/'):
+                pass
                 requestId = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
-                #print('This is a RPC call. RequestID: ' + requestId + '. Going to reply now!')
-                self.on_server_side_rpc_response(requestId, message.payload)
+                self.on_server_side_rpc_response(requestId, content)
 
-            if message.topic == attributes_url:
+            elif message.topic == attributes_url:
                 message = eval(content)
                 for key in self.__sub_dict.keys():
                     if self.__sub_dict.get(key):
@@ -80,6 +81,11 @@ class TbClient:
         self.__client.on_log = on_log
         self.__client.on_publish = on_publish
         self.__client.on_message = on_message
+
+    def respond(self, req_id, resp, quality_of_service=1, blocking=False):
+        info = self.__client.publish('v1/devices/me/rpc/response/'+req_id, resp, qos=quality_of_service)
+        if blocking:
+            info.wait_for_publish()
 
     def on_server_side_rpc_response(self, req_id, request_body):
         pass
