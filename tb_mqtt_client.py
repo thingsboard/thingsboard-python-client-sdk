@@ -97,7 +97,7 @@ class TbClient:
         self.__client.loop_start()
         self.__connect_callback = callback
         t = time.time()
-        self.__is_connected = 0
+
         while self.__is_connected is not True:
             time.sleep(0.2)
             if time.time()-t > timeout:
