@@ -20,6 +20,12 @@ class TbClient:
         self.__client.username_pw_set(token)
         self.__is_connected = False
         self.__sub_dict = {}
+        self.__client.on_disconnect = None
+        self.__client.on_connect = None
+        self.__client.on_log = None
+        self.__client.on_publish = None
+        self.__client.on_message = None
+        self.on_server_side_rpc_response = None
 
 
         def on_log(client, userdata, level, buf):
@@ -62,8 +68,8 @@ class TbClient:
             log.info(message.topic)
             if message.topic.startswith('v1/devices/me/rpc/request/'):
                 pass
-                requestId = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
-                self.on_server_side_rpc_response(requestId, content)
+                request_id = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
+                self.on_server_side_rpc_response(request_id, content)
 
             elif message.topic == attributes_url:
                 message = eval(content)
@@ -71,7 +77,6 @@ class TbClient:
                     if self.__sub_dict.get(key):
                         for item in self.__sub_dict.get(key):
                             item.callback(message)
-
         self.__client.on_disconnect = on_disconnect
         self.__client.on_connect = on_connect
         self.__client.on_log = on_log
