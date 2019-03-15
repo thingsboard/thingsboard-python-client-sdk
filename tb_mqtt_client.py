@@ -2,6 +2,7 @@ import paho.mqtt.client as paho
 import logging
 import time
 from json import loads
+import threading
 
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
@@ -123,14 +124,31 @@ class TbClient:
         pass
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
-        info = self.__client.publish(telemetry_url, telemetry, quality_of_service)
-        if blocking:
+        def send_telem():
+            info = self.__client.publish(telemetry_url, telemetry, quality_of_service)
             info.wait_for_publish()
+        if blocking:
+            t = threading.Thread(target=send_telem(),
+                                 args=(telemetry_url,
+                                       telemetry,
+                                       quality_of_service))
+            t.start()
+        else:
+            self.__client.publish(telemetry_url, telemetry, quality_of_service)
+
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
-        info = self.__client.publish(attributes_url, attributes, quality_of_service)
-        if blocking:
+        def send_telem():
+            info = self.__client.publish(attributes_url, attributes, quality_of_service)
             info.wait_for_publish()
+        if blocking:
+            t = threading.Thread(target=send_telem(),
+                                 args=(attributes_url,
+                                       attributes,
+                                       quality_of_service))
+            t.start()
+        else:
+            self.__client.publish(attributes_url, attributes, quality_of_service)
 
     def unsubscribe(self, subscription_id):
         empty_keys = []
