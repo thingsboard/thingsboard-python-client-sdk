@@ -1,5 +1,4 @@
 import logging, logging.handlers
-import os.path
 import tb_mqtt_client as tb
 logging.basicConfig(level=logging.INFO)
 
@@ -12,5 +11,3 @@ client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 client.connect()
 sub_id = client.subscribe(callback, "ololo")
 client.unsubscribe(sub_id)
-while True:
-    pass

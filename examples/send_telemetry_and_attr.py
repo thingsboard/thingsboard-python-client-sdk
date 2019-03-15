@@ -9,6 +9,5 @@ attributes = json.dumps({"firmwareVersion": "v2.3.2", "temp": 1})
 client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 client.connect()
 client.send_telemetry(telemetry)
-client.send_telemetry(telemetry, quality_of_service=1)
-
+client.send_attributes(attributes)
 client.disconnect()
