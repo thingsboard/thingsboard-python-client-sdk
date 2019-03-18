@@ -217,3 +217,6 @@ class TbClient:
             self.__sub_dict[key].append(inst)
             log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         return inst.subscription_id
+
+if __name__ == "__main__":
+    pass
