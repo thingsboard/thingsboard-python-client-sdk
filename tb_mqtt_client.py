@@ -3,6 +3,7 @@ import logging
 import time
 from json import loads, dumps
 import threading
+import jsonschema
 
 attributes_url = 'v1/devices/me/attributes'
 telemetry_url = 'v1/devices/me/telemetry'
@@ -135,6 +136,41 @@ class TbClient:
             self.__client.publish(url, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
+        schema = {
+            "type": "object",
+            "patternProperties":
+                {
+                    ".": {"type": ["integer",
+                                   "string",
+                                   "boolean",
+                                   "number"]}
+                },
+            "minProperties": 1,
+        }
+        schema2 = {
+            "type": "object",
+            "properties": {
+                "ts": {
+                    "type": "integer"
+                },
+                "values": {
+                    "type": "object",
+                    "patternProperties":
+                        {
+                            ".": {"type": ["integer",
+                                           "string",
+                                           "boolean",
+                                           "number"]}
+                        },
+                    "minProperties": 1,
+                }
+            },
+            "additionalProperties": False
+        }
+        if telemetry.get("ts"):
+            jsonschema.validate(telemetry, schema2)
+        else:
+            jsonschema.validate(telemetry, schema)
         self.__send_data(telemetry, telemetry_url, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
