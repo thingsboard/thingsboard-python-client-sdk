@@ -4,7 +4,6 @@ import logging
 from tb_device_mqtt import TbClient
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
-
 client = TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 
 
