@@ -1,12 +1,43 @@
 import paho.mqtt.client as paho
 import logging
 import time
-from json import loads, dumps
 import threading
-import jsonschema
+from json import loads, dumps
+from jsonschema import Draft7Validator
 
-attributes_url = 'v1/devices/me/attributes'
-telemetry_url = 'v1/devices/me/telemetry'
+KV_SCHEMA = {
+    "type": "object",
+    "patternProperties":
+        {
+            ".": {"type": ["integer",
+                           "string",
+                           "boolean",
+                           "number"]}
+        },
+    "minProperties": 1,
+}
+
+TS_KV_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ts": {
+            "type": "integer"
+        },
+        "values": KV_SCHEMA
+    },
+    "additionalProperties": False
+}
+
+KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
+TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
+
+TB_RPC_RESPONSE_TOPIC_PREFIX = 'v1/devices/me/rpc/response/'
+TB_RPC_REQUEST_TOPIC_PREFIX = 'v1/devices/me/rpc/request/'
+ATTRIBUTES_TOPIC = 'v1/devices/me/attributes'
+ATTRIBUTES_TOPIC_REQUEST = 'v1/devices/me/attributes/request/'
+ATTRIBUTES_TOPIC_RESPONSE = 'v1/devices/me/attributes/response/'
+TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
+
 log = logging.getLogger(__name__)
 
 
@@ -20,19 +51,25 @@ class TbClient:
         self.__client = paho.Client()
         self.__host = host
         self.__client.username_pw_set(token)
+        self.__is_attribute_requested = False
         self.__is_connected = False
         self.__sub_dict = {}
+        self.__atr_request_dict = {}
         self.__client.on_disconnect = None
         self.__client.on_connect = None
         self.__client.on_log = None
         self.__client.on_publish = None
         self.__client.on_message = None
-        self.on_server_side_rpc_response = None
+        self.__on_server_side_rpc_response = None
+        self.__on_client_side_rpc_response = None
         self.__connect_callback = None
         self.__rpc_set = None
+        self.__rpc_request_number = 1
+
 
         def on_log(client, userdata, level, buf):
-            log.info(buf)
+            log.debug(buf)
+            pass
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -47,7 +84,7 @@ class TbClient:
             if rc == 0:
                 self.__is_connected = True
                 if self.__rpc_set:
-                    self.__client.subscribe('v1/devices/me/rpc/request/+')
+                    self.__client.subscribe(TB_RPC_REQUEST_TOPIC_PREFIX + '+')
                 log.info("connection SUCCESS")
             else:
                 if rc in result_codes:
@@ -65,23 +102,34 @@ class TbClient:
                 log.error("disconnect FAIL with error code %i" % rc)
 
         def on_publish(client, userdata, result):
-            log.info("data published")
+            log.debug("Data published to ThingsBoard!")
+            pass
 
         def on_message(client, userdata, message):
             content = loads(message.payload.decode("utf-8"))
             log.info(content)
             log.info(message.topic)
-            if message.topic.startswith('v1/devices/me/rpc/request/'):
-                pass
-                request_id = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
-                self.on_server_side_rpc_response(request_id, content)
-
-            elif message.topic == attributes_url:
+            if message.topic.startswith(TB_RPC_REQUEST_TOPIC_PREFIX):
+                request_id = message.topic[len(TB_RPC_REQUEST_TOPIC_PREFIX):len(message.topic)]
+                self.__on_server_side_rpc_response(request_id, content)
+            # todo fix error payload in wrong format?
+            elif message.topic.startswith(TB_RPC_RESPONSE_TOPIC_PREFIX):
+                request_id = message.topic[len(TB_RPC_RESPONSE_TOPIC_PREFIX):len(message.topic)]
+                self.__on_client_side_rpc_response(request_id, content)
+            elif message.topic == ATTRIBUTES_TOPIC:
                 message = eval(content)
                 for key in self.__sub_dict.keys():
                     if self.__sub_dict.get(key):
                         for item in self.__sub_dict.get(key):
                             item.callback(message)
+            elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
+                req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
+                # pop callback and use it
+                if self.__atr_request_dict[req_id]:
+                    self.__atr_request_dict.pop(req_id)(content)
+                else:
+                    log.error("Unable to find callback to process attributes response from TB")
+
         self.__client.on_disconnect = on_disconnect
         self.__client.on_connect = on_connect
         self.__client.on_log = on_log
@@ -89,18 +137,35 @@ class TbClient:
         self.__client.on_message = on_message
 
     def respond(self, req_id, resp, quality_of_service=1, blocking=False):
-        info = self.__client.publish('v1/devices/me/rpc/response/'+req_id, resp, qos=quality_of_service)
+        if quality_of_service != 0 and quality_of_service != 1:
+            log.exception("Quality of service (qos) value must be 0 or 1")
+            return
+        info = self.__client.publish(TB_RPC_RESPONSE_TOPIC_PREFIX + req_id, resp, qos=quality_of_service)
         if blocking:
             info.wait_for_publish()
 
-    def on_server_side_rpc_response(self, req_id, request_body):
-        pass
+    def client_rpc_call(self, method, params):
+        #todo validate parameters?
+        #todo create third dict for ids and callbacks and process it?
+        payload = {"method": method}
+        payload.update(params)
+        print(payload)
+        print(TB_RPC_REQUEST_TOPIC_PREFIX+str(self.__rpc_request_number))
+        self.__client.publish(TB_RPC_REQUEST_TOPIC_PREFIX+str(self.__rpc_request_number),
+                              dumps(payload),
+                              qos=1)
+
+    def set_client_side_rpc_request_handler(self, handler):
+        self.__rpc_set = True
+        if self.__is_connected:
+            self.__client.subscribe(TB_RPC_RESPONSE_TOPIC_PREFIX + '+')
+        self.__on_client_side_rpc_response = handler
 
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
         if self.__is_connected:
-            self.__client.subscribe('v1/devices/me/rpc/request/+')
-        self.on_server_side_rpc_response = handler
+            self.__client.subscribe(TB_RPC_REQUEST_TOPIC_PREFIX + '+')
+        self.__on_server_side_rpc_response = handler
 
     def __connect_callback(self, *args):
         pass
@@ -119,62 +184,35 @@ class TbClient:
 
     def disconnect(self):
         self.__client.disconnect()
-        log.info("DISCONNECT")
+        log.info("Disconnected from ThingsBoard!")
 
     def __disconnect_callback(self, *args):
         pass
 
-    def __send_data(self, data, url, qos, blocking):
+    def __publish_data(self, data, topic, qos, blocking):
         def send_d():
-            info = self.__client.publish(url, data, qos)
+            info = self.__client.publish(topic, data, qos)
             info.wait_for_publish()
         data = dumps(data)
+        if qos != 0 and qos != 1:
+            log.exception("Quality of service (qos) value must be 0 or 1")
+            return
         if blocking:
             t = threading.Thread(target=send_d)
             t.start()
         else:
-            self.__client.publish(url, data, qos)
+            self.__client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
-        schema = {
-            "type": "object",
-            "patternProperties":
-                {
-                    ".": {"type": ["integer",
-                                   "string",
-                                   "boolean",
-                                   "number"]}
-                },
-            "minProperties": 1,
-        }
-        schema2 = {
-            "type": "object",
-            "properties": {
-                "ts": {
-                    "type": "integer"
-                },
-                "values": {
-                    "type": "object",
-                    "patternProperties":
-                        {
-                            ".": {"type": ["integer",
-                                           "string",
-                                           "boolean",
-                                           "number"]}
-                        },
-                    "minProperties": 1,
-                }
-            },
-            "additionalProperties": False
-        }
         if telemetry.get("ts"):
-            jsonschema.validate(telemetry, schema2)
+            TS_KV_VALIDATOR.validate(telemetry)
         else:
-            jsonschema.validate(telemetry, schema)
-        self.__send_data(telemetry, telemetry_url, quality_of_service, blocking)
+            KV_VALIDATOR.validate(telemetry)
+        self.__publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
-        self.__send_data(attributes, attributes_url, quality_of_service, blocking)
+        KV_VALIDATOR.validate(attributes)
+        self.__publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
 
     def unsubscribe(self, subscription_id):
         empty_keys = []
@@ -190,7 +228,7 @@ class TbClient:
             del self.__sub_dict[key]
 
     def subscribe(self, key="*", quality_of_service=1, callback=None):
-        self.__client.subscribe(attributes_url, qos=quality_of_service)
+        self.__client.subscribe(ATTRIBUTES_TOPIC, qos=quality_of_service)
 
         def find_max_sub_id():
             res = 1
@@ -208,7 +246,7 @@ class TbClient:
                 if inst not in self.__sub_dict[attr]:
                     self.__sub_dict[attr].append(inst)
                     log.debug("Subscribed to " + attr + ", subscription id " + str(inst.subscription_id))
-        # if attribute doesnot exist create it with subscription
+        # if attribute doesn't exist create it with subscription
         elif key not in self.__sub_dict.keys():
             self.__sub_dict.update({key: [inst]})
             log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
@@ -218,5 +256,31 @@ class TbClient:
             log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         return inst.subscription_id
 
-if __name__ == "__main__":
-    pass
+    def request_attributes(self, client_keys=None, shared_keys=None, callback=None):
+        if not self.__is_attribute_requested:
+            self.__is_attribute_requested = True
+            self.__client.subscribe(ATTRIBUTES_TOPIC+"/response/+", 1)
+        # todo why callback can be None?
+        msg = {}
+        if client_keys is None and shared_keys is None:
+            log.error("There are no keys to request")
+            return False
+        if client_keys:
+            tmp = ""
+            for key in client_keys:
+                tmp += key + ","
+            tmp = tmp[:len(tmp) - 1]
+            msg.update({"clientKeys": tmp})
+        if shared_keys:
+            tmp = ""
+            for key in shared_keys:
+                tmp += key + ","
+            tmp = tmp[:len(tmp) - 1]
+            msg.update({"sharedKeys": tmp})
+        self.__client.publish(topic=ATTRIBUTES_TOPIC_REQUEST +str(self.__rpc_request_number),
+                              payload=dumps(msg),
+                              qos=1)
+        self.__atr_request_dict.update({self.__rpc_request_number: callback})
+        self.__rpc_request_number += 1
+
+# todo rpc ids!!!!!
