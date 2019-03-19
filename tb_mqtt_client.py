@@ -1,14 +1,42 @@
 import paho.mqtt.client as paho
 import logging
 import time
-from json import loads, dumps
 import threading
-import jsonschema
+from json import loads, dumps
+from jsonschema import Draft7Validator
 
-attributes_url = 'v1/devices/me/attributes'
-telemetry_url = 'v1/devices/me/telemetry'
+KV_SCHEMA = {
+    "type": "object",
+    "patternProperties":
+        {
+            ".": {"type": ["integer",
+                           "string",
+                           "boolean",
+                           "number"]}
+        },
+    "minProperties": 1,
+}
+
+TS_KV_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ts": {
+            "type": "integer"
+        },
+        "values": KV_SCHEMA
+    },
+    "additionalProperties": False
+}
+
+KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
+TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
+
+TB_RPC_RESPONSE_TOPIC_PREFIX = 'v1/devices/me/rpc/response/'
+TB_RPC_REQUEST_TOPIC_PREFIX = 'v1/devices/me/rpc/request/'
+ATTRIBUTES_TOPIC = 'v1/devices/me/attributes'
+TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
+
 log = logging.getLogger(__name__)
-
 
 class TbClient:
     class __SubscriptionInfo:
@@ -32,7 +60,8 @@ class TbClient:
         self.__rpc_set = None
 
         def on_log(client, userdata, level, buf):
-            log.info(buf)
+            log.debug(buf)
+            pass
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -47,7 +76,7 @@ class TbClient:
             if rc == 0:
                 self.__is_connected = True
                 if self.__rpc_set:
-                    self.__client.subscribe('v1/devices/me/rpc/request/+')
+                    self.__client.subscribe(TB_RPC_REQUEST_TOPIC_PREFIX + '+')
                 log.info("connection SUCCESS")
             else:
                 if rc in result_codes:
@@ -65,23 +94,25 @@ class TbClient:
                 log.error("disconnect FAIL with error code %i" % rc)
 
         def on_publish(client, userdata, result):
-            log.info("data published")
+            log.debug("Data published to ThingsBoard!")
+            pass
 
         def on_message(client, userdata, message):
             content = loads(message.payload.decode("utf-8"))
             log.info(content)
             log.info(message.topic)
-            if message.topic.startswith('v1/devices/me/rpc/request/'):
+            if message.topic.startswith(TB_RPC_REQUEST_TOPIC_PREFIX):
                 pass
-                request_id = message.topic[len('v1/devices/me/rpc/request/'):len(message.topic)]
+                request_id = message.topic[len(TB_RPC_REQUEST_TOPIC_PREFIX):len(message.topic)]
                 self.on_server_side_rpc_response(request_id, content)
 
-            elif message.topic == attributes_url:
+            elif message.topic == ATTRIBUTES_TOPIC:
                 message = eval(content)
                 for key in self.__sub_dict.keys():
                     if self.__sub_dict.get(key):
                         for item in self.__sub_dict.get(key):
                             item.callback(message)
+
         self.__client.on_disconnect = on_disconnect
         self.__client.on_connect = on_connect
         self.__client.on_log = on_log
@@ -89,7 +120,7 @@ class TbClient:
         self.__client.on_message = on_message
 
     def respond(self, req_id, resp, quality_of_service=1, blocking=False):
-        info = self.__client.publish('v1/devices/me/rpc/response/'+req_id, resp, qos=quality_of_service)
+        info = self.__client.publish(TB_RPC_RESPONSE_TOPIC_PREFIX + req_id, resp, qos=quality_of_service)
         if blocking:
             info.wait_for_publish()
 
@@ -99,7 +130,7 @@ class TbClient:
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
         if self.__is_connected:
-            self.__client.subscribe('v1/devices/me/rpc/request/+')
+            self.__client.subscribe(TB_RPC_REQUEST_TOPIC_PREFIX + '+')
         self.on_server_side_rpc_response = handler
 
     def __connect_callback(self, *args):
@@ -119,62 +150,32 @@ class TbClient:
 
     def disconnect(self):
         self.__client.disconnect()
-        log.info("DISCONNECT")
+        log.info("Disconnected from ThingsBoard!")
 
     def __disconnect_callback(self, *args):
         pass
 
-    def __send_data(self, data, url, qos, blocking):
+    def __publish_data(self, data, topic, qos, blocking):
         def send_d():
-            info = self.__client.publish(url, data, qos)
+            info = self.__client.publish(topic, data, qos)
             info.wait_for_publish()
         data = dumps(data)
         if blocking:
             t = threading.Thread(target=send_d)
             t.start()
         else:
-            self.__client.publish(url, data, qos)
+            self.__client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
-        schema = {
-            "type": "object",
-            "patternProperties":
-                {
-                    ".": {"type": ["integer",
-                                   "string",
-                                   "boolean",
-                                   "number"]}
-                },
-            "minProperties": 1,
-        }
-        schema2 = {
-            "type": "object",
-            "properties": {
-                "ts": {
-                    "type": "integer"
-                },
-                "values": {
-                    "type": "object",
-                    "patternProperties":
-                        {
-                            ".": {"type": ["integer",
-                                           "string",
-                                           "boolean",
-                                           "number"]}
-                        },
-                    "minProperties": 1,
-                }
-            },
-            "additionalProperties": False
-        }
         if telemetry.get("ts"):
-            jsonschema.validate(telemetry, schema2)
+            TS_KV_VALIDATOR.validate(telemetry)
         else:
-            jsonschema.validate(telemetry, schema)
-        self.__send_data(telemetry, telemetry_url, quality_of_service, blocking)
+            KV_VALIDATOR.validate(telemetry)
+        self.__publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=0, blocking=False):
-        self.__send_data(attributes, attributes_url, quality_of_service, blocking)
+        KV_VALIDATOR.validate(attributes)
+        self.__publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
 
     def unsubscribe(self, subscription_id):
         empty_keys = []
@@ -190,7 +191,7 @@ class TbClient:
             del self.__sub_dict[key]
 
     def subscribe(self, key="*", quality_of_service=1, callback=None):
-        self.__client.subscribe(attributes_url, qos=quality_of_service)
+        self.__client.subscribe(ATTRIBUTES_TOPIC, qos=quality_of_service)
 
         def find_max_sub_id():
             res = 1
@@ -208,7 +209,7 @@ class TbClient:
                 if inst not in self.__sub_dict[attr]:
                     self.__sub_dict[attr].append(inst)
                     log.debug("Subscribed to " + attr + ", subscription id " + str(inst.subscription_id))
-        # if attribute doesnot exist create it with subscription
+        # if attribute doesn't exist create it with subscription
         elif key not in self.__sub_dict.keys():
             self.__sub_dict.update({key: [inst]})
             log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
@@ -217,3 +218,9 @@ class TbClient:
             self.__sub_dict[key].append(inst)
             log.debug("Subscribed to " + key + ", subscription id " + str(inst.subscription_id))
         return inst.subscription_id
+
+    def request_attributes(self, clientKeys, sharedKeys, callback=None):
+        pass
+
+    def send_rpc_call(self, method, params, callback=None):
+        pass
