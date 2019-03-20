@@ -9,7 +9,8 @@ def callback(result):
     print(result)
 
 
-client = tb.TbClient(HOST, ACCESS_TOKEN)
+client = tb.TBClient(HOST, ACCESS_TOKEN)
 client.connect()
-sub_id = client.subscribe(callback, "ololo")
+sub_id = client.subscribe("ololo", callback)
+
 client.unsubscribe(sub_id)

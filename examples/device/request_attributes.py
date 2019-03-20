@@ -7,7 +7,7 @@ def callback(result):
     print(result)
 
 
-client = tb.TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
+client = tb.TBClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 client.connect()
 client.request_attributes(["temp"], callback=callback)
 while True:

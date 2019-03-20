@@ -1,10 +1,10 @@
 import psutil
 import time
 import logging
-from tb_device_mqtt import TbClient
+from tb_device_mqtt import TBClient
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
-client = TbClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
+client = TBClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
 
 
 def freq_cb(value=None):
