@@ -6,5 +6,3 @@ gateway = TBGateway("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
 gateway.connect_device("Example Name")
 #disconnect wont delete device from TB server, it just stops sending updates for this one to gateway
 gateway.disconnect_device("Example Name")
-
-
