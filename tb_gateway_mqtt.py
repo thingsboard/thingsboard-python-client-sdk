@@ -2,9 +2,11 @@ import paho.mqtt.client as paho
 import logging
 import time
 from json import loads, dumps
-from jsonschema import Draft7Validator
 from tb_device_mqtt import TBClient, TS_KV_VALIDATOR, KV_VALIDATOR
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
+GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
+GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
+ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 TOPIC = "v1/gateway/"
 log = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ class TBGateway(TBClient):
         self.__is_connected = False
         self.__atr_request_number = 1
         self.__atr_request_dict = {}
+        self.__is_attribute_requested = False
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -44,9 +47,19 @@ class TBGateway(TBClient):
             log.info(content)
             log.info(message.topic)
 
+            if message.topic.startswith(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC):
+                req_id = content["id"]
+                # pop callback and use it
+                if self.__atr_request_dict[req_id]:
+                    self.__atr_request_dict.pop(req_id)(content)
+                else:
+                    log.error("Unable to find callback to process attributes response from TB")
+
         self.client.on_connect = on_connect
         self.client.on_log = on_log
+        self.client.on_message = on_message
 
+    def connect(self, callback=None, timeout=10):
         self.client.connect(self.__host)
         self.client.loop_start()
         t = time.time()
@@ -54,30 +67,34 @@ class TBGateway(TBClient):
             time.sleep(0.1)
             if time.time()-t > timeout:
                 #todo what we should do if broker does not respond for timeout period?
-                pass
+                return False
+            return True
 
-    def request_attributes(self, device, keys, type_is_client=None, callback=None):
+    def __request_attributes(self, device, keys, type_is_client=False, callback=None):
         if not keys:
             log.error("There are no keys to request")
             return False
         if not self.__is_attribute_requested:
             self.__is_attribute_requested = True
             self.client.subscribe(GATEWAY_ATTRIBUTES_TOPIC, 1)
-        msg = {}
-        #todo check if order of data in dict is irrelevant
-
-
         tmp = ""
         for key in keys:
             tmp += key + ","
         tmp = tmp[:len(tmp) - 1]
-
-        self.__atr_request_dict.update({self.__atr_request_number: callback})
+        msg = {"key": tmp,
+               "device": device,
+               "client": type_is_client,
+               "id": self.__atr_request_number}
+        if callback:
+            self.__atr_request_dict.update({self.__atr_request_number: callback})
         self.__atr_request_number += 1
-        #todo finish it
+        self.client.publish(GATEWAY_ATTRIBUTES_REQUEST_TOPIC, dumps(msg), 1)
 
-        #Topic: v1 / gateway / attributes / request
-        #Message: {"id": $request_id, "device": "Device A", "client": true, "key": "attribute1"}
+    def request_shared_attributes(self, device_name, keys, callback):
+        self.__request_attributes(device_name, keys, False, callback)
+
+    def request_client_attributes(self, device_name, keys, callback):
+        self.__request_attributes(device_name, keys, True, callback)
 
     def send_attributes(self, attributes, quality_of_service=1, blocking=False):
         for device in attributes.keys():
@@ -90,7 +107,7 @@ class TBGateway(TBClient):
         #now we send all attributes, even invalid
         self.publish_data(attributes, TOPIC+"attributes", quality_of_service, blocking)
 
-    def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
+    def send_telemetry(self, telemetry, quality_of_service=0, blocking=False):
         # validation implemented, should we use it?
         # if one telemetry is invalid, do we send other? if yes, todo pop invalid telemetry and send other
         for device in telemetry.keys():
@@ -112,3 +129,20 @@ class TBGateway(TBClient):
         info = self.client.publish(topic=TOPIC + "disconnect", payload=dumps({"device": str(device)}), qos=1)
         if blocking:
             info.wait_for_publish()
+
+    def subscribe_to_all(self, callback):
+        self.subscribe_to_attribute("*", "*", callback)
+
+    def subscribe_to_attributes(self, device, callback):
+        self.subscribe_to_attribute(device, "*", callback)
+
+    def subscribe_to_attribute(self, device, attribute, callback):
+        pass
+        #subscription_id = sub_id()
+        subscription_id = 1
+
+        #subscribe if have not already
+        #add callback do dict
+        #todo fill
+        return subscription_id
+

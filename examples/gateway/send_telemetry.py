@@ -1,6 +1,6 @@
 import logging
 from tb_gateway_mqtt import TBGateway
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 import time
 
 
@@ -18,7 +18,7 @@ telemetry = {
             "ts": int(time.time()),
             "values": {
                 "temperature": 43,
-                "humidity": 98
+                "humidity": 79
             }
         }
     ],
@@ -32,6 +32,6 @@ telemetry = {
         }
     ]
 }
-#gateway.send_telemetry(telemetry)
-while True:
-    pass
+gateway.send_telemetry(telemetry)
+#while True:
+#    pass
