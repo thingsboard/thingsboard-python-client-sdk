@@ -77,7 +77,7 @@ class TBGateway(TBClient):
                         for sub_id in self.__sub_dict[target]:
                             self.__sub_dict[target][sub_id](content["data"])
             elif message.topic.startswith(RPC_TOPIC) and self.__receive_rpc:
-                print("heh")
+                pass
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log

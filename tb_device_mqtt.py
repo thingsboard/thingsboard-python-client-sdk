@@ -5,6 +5,7 @@ import threading
 from json import loads, dumps
 from jsonschema import Draft7Validator
 import ssl
+from jsonschema import ValidationError
 
 KV_SCHEMA = {
     "type": "object",
@@ -217,14 +218,24 @@ class TBClient:
             self.client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
+        validator = None
         if telemetry.get("ts"):
-            TS_KV_VALIDATOR.validate(telemetry)
+            validator = TS_KV_VALIDATOR
         else:
-            KV_VALIDATOR.validate(telemetry)
+            validator = KV_VALIDATOR
+        try:
+            validator.validate(telemetry)
+        except ValidationError as e:
+            log.error(e)
+            return False
         self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=1, blocking=False):
-        KV_VALIDATOR.validate(attributes)
+        try:
+            KV_VALIDATOR.validate(attributes)
+        except ValidationError as e:
+            log.error(e)
+            return False
         self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
 
     def unsubscribe(self, subscription_id):
