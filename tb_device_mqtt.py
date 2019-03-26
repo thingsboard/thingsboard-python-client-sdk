@@ -7,6 +7,7 @@ from jsonschema import Draft7Validator
 import ssl
 from jsonschema import ValidationError
 
+
 KV_SCHEMA = {
     "type": "object",
     "patternProperties":
@@ -18,6 +19,19 @@ KV_SCHEMA = {
         },
     "minProperties": 1,
 }
+
+SHEMA_FOR_CLIENT_RPC = {
+    "type": "object",
+    "patternProperties":
+        {
+            ".": {"type": ["integer",
+                           "string",
+                           "boolean",
+                           "number"]}
+        },
+    "minProperties": 0,
+}
+
 
 TS_KV_SCHEMA = {
     "type": "object",
@@ -34,6 +48,7 @@ DEVICE_TS_KV_SCHEMA = {
     "items": TS_KV_SCHEMA
 }
 
+RPC_VALIDATOR = Draft7Validator(SHEMA_FOR_CLIENT_RPC)
 KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
 TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
 DEVICE_TS_KV_VALIDATOR = Draft7Validator(DEVICE_TS_KV_SCHEMA)
@@ -152,6 +167,12 @@ class TBClient:
             info.wait_for_publish()
 
     def send_rpc_call(self, method, params, callback):
+        try:
+            KV_VALIDATOR.validate(dumps(params))
+        except ValidationError as e:
+            log.error(e)
+            return False
+
         def find_max_rpc_id():
             res = 1
             for item in self.__client_rpc_dict:
@@ -218,7 +239,6 @@ class TBClient:
             self.client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
-        validator = None
         if telemetry.get("ts"):
             validator = TS_KV_VALIDATOR
         else:
