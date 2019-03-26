@@ -28,9 +28,14 @@ TS_KV_SCHEMA = {
     },
     "additionalProperties": False
 }
+DEVICE_TS_KV_SCHEMA = {
+    "type": "array",
+    "items": TS_KV_SCHEMA
+}
 
 KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
 TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
+DEVICE_TS_KV_VALIDATOR = Draft7Validator(DEVICE_TS_KV_SCHEMA)
 
 RPC_RESPONSE_TOPIC = 'v1/devices/me/rpc/response/'
 RPC_REQUEST_TOPIC = 'v1/devices/me/rpc/request/'

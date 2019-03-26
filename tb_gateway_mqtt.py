@@ -2,11 +2,12 @@ import paho.mqtt.client as paho
 import logging
 import time
 from json import loads, dumps
-from tb_device_mqtt import TBClient, TS_KV_VALIDATOR, KV_VALIDATOR
+from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 TOPIC = "v1/gateway/"
+from jsonschema import ValidationError
 log = logging.getLogger(__name__)
 
 
@@ -100,35 +101,30 @@ class TBGateway(TBClient):
     def request_client_attributes(self, device_name, keys, callback):
         self.__request_attributes(device_name, keys, True, callback)
 
-    def send_attributes(self, attributes, quality_of_service=1, blocking=False):
-        for device in attributes.keys():
-            for attr_in_device in attributes[device]:
-                try:
-                    KV_VALIDATOR.validate(attr_in_device)
-                except Exception as e:
-                    log.error("Invalid telemetry for device {device}\n{full_text}".format(device=device,
-                                                                                          full_text=e))
-        #now we send all attributes, even invalid
-        self.publish_data(attributes, TOPIC+"attributes", quality_of_service, blocking)
+    def send_attributes(self, device, attributes, quality_of_service=1, blocking=False):
+        try:
+            KV_VALIDATOR.validate(attributes)
+        except ValidationError as e:
+            log.error(e)
+            return False
+        self.publish_data({device: attributes}, TOPIC+"attributes", quality_of_service, blocking)
 
-    def send_telemetry(self, device, telemetry, quality_of_service=0, blocking=False):
-        telemetry = {"ts": 1111111, values:{"lol":"troll"}}
-
-        for device in telemetry.keys():
-            for telemetry_in_device in telemetry[device]:
-                try:
-                    TS_KV_VALIDATOR.validate(telemetry_in_device)
-                except Exception as e:
-                    log.error("Invalid telemetry for device {device}\n{full_text}".format(device=device,
-                                                                                          full_text=e))
-        # now we send all telemetry, even invalid
-        self.publish_data(telemetry, TOPIC+"telemetry", quality_of_service, blocking)
+    def send_telemetry(self, device, telemetry, quality_of_service=1, blocking=False):
+        if type(telemetry) is not list:
+            telemetry = [telemetry]
+        try:
+            DEVICE_TS_KV_VALIDATOR.validate(telemetry)
+        except ValidationError as e:
+            log.error(e)
+            return False
+        self.publish_data({device: telemetry}, TOPIC+"telemetry", quality_of_service, blocking)
 
     def connect_device(self, device, blocking=False):
         info = self.client.publish(topic=TOPIC + "connect", payload=dumps({"device": str(device)}), qos=1)
         if blocking:
             info.wait_for_publish()
         self.__connected_devices.add(device)
+
     def disconnect_device(self, device, blocking=False):
         info = self.client.publish(topic=TOPIC + "disconnect", payload=dumps({"device": str(device)}), qos=1)
         if blocking:
