@@ -151,9 +151,6 @@ class TBClient:
             info.wait_for_publish()
 
     def send_rpc_call(self, method, params, callback):
-        #todo validate parameters?
-        #todo create third dict for ids and callbacks and process it?
-        #todo replace with labmda
         def find_max_rpc_id():
             res = 1
             for item in self.__client_rpc_dict:
@@ -231,17 +228,12 @@ class TBClient:
         self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
 
     def unsubscribe(self, subscription_id):
-        empty_keys = []
-        for attribute in self.__sub_dict.keys():
-            if self.__sub_dict[attribute].get(subscription_id):
-                del self.__sub_dict[attribute][subscription_id]
-                log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=attribute,
+        for x in self.__sub_dict:
+            if self.__sub_dict[x].get(subscription_id):
+                del self.__sub_dict[x][subscription_id]
+                log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=x,
                                                                                            sub_id=subscription_id))
-            if not self.__sub_dict[attribute]:
-                empty_keys.append(attribute)
-
-        for key in empty_keys:
-            del self.__sub_dict[key]
+        self.__sub_dict = dict((k, v) for k, v in self.__sub_dict.items() if v is not {})
 
     def subscribe(self, callback, key="*"):
         self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)

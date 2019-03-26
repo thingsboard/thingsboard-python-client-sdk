@@ -3,11 +3,14 @@ import logging
 import time
 from json import loads, dumps
 from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR
+from jsonschema import ValidationError
+
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 TOPIC = "v1/gateway/"
-from jsonschema import ValidationError
+RPC_TOPIC = "v1/gateway/rpc"
+
 log = logging.getLogger(__name__)
 
 
@@ -22,7 +25,8 @@ class TBGateway(TBClient):
         self.__is_attribute_requested = False
         self.__max_sub_id = 0
         self.__sub_dict = {}
-        self.__connected_devices = set()
+        self.__connected_devices = set("*")
+        self.__receive_rpc = False
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -57,8 +61,24 @@ class TBGateway(TBClient):
                 else:
                     log.error("Unable to find callback to process attributes response from TB")
             elif message.topic == GATEWAY_ATTRIBUTES_TOPIC:
-                print(content["device"])
-                pass
+                # callbacks for everythings
+                if self.__sub_dict.get("*|*"):
+                    for x in self.__sub_dict["*|*"]:
+                        self.__sub_dict["*|*"][x](content["data"])
+                # callbacks for device. in this case callback executes for all attributes in message
+                target = content["device"] + "|*"
+                if self.__sub_dict.get(target):
+                    for x in self.__sub_dict[target]:
+                        self.__sub_dict[target][x](content["data"])
+                # callback for atr. in this case callback executes for all attributes in message
+                targets = [content["device"] + "|" + x for x in content["data"]]
+                for target in targets:
+                    if self.__sub_dict.get(target):
+                        for sub_id in self.__sub_dict[target]:
+                            self.__sub_dict[target][sub_id](content["data"])
+            elif message.topic.startswith(RPC_TOPIC) and self.__receive_rpc:
+                print("heh")
+
         self.client.on_connect = on_connect
         self.client.on_log = on_log
         self.client.on_message = on_message
@@ -69,7 +89,7 @@ class TBGateway(TBClient):
         t = time.time()
         while self.__is_connected is not True:
             time.sleep(0.1)
-            self.__connected_devices = set()
+            self.__connected_devices = set("*")
             if time.time()-t > timeout:
                 #todo what we should do if broker does not respond for timeout period?
                 return False
@@ -125,6 +145,13 @@ class TBGateway(TBClient):
             info.wait_for_publish()
         self.__connected_devices.add(device)
 
+    def unsubscribe(self, subscription_id):
+        for x in self.__sub_dict:
+            if self.__sub_dict[x].get(subscription_id):
+                del self.__sub_dict[x][subscription_id]
+                log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=x,
+                                                                                           sub_id=subscription_id))
+
     def disconnect_device(self, device, blocking=False):
         info = self.client.publish(topic=TOPIC + "disconnect", payload=dumps({"device": str(device)}), qos=1)
         if blocking:
@@ -132,14 +159,15 @@ class TBGateway(TBClient):
         self.__connected_devices.remove(device)
 
     def subscribe_to_all(self, callback):
-        self.subscribe_to_attribute("*", "*", callback)
+        return self.subscribe_to_attribute("*", "*", callback)
 
     def subscribe_to_attributes(self, device, callback):
-        self.subscribe_to_attribute(device, "*", callback)
+        return self.subscribe_to_attribute(device, "*", callback)
 
     def subscribe_to_attribute(self, device, attribute, callback):
         if device not in self.__connected_devices:
             log.error("Device {name} not connected".format(name=device))
+            return False
         self.client.subscribe(GATEWAY_ATTRIBUTES_TOPIC, qos=1)
         self.__max_sub_id += 1
         key = device+"|"+attribute
@@ -150,6 +178,9 @@ class TBGateway(TBClient):
         log.debug("Subscribed to {key} with id {id}".format(key=key, id=self.__max_sub_id))
         return self.__max_sub_id
 
-    def unsubscribe(self, subscription_id):
-        #todo fill
-        pass
+    def start_getting_rpc(self):
+        self.client.subscribe(RPC_TOPIC, 1)
+        self.__receive_rpc = True
+
+    def stop_getting_rpc(self):
+        self.__receive_rpc = False

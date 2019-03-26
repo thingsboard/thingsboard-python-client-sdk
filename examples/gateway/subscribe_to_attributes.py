@@ -1,22 +1,28 @@
-import logging, logging.handlers
-import time
-
+import logging.handlers
 import tb_gateway_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
-ACCESS_TOKEN = "VSBk9a8nrkiGrMdDUEmm"
-HOST = "demo.thingsboard.io"
-
 
 def callback(result):
-    print(result)
+    print("Callback for attributes, {0}".format(result))
 
 
-gw = tb.TBGateway(HOST, ACCESS_TOKEN)
+def callback_for_everything(result):
+    print("Everything goes here, {0}".format(result))
+
+
+def callback_for_specific_attr(result):
+    print("Specific attribute callback, {0}".format(result))
+
+
+gw = tb.TBGateway("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
 gw.connect()
 
-sub_id_2 = gw.subscribe_to_attributes("Test Device A2", callback)
+gw.connect_device("Test Device A2")
 
+gw.subscribe_to_all(callback_for_everything)
+gw.subscribe_to_attribute("Test Device A2", "ololo", callback_for_specific_attr)
+sub_id = gw.subscribe_to_attributes("Test Device A2", callback)
+gw.unsubscribe(sub_id)
 while True:
-    time.sleep(1.0)
     pass
