@@ -3,7 +3,7 @@ import time
 import logging
 from tb_device_mqtt import TBClient
 logging.basicConfig(level=logging.DEBUG)
-client = TBClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
+client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
 
 def callback(request_id, resp_body):

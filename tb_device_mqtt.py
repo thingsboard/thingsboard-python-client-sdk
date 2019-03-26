@@ -101,7 +101,6 @@ class TBClient:
             if message.topic.startswith(RPC_REQUEST_TOPIC):
                 request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
                 self.__on_server_side_rpc_response(request_id, content)
-            # todo fix error payload in wrong format?
             elif message.topic.startswith(RPC_RESPONSE_TOPIC):
                 request_id = message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)]
                 if self.__client_rpc_dict.get(request_id):
@@ -192,6 +191,7 @@ class TBClient:
 
         while self.__is_connected is not True:
             time.sleep(0.5)
+
             if time.time()-t > timeout:
                 return False
         return True
@@ -226,24 +226,20 @@ class TBClient:
         self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
 
     def unsubscribe(self, subscription_id):
-        #todo check if it works
         empty_keys = []
         for attribute in self.__sub_dict.keys():
             if self.__sub_dict[attribute].get(subscription_id):
                 del self.__sub_dict[attribute][subscription_id]
                 log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=attribute,
-                                                                                               sub_id=subscription_id))
+                                                                                           sub_id=subscription_id))
             if not self.__sub_dict[attribute]:
                 empty_keys.append(attribute)
 
         for key in empty_keys:
             del self.__sub_dict[key]
 
-    def subscribe(self, key="*", callback=None, quality_of_service=1):
-        if quality_of_service != 0 and quality_of_service != 1:
-            log.error("qos must be 0 or 1, got {qos}".format(qos=quality_of_service))
-            return False
-        self.client.subscribe(ATTRIBUTES_TOPIC, qos=quality_of_service)
+    def subscribe(self, callback, key="*"):
+        self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
         self.__max_sub_id += 1
         if key not in self.__sub_dict:
             self.__sub_dict.update({key: {self.__max_sub_id: callback}})

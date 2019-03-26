@@ -4,7 +4,7 @@ import logging
 from tb_device_mqtt import TBClient
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
-client = TBClient("demo.thingsboard.io", "v5cgxxXGHvuFwdxENEc7")
+client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
 
 def freq_cb(value=None):
@@ -21,7 +21,7 @@ def on_server_side_rpc_request(request_id, request_body):
 
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
-client.subscribe(key="uploadFrequency", quality_of_service=1, callback=freq_cb)
+client.subscribe(key="uploadFrequency", callback=freq_cb)
 while True:
     client.send_telemetry({"CPU percent": psutil.cpu_percent()})
     client.send_telemetry({"Memory": psutil.virtual_memory().percent})
