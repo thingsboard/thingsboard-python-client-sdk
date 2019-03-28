@@ -2,7 +2,7 @@ import logging, logging.handlers
 import tb_device_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
-ACCESS_TOKEN = "HvbKddqKsxVqowKoSR2J"
+ACCESS_TOKEN = "A1_TEST_TOKEN"
 HOST = "demo.thingsboard.io"
 
 

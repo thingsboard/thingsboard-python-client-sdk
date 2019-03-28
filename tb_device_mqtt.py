@@ -64,10 +64,13 @@ log = logging.getLogger(__name__)
 
 
 class TBClient:
-    def __init__(self, host, token):
+    def __init__(self, host, token=""):
         self.client = paho.Client()
         self.__host = host
-        self.client.username_pw_set(token)
+        if token == "":
+            log.warning("token is not set, connection without tls wont be established")
+        else:
+            self.client.username_pw_set(token)
         self.__is_attribute_requested = False
         self.__is_connected = False
         self.client.on_connect = None
@@ -160,7 +163,7 @@ class TBClient:
 
     def respond(self, req_id, resp, quality_of_service=1, blocking=False):
         if quality_of_service != 0 and quality_of_service != 1:
-            log.exception("Quality of service (qos) value must be 0 or 1")
+            log.error("Quality of service (qos) value must be 0 or 1")
             return
         info = self.client.publish(RPC_RESPONSE_TOPIC + req_id, resp, qos=quality_of_service)
         if blocking:
@@ -198,16 +201,18 @@ class TBClient:
             self.client.subscribe(RPC_REQUEST_TOPIC + '+')
         self.__on_server_side_rpc_response = handler
 
-    def connect(self, callback=None, timeout=10, tls=False, port=1883, ca_certs=None, cert_file=None):
+    def connect(self, callback=None, timeout=10, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
         if tls:
             port = 8883
             self.client.tls_set(ca_certs=ca_certs,
                                 certfile=cert_file,
-                                keyfile=None,
+                                keyfile=key_file,
                                 cert_reqs=ssl.CERT_REQUIRED,
                                 tls_version=ssl.PROTOCOL_TLSv1,
                                 ciphers=None)
             self.client.tls_insecure_set(False)
+        import socket
+        #self.client.connect(socket.gethostname(), 8883, 1)
         self.client.connect(self.__host, port)
         self.client.loop_start()
         self.__connect_callback = callback

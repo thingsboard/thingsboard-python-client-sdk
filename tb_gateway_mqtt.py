@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class TBGateway(TBClient):
-    def __init__(self, host, token, timeout=10):
+    def __init__(self, host, token):
         self.__host = host
         self.client = paho.Client()
         self.client.username_pw_set(token)
