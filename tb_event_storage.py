@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import logging
 from json import load, dump, loads, dumps
@@ -6,6 +7,10 @@ from json import load, dump, loads, dumps
 log = logging.getLogger(__name__)
 
 class TBEventStorage:
+    class TBStorageInitializationError(Exception):
+        def __init__(self, message):
+            super(Exception, self).__init__(message)
+
     class __TBEventStorageDir:
         def __init__(self, data_folder_path, max_file_count):
             self.__max_file_count = max_file_count
@@ -96,6 +101,20 @@ class TBEventStorage:
             return '[' + str(self.current_file_name) + '|' + str(self.current_file_size) + ']'
 
     def __init__(self, data_folder_path, max_records_per_file, max_records_between_fsync, max_file_count):
+        if max_records_per_file <=0:
+            raise self.TBStorageInitializationError("'Max records per file' parameter is <= 0")
+        elif max_records_per_file > 1000000:
+            raise self.TBStorageInitializationError("'Max records per file' parameter is > 1000000")
+        if max_records_between_fsync <=0:
+            raise self.TBStorageInitializationError("'Max records between fsync' parameter is <= 0")
+        elif max_records_between_fsync > max_records_per_file:
+            raise self.TBStorageInitializationError("'Max records between fsync' is bigger "
+                                                    "then 'max records per file' parameter")
+        if max_file_count <=0:
+            raise self.TBStorageInitializationError("'Max data files' parameter is <= 0")
+        elif max_file_count > 1000000:
+            raise self.TBStorageInitializationError("'Max data files' parameter is > 1000000")
+        self.__writer_lock = threading.Lock()
         self.__dir = self.__TBEventStorageDir(data_folder_path, max_file_count)
         self.__init_reader_state(data_folder_path)
         self.__writer = self.__TBEventStorageWriterState(self.__dir, max_records_per_file, max_records_between_fsync)
@@ -112,9 +131,14 @@ class TBEventStorage:
         log.info("Reader state: %s", self.__reader_state)
 
     def write(self, data):
-        if self.__writer.is_full():
-            log.debug("Writer is full: %s", self.__writer)
-            self.__writer.switch_to_new_file()
-            self.__dir.cleanup()
-        self.__writer.write(data)
-
+        if self.__writer_lock.acquire(True, 60):
+            try:
+                if self.__writer.is_full():
+                    log.debug("Writer is full: %s", self.__writer)
+                    self.__writer.switch_to_new_file()
+                    self.__dir.cleanup()
+                self.__writer.write(data)
+            finally:
+                self.__writer_lock.release()
+        else:
+            log.warning("Failed to acquire write log for an event storage!")
