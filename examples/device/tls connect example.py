@@ -7,5 +7,4 @@ client = TBClient(socket.gethostname())
 client.connect(tls=True,
                ca_certs="mqttserver.pub.pem",
                cert_file="mqttclient.nopass.pem")
-while True:
-    pass
+client.disconnect()
