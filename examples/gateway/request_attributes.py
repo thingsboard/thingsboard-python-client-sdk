@@ -8,6 +8,7 @@ def callback(result):
 
 
 client = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+client.connect()
 client.request_shared_attributes("Example Name", ["temp"], callback)
 while True:
     pass

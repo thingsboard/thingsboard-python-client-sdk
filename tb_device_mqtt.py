@@ -19,8 +19,7 @@ KV_SCHEMA = {
         },
     "minProperties": 1,
 }
-
-SHEMA_FOR_CLIENT_RPC = {
+SCHEMA_FOR_CLIENT_RPC = {
     "type": "object",
     "patternProperties":
         {
@@ -31,8 +30,6 @@ SHEMA_FOR_CLIENT_RPC = {
         },
     "minProperties": 0,
 }
-
-
 TS_KV_SCHEMA = {
     "type": "object",
     "properties": {
@@ -45,13 +42,23 @@ TS_KV_SCHEMA = {
 }
 DEVICE_TS_KV_SCHEMA = {
     "type": "array",
-    "items": TS_KV_SCHEMA
+    "items": KV_SCHEMA
 }
-
-RPC_VALIDATOR = Draft7Validator(SHEMA_FOR_CLIENT_RPC)
+DEVICE_TS_OR_KV_SCHEMA = {
+    "type": "array",
+    "items":    {
+        "anyOf":
+            [
+                TS_KV_SCHEMA,
+                KV_SCHEMA
+            ]
+    }
+}
+RPC_VALIDATOR = Draft7Validator(SCHEMA_FOR_CLIENT_RPC)
 KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
 TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
 DEVICE_TS_KV_VALIDATOR = Draft7Validator(DEVICE_TS_KV_SCHEMA)
+DEVICE_TS_OR_KV_VALIDATOR = Draft7Validator(DEVICE_TS_OR_KV_SCHEMA)
 
 RPC_RESPONSE_TOPIC = 'v1/devices/me/rpc/response/'
 RPC_REQUEST_TOPIC = 'v1/devices/me/rpc/request/'
@@ -59,12 +66,11 @@ ATTRIBUTES_TOPIC = 'v1/devices/me/attributes'
 ATTRIBUTES_TOPIC_REQUEST = 'v1/devices/me/attributes/request/'
 ATTRIBUTES_TOPIC_RESPONSE = 'v1/devices/me/attributes/response/'
 TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
-
 log = logging.getLogger(__name__)
 
 
 class TBClient:
-    def __init__(self, host, token=""):
+    def __init__(self, host, token=None):
         self.client = paho.Client()
         self.__host = host
         if token == "":
@@ -81,7 +87,6 @@ class TBClient:
         self.__on_client_side_rpc_response = None
         self.__connect_callback = None
         self.__rpc_set = None
-        #todo serialize sequence and sub_dict to run normally if re-load script
         self.__atr_request_number = 1
         self.__max_sub_id = 1
         self.__sub_dict = {}
@@ -104,9 +109,9 @@ class TBClient:
                 self.__connect_callback(client, userdata, flags, rc, *extra_params)
             if rc == 0:
                 self.__is_connected = True
+                log.info("connection SUCCESS")
                 if self.__rpc_set:
                     self.client.subscribe(RPC_REQUEST_TOPIC + '+')
-                log.info("connection SUCCESS")
             else:
                 if rc in result_codes:
                     log.error("connection FAIL with error {rc} {explanation}".format(rc=rc,
@@ -124,7 +129,8 @@ class TBClient:
             log.info(message.topic)
             if message.topic.startswith(RPC_REQUEST_TOPIC):
                 request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
-                self.__on_server_side_rpc_response(request_id, content)
+                if self.__on_server_side_rpc_response:
+                    self.__on_server_side_rpc_response(request_id, content)
             elif message.topic.startswith(RPC_RESPONSE_TOPIC):
                 request_id = message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)]
                 if self.__client_rpc_dict.get(request_id):
@@ -171,7 +177,7 @@ class TBClient:
 
     def send_rpc_call(self, method, params, callback):
         try:
-            KV_VALIDATOR.validate(dumps(params))
+            RPC_VALIDATOR.validate(params)
         except ValidationError as e:
             log.error(e)
             return False
@@ -211,16 +217,12 @@ class TBClient:
                                 tls_version=ssl.PROTOCOL_TLSv1,
                                 ciphers=None)
             self.client.tls_insecure_set(False)
-        import socket
-        #self.client.connect(socket.gethostname(), 8883, 1)
         self.client.connect(self.__host, port)
         self.client.loop_start()
         self.__connect_callback = callback
         t = time.time()
-
         while self.__is_connected is not True:
             time.sleep(0.5)
-
             if time.time()-t > timeout:
                 return False
         return True
@@ -244,15 +246,7 @@ class TBClient:
             self.client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
-        if telemetry.get("ts"):
-            validator = TS_KV_VALIDATOR
-        else:
-            validator = KV_VALIDATOR
-        try:
-            validator.validate(telemetry)
-        except ValidationError as e:
-            log.error(e)
-            return False
+
         self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=1, blocking=False):
@@ -271,7 +265,10 @@ class TBClient:
                                                                                            sub_id=subscription_id))
         self.__sub_dict = dict((k, v) for k, v in self.__sub_dict.items() if v is not {})
 
-    def subscribe(self, callback, key="*"):
+    def subscribe_to_everything(self, callback):
+        self.subscribe(callback, key="*")
+
+    def subscribe(self, callback, key):
         self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
         self.__max_sub_id += 1
         if key not in self.__sub_dict:

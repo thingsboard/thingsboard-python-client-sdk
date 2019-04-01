@@ -7,7 +7,7 @@ def callback(result):
     print(result)
 
 
-client = tb.TBClient("127.0.0.1", "A1_TEST_TOKEN")
+client = tb.TBClient("127.0.0.1", "A2_TEST_TOKEN")
 client.connect()
 client.request_attributes(["temp"], callback=callback)
 while True:

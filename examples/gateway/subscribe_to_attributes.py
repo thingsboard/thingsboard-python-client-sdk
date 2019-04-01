@@ -21,7 +21,7 @@ gw.connect()
 gw.connect_device("Test Device A2")
 
 gw.subscribe_to_all(callback_for_everything)
-gw.subscribe_to_attribute("Test Device A2", "ololo", callback_for_specific_attr)
+gw.subscribe_to_attribute("Test Device A2", "temperature", callback_for_specific_attr)
 sub_id = gw.subscribe_to_attributes("Test Device A2", callback)
 gw.unsubscribe(sub_id)
 while True:

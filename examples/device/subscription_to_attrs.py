@@ -1,19 +1,16 @@
-import logging, logging.handlers
+import logging
 import tb_device_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
-
-ACCESS_TOKEN = "A1_TEST_TOKEN"
-HOST = "demo.thingsboard.io"
 
 
 def callback(result):
     print(result)
 
 
-client = tb.TBClient(HOST, ACCESS_TOKEN)
+client = tb.TBClient("127.0.0.1", "A2_TEST_TOKEN")
 client.connect()
 sub_id_1 = client.subscribe(callback, "temperature")
-sub_id_2 = client.subscribe(callback, "*")
+sub_id_2 = client.subscribe_to_everything(callback)
 client.unsubscribe(sub_id_1)
 while True:
     pass

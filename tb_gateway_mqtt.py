@@ -4,21 +4,25 @@ import time
 from json import loads, dumps
 from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR
 from jsonschema import ValidationError
+import ssl
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 TOPIC = "v1/gateway/"
-RPC_TOPIC = "v1/gateway/rpc"
+RPC_TOPIC = "v1/gateway/rpc/+"
 
 log = logging.getLogger(__name__)
 
 
 class TBGateway(TBClient):
-    def __init__(self, host, token):
-        self.__host = host
+    def __init__(self, host, token=None):
         self.client = paho.Client()
-        self.client.username_pw_set(token)
+        if token is None:
+            log.warning("token is not set, connection without tls wont be established")
+        else:
+            self.client.username_pw_set(token)
+        self.__host = host
         self.__is_connected = False
         self.__atr_request_number = 1
         self.__atr_request_dict = {}
@@ -26,7 +30,6 @@ class TBGateway(TBClient):
         self.__max_sub_id = 0
         self.__sub_dict = {}
         self.__connected_devices = set("*")
-        self.__receive_rpc = False
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -39,6 +42,8 @@ class TBGateway(TBClient):
             if rc == 0:
                 self.__is_connected = True
                 log.info("connection SUCCESS")
+                if self.__rpc_set:
+                    self.client.subscribe(RPC_TOPIC)
             else:
                 if rc in result_codes:
                     log.error("connection FAIL with error '%i':'%s'" % (rc, result_codes[rc]))
@@ -52,7 +57,6 @@ class TBGateway(TBClient):
             content = loads(message.payload.decode("utf-8"))
             log.info(content)
             log.info(message.topic)
-
             if message.topic.startswith(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC):
                 req_id = content["id"]
                 # pop callback and use it
@@ -76,14 +80,25 @@ class TBGateway(TBClient):
                     if self.__sub_dict.get(target):
                         for sub_id in self.__sub_dict[target]:
                             self.__sub_dict[target][sub_id](content["data"])
-            elif message.topic.startswith(RPC_TOPIC) and self.__receive_rpc:
-                pass
+            elif message.topic.startswith(RPC_TOPIC):
+                request_id = message.topic[len(RPC_TOPIC):len(message.topic)]
+                if self.__on_server_side_rpc_response:
+                    self.__on_server_side_rpc_response(request_id, content)
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log
         self.client.on_message = on_message
 
-    def connect(self, callback=None, timeout=10):
+    def connect(self, callback=None, timeout=10, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
+        if tls:
+            port = 8883
+            self.client.tls_set(ca_certs=ca_certs,
+                                certfile=cert_file,
+                                keyfile=key_file,
+                                cert_reqs=ssl.CERT_REQUIRED,
+                                tls_version=ssl.PROTOCOL_TLSv1,
+                                ciphers=None)
+            self.client.tls_insecure_set(False)
         self.client.connect(self.__host)
         self.client.loop_start()
         t = time.time()
@@ -178,9 +193,16 @@ class TBGateway(TBClient):
         log.debug("Subscribed to {key} with id {id}".format(key=key, id=self.__max_sub_id))
         return self.__max_sub_id
 
-    def start_getting_rpc(self):
-        self.client.subscribe(RPC_TOPIC, 1)
-        self.__receive_rpc = True
+    def set_server_side_rpc_request_handler(self, handler):
+        self.__rpc_set = True
+        if self.__is_connected:
+            self.client.subscribe(RPC_TOPIC)
+        self.__on_server_side_rpc_response = handler
 
-    def stop_getting_rpc(self):
-        self.__receive_rpc = False
+    def respond(self, req_id, resp, quality_of_service=1, blocking=False):
+        if quality_of_service != 0 and quality_of_service != 1:
+            log.error("Quality of service (qos) value must be 0 or 1")
+            return
+        info = self.client.publish(RPC_TOPIC + req_id, resp, qos=quality_of_service)
+        if blocking:
+            info.wait_for_publish()
