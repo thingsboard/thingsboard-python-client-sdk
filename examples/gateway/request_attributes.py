@@ -7,7 +7,8 @@ def callback(result):
     print(result)
 
 
-client = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+client = tb.TBGateway("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
+
 client.connect()
 client.request_shared_attributes("Example Name", ["temp"], callback)
 while True:

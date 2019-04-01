@@ -2,7 +2,7 @@ import paho.mqtt.client as paho
 import logging
 import time
 from json import loads, dumps
-from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR
+from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR, TS_KV_VALIDATOR
 from jsonschema import ValidationError
 import ssl
 
@@ -10,7 +10,7 @@ GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 TOPIC = "v1/gateway/"
-RPC_TOPIC = "v1/gateway/rpc/+"
+RPC_TOPIC = "v1/gateway/rpc/"
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ class TBGateway(TBClient):
         else:
             self.client.username_pw_set(token)
         self.__host = host
+        self.__rpc_set = False
         self.__is_connected = False
         self.__atr_request_number = 1
         self.__atr_request_dict = {}
@@ -43,7 +44,7 @@ class TBGateway(TBClient):
                 self.__is_connected = True
                 log.info("connection SUCCESS")
                 if self.__rpc_set:
-                    self.client.subscribe(RPC_TOPIC)
+                    self.client.subscribe(RPC_TOPIC + "+")
             else:
                 if rc in result_codes:
                     log.error("connection FAIL with error '%i':'%s'" % (rc, result_codes[rc]))
@@ -106,7 +107,6 @@ class TBGateway(TBClient):
             time.sleep(0.1)
             self.__connected_devices = set("*")
             if time.time()-t > timeout:
-                #todo what we should do if broker does not respond for timeout period?
                 return False
             return True
 
@@ -145,10 +145,9 @@ class TBGateway(TBClient):
         self.publish_data({device: attributes}, TOPIC+"attributes", quality_of_service, blocking)
 
     def send_telemetry(self, device, telemetry, quality_of_service=1, blocking=False):
-        if type(telemetry) is not list:
-            telemetry = [telemetry]
+
         try:
-            DEVICE_TS_KV_VALIDATOR.validate(telemetry)
+            TS_KV_VALIDATOR.validate(telemetry)
         except ValidationError as e:
             log.error(e)
             return False
@@ -196,7 +195,7 @@ class TBGateway(TBClient):
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
         if self.__is_connected:
-            self.client.subscribe(RPC_TOPIC)
+            self.client.subscribe(RPC_TOPIC + "+")
         self.__on_server_side_rpc_response = handler
 
     def respond(self, req_id, resp, quality_of_service=1, blocking=False):

@@ -4,8 +4,10 @@ import logging
 from tb_device_mqtt import TBClient
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
-client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
+#client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
 #client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
+client = TBClient("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
+
 
 def freq_cb(value=None):
     global uploadFrequency
@@ -13,7 +15,7 @@ def freq_cb(value=None):
 
 
 def on_server_side_rpc_request(request_id, request_body):
-    print(1)
+    print(request_id, request_body)
     if request_body["method"] == "getCPULoad":
         client.respond(request_id, {"CPU percent": psutil.cpu_percent()})
     if request_body["method"] == "getMemoryUsage":

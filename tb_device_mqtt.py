@@ -42,7 +42,7 @@ TS_KV_SCHEMA = {
 }
 DEVICE_TS_KV_SCHEMA = {
     "type": "array",
-    "items": KV_SCHEMA
+    "items": TS_KV_SCHEMA
 }
 DEVICE_TS_OR_KV_SCHEMA = {
     "type": "array",
@@ -246,7 +246,13 @@ class TBClient:
             self.client.publish(topic, data, qos)
 
     def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
-
+        if type(telemetry) is not list:
+            telemetry = [telemetry]
+        try:
+            DEVICE_TS_OR_KV_VALIDATOR.validate(telemetry)
+        except ValidationError as e:
+            log.error(e)
+            return False
         self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
 
     def send_attributes(self, attributes, quality_of_service=1, blocking=False):
@@ -266,9 +272,9 @@ class TBClient:
         self.__sub_dict = dict((k, v) for k, v in self.__sub_dict.items() if v is not {})
 
     def subscribe_to_everything(self, callback):
-        self.subscribe(callback, key="*")
+        self.subscribe("*", callback)
 
-    def subscribe(self, callback, key):
+    def subscribe(self, key, callback):
         self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
         self.__max_sub_id += 1
         if key not in self.__sub_dict:
