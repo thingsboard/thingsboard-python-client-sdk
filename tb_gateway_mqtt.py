@@ -82,7 +82,9 @@ class TBGateway(TBClient):
                         for sub_id in self.__sub_dict[target]:
                             self.__sub_dict[target][sub_id](content["data"])
             elif message.topic.startswith(RPC_TOPIC):
-                request_id = message.topic[len(RPC_TOPIC):len(message.topic)]
+                #request_id = message.topic[len(RPC_TOPIC):len(message.topic)]
+                print(content)
+                request_id = 1
                 if self.__on_server_side_rpc_response:
                     self.__on_server_side_rpc_response(request_id, content)
 
@@ -153,11 +155,12 @@ class TBGateway(TBClient):
             return False
         self.publish_data({device: telemetry}, TOPIC+"telemetry", quality_of_service, blocking)
 
-    def connect_device(self, device, blocking=False):
-        info = self.client.publish(topic=TOPIC + "connect", payload=dumps({"device": str(device)}), qos=1)
+    def connect_device(self, device_name, blocking=False):
+        info = self.client.publish(topic=TOPIC + "connect", payload=dumps({"device": device_name}), qos=1)
         if blocking:
             info.wait_for_publish()
-        self.__connected_devices.add(device)
+        self.__connected_devices.add(device_name)
+        log.debug("Connected device {name}".format(name=device_name))
 
     def unsubscribe(self, subscription_id):
         for x in self.__sub_dict:
@@ -166,11 +169,12 @@ class TBGateway(TBClient):
                 log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=x,
                                                                                            sub_id=subscription_id))
 
-    def disconnect_device(self, device, blocking=False):
-        info = self.client.publish(topic=TOPIC + "disconnect", payload=dumps({"device": str(device)}), qos=1)
+    def disconnect_device(self, device_name, blocking=False):
+        info = self.client.publish(topic=TOPIC + "disconnect", payload=dumps({"device": device_name}), qos=1)
         if blocking:
             info.wait_for_publish()
-        self.__connected_devices.remove(device)
+        self.__connected_devices.remove(device_name)
+        log.debug("Disconnected device {name}".format(name=device_name))
 
     def subscribe_to_all(self, callback):
         return self.subscribe_to_attribute("*", "*", callback)

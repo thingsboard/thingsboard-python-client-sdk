@@ -7,9 +7,9 @@ def callback(result):
     print(result)
 
 
-client = tb.TBGateway("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
+gw = tb.TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
-client.connect()
-client.request_shared_attributes("Example Name", ["temp"], callback)
+gw.connect()
+gw.request_shared_attributes("Example Name", ["temp"], callback)
 while True:
     pass

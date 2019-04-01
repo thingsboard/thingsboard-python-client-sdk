@@ -214,7 +214,7 @@ class TBClient:
                                 certfile=cert_file,
                                 keyfile=key_file,
                                 cert_reqs=ssl.CERT_REQUIRED,
-                                tls_version=ssl.PROTOCOL_TLSv1,
+                                tls_version=ssl.PROTOCOL_TLSv1_2,
                                 ciphers=None)
             self.client.tls_insecure_set(False)
         self.client.connect(self.__host, port)

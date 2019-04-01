@@ -12,6 +12,7 @@ def rpc_request_response(request_id, request_body):
 
 
 gw.set_server_side_rpc_request_handler(rpc_request_response)
+gw.connect_device("Test Device A2")
 gw.connect()
 while True:
     pass

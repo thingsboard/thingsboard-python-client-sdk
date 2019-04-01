@@ -3,8 +3,8 @@ from tb_gateway_mqtt import TBGateway
 logging.basicConfig(level=logging.DEBUG)
 import time
 
-gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
-telemetry = [
+gateway = TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
+telemetry_another_example = [
     {"ts": 1, "values": {"key1": "val1"}},
     {"ts": 2, "values": {"key2": "val2"}}
 ]
