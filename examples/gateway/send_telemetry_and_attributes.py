@@ -10,7 +10,7 @@ telemetry_array = [
     {"ts": 1, "values": {"key1": "11"}},
     {"ts": 2, "values": {"key2": "22"}}
 ]
-
+# without device connection it is impossible to get any messages
 gateway.connect_device("Test Device A2")
 gateway.connect()
 
@@ -18,4 +18,4 @@ gateway.send_telemetry("Test Device A2", telemetry_simple)
 gateway.send_telemetry("Test Device A2", telemetry_array)
 gateway.send_attributes("Test Device A2", attributes)
 while True:
-    pass
+    time.sleep(1)

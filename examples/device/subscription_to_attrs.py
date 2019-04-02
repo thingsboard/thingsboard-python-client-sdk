@@ -1,4 +1,6 @@
 import logging
+import time
+
 import tb_device_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
@@ -13,4 +15,4 @@ sub_id_1 = client.subscribe("temperature", callback)
 sub_id_2 = client.subscribe_to_everything(callback)
 client.unsubscribe(sub_id_1)
 while True:
-    pass
+    time.sleep(1)

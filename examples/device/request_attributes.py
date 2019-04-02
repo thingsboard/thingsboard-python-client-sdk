@@ -1,4 +1,6 @@
 import logging
+import time
+
 import tb_device_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
@@ -12,4 +14,4 @@ client = tb.TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 client.connect()
 client.request_attributes(["atr1"], callback=callback)
 while True:
-    pass
+    time.sleep(1)

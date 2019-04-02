@@ -1,4 +1,6 @@
 import logging
+import time
+
 import tb_gateway_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
@@ -8,8 +10,7 @@ def callback(result):
 
 
 gw = tb.TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
-
 gw.connect()
 gw.request_shared_attributes("Example Name", ["temperature"], callback)
 while True:
-    pass
+    time.sleep(1)
