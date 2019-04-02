@@ -1,7 +1,6 @@
 import paho.mqtt.client as paho
 import logging
 import time
-import threading
 from json import loads, dumps
 from jsonschema import Draft7Validator
 import ssl
@@ -231,21 +230,15 @@ class TBClient:
         self.client.disconnect()
         log.info("Disconnected from ThingsBoard!")
 
-    def publish_data(self, data, topic, qos, blocking):
-        def send_d():
-            info = self.client.publish(topic, data, qos)
-            info.wait_for_publish()
+    def publish_data(self, data, topic, qos):
         data = dumps(data)
         if qos != 0 and qos != 1:
             log.exception("Quality of service (qos) value must be 0 or 1")
-            return
-        if blocking:
-            t = threading.Thread(target=send_d)
-            t.start()
+            return False
         else:
             self.client.publish(topic, data, qos)
 
-    def send_telemetry(self, telemetry, quality_of_service=1, blocking=False):
+    def send_telemetry(self, telemetry, quality_of_service=1):
         if type(telemetry) is not list:
             telemetry = [telemetry]
         try:
@@ -253,15 +246,15 @@ class TBClient:
         except ValidationError as e:
             log.error(e)
             return False
-        self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, blocking)
+        self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service)
 
-    def send_attributes(self, attributes, quality_of_service=1, blocking=False):
+    def send_attributes(self, attributes, quality_of_service=1):
         try:
             KV_VALIDATOR.validate(attributes)
         except ValidationError as e:
             log.error(e)
             return False
-        self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, blocking)
+        self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service)
 
     def unsubscribe(self, subscription_id):
         for x in self.__sub_dict:

@@ -10,6 +10,6 @@ def callback(result):
 gw = tb.TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
 gw.connect()
-gw.request_shared_attributes("Example Name", ["temp"], callback)
+gw.request_shared_attributes("Example Name", ["temperature"], callback)
 while True:
     pass

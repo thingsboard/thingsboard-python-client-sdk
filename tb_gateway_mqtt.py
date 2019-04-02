@@ -10,7 +10,7 @@ GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 TOPIC = "v1/gateway/"
-RPC_TOPIC = "v1/gateway/rpc/"
+RPC_TOPIC = "v1/gateway/rpc"
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class TBGateway(TBClient):
                 self.__is_connected = True
                 log.info("connection SUCCESS")
                 if self.__rpc_set:
-                    self.client.subscribe(RPC_TOPIC + "+")
+                    self.client.subscribe(RPC_TOPIC + "/+")
             else:
                 if rc in result_codes:
                     log.error("connection FAIL with error '%i':'%s'" % (rc, result_codes[rc]))
@@ -81,12 +81,9 @@ class TBGateway(TBClient):
                     if self.__sub_dict.get(target):
                         for sub_id in self.__sub_dict[target]:
                             self.__sub_dict[target][sub_id](content["data"])
-            elif message.topic.startswith(RPC_TOPIC):
-                #request_id = message.topic[len(RPC_TOPIC):len(message.topic)]
-                print(content)
-                request_id = 1
+            elif message.topic == RPC_TOPIC:
                 if self.__on_server_side_rpc_response:
-                    self.__on_server_side_rpc_response(request_id, content)
+                    self.__on_server_side_rpc_response(content)
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log
@@ -138,22 +135,23 @@ class TBGateway(TBClient):
     def request_client_attributes(self, device_name, keys, callback):
         self.__request_attributes(device_name, keys, True, callback)
 
-    def send_attributes(self, device, attributes, quality_of_service=1, blocking=False):
+    def send_attributes(self, device, attributes, quality_of_service=1):
         try:
             KV_VALIDATOR.validate(attributes)
         except ValidationError as e:
             log.error(e)
             return False
-        self.publish_data({device: attributes}, TOPIC+"attributes", quality_of_service, blocking)
+        self.publish_data({device: attributes}, TOPIC+"attributes", quality_of_service)
 
-    def send_telemetry(self, device, telemetry, quality_of_service=1, blocking=False):
-
+    def send_telemetry(self, device, telemetry, quality_of_service=1):
+        if type(telemetry) is not list:
+            telemetry = [telemetry]
         try:
-            TS_KV_VALIDATOR.validate(telemetry)
+            DEVICE_TS_KV_VALIDATOR.validate(telemetry)
         except ValidationError as e:
             log.error(e)
             return False
-        self.publish_data({device: telemetry}, TOPIC+"telemetry", quality_of_service, blocking)
+        self.publish_data({device: telemetry}, TOPIC+"telemetry", quality_of_service,)
 
     def connect_device(self, device_name, blocking=False):
         info = self.client.publish(topic=TOPIC + "connect", payload=dumps({"device": device_name}), qos=1)
@@ -199,13 +197,15 @@ class TBGateway(TBClient):
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
         if self.__is_connected:
-            self.client.subscribe(RPC_TOPIC + "+")
+            self.client.subscribe(RPC_TOPIC + "/+")
         self.__on_server_side_rpc_response = handler
 
-    def respond(self, req_id, resp, quality_of_service=1, blocking=False):
+    def respond(self, device, req_id, resp, quality_of_service=1, blocking=False):
         if quality_of_service != 0 and quality_of_service != 1:
             log.error("Quality of service (qos) value must be 0 or 1")
             return
-        info = self.client.publish(RPC_TOPIC + req_id, resp, qos=quality_of_service)
+        info = self.client.publish(RPC_TOPIC,
+                                   dumps({"device": device, "id": req_id, "data": resp}),
+                                   qos=quality_of_service)
         if blocking:
             info.wait_for_publish()

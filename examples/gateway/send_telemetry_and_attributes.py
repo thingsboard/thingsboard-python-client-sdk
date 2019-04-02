@@ -3,14 +3,19 @@ from tb_gateway_mqtt import TBGateway
 logging.basicConfig(level=logging.DEBUG)
 import time
 
-gateway = TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
-telemetry_another_example = [
-    {"ts": 1, "values": {"key1": "val1"}},
-    {"ts": 2, "values": {"key2": "val2"}}
+gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+attributes = {"atr1": 1, "atr2": True, "atr3": "value3"}
+telemetry_simple = {"ts": 1, "values": {"key1": "11"}}
+telemetry_array = [
+    {"ts": 1, "values": {"key1": "11"}},
+    {"ts": 2, "values": {"key2": "22"}}
 ]
 
+gateway.connect_device("Test Device A2")
 gateway.connect()
-gateway.send_attributes("Test Device A2", {"atr1": 1, "atr2": True, "atr3": "value3"})
-gateway.send_telemetry("Test Device A2", {"ts": 2, "values": {"key3": "value3"}})
+
+gateway.send_telemetry("Test Device A2", telemetry_simple)
+gateway.send_telemetry("Test Device A2", telemetry_array)
+gateway.send_attributes("Test Device A2", attributes)
 while True:
     pass

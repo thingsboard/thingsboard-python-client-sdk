@@ -3,12 +3,20 @@ import tb_gateway_mqtt as tb
 import psutil
 logging.basicConfig(level=logging.DEBUG)
 
-gw = tb.TBGateway("demo.thingsboard.io", "VSBk9a8nrkiGrMdDUEmm")
+gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
 
 
-def rpc_request_response(request_id, request_body):
-    print(request_id, request_body)
-    gw.respond(request_id, {"Memory": psutil.virtual_memory().percent})
+def rpc_request_response(request_body):
+    print(request_body)
+    method = request_body["data"]["method"]
+    device = request_body["device"]
+    id = request_body["data"]["id"]
+    if method == 'getCPULoad':
+        gw.respond(device, id, {"CPU load": psutil.cpu_percent()})
+    elif method == 'getMemoryLoad':
+        gw.respond(device, id, {"Memory": psutil.virtual_memory().percent})
+    else:
+        print('Unknown method: ' + method)
 
 
 gw.set_server_side_rpc_request_handler(rpc_request_response)
