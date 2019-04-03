@@ -67,28 +67,30 @@ class TBGateway(TBClient):
             log.info(content)
             log.info(message.topic)
             if message.topic.startswith(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC):
-                req_id = content["id"]
-                # pop callback and use it
-                if self.__atr_request_dict[req_id]:
-                    self.__atr_request_dict.pop(req_id)(content, None)
-                else:
-                    log.error("Unable to find callback to process attributes response from TB")
+                with self.lock:
+                    req_id = content["id"]
+                    # pop callback and use it
+                    if self.__atr_request_dict[req_id]:
+                        self.__atr_request_dict.pop(req_id)(content, None)
+                    else:
+                        log.error("Unable to find callback to process attributes response from TB")
             elif message.topic == GATEWAY_ATTRIBUTES_TOPIC:
-                # callbacks for everythings
-                if self.__sub_dict.get("*|*"):
-                    for x in self.__sub_dict["*|*"]:
-                        self.__sub_dict["*|*"][x](content["data"])
-                # callbacks for device. in this case callback executes for all attributes in message
-                target = content["device"] + "|*"
-                if self.__sub_dict.get(target):
-                    for x in self.__sub_dict[target]:
-                        self.__sub_dict[target][x](content["data"])
-                # callback for atr. in this case callback executes for all attributes in message
-                targets = [content["device"] + "|" + x for x in content["data"]]
-                for target in targets:
+                with self.lock:
+                    # callbacks for everythings
+                    if self.__sub_dict.get("*|*"):
+                        for x in self.__sub_dict["*|*"]:
+                            self.__sub_dict["*|*"][x](content["data"])
+                    # callbacks for device. in this case callback executes for all attributes in message
+                    target = content["device"] + "|*"
                     if self.__sub_dict.get(target):
-                        for sub_id in self.__sub_dict[target]:
-                            self.__sub_dict[target][sub_id](content["data"])
+                        for x in self.__sub_dict[target]:
+                            self.__sub_dict[target][x](content["data"])
+                    # callback for atr. in this case callback executes for all attributes in message
+                    targets = [content["device"] + "|" + x for x in content["data"]]
+                    for target in targets:
+                        if self.__sub_dict.get(target):
+                            for sub_id in self.__sub_dict[target]:
+                                self.__sub_dict[target][sub_id](content["data"])
             elif message.topic == RPC_TOPIC:
                 if self.__on_server_side_rpc_response:
                     self.__on_server_side_rpc_response(content)
