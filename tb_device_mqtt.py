@@ -1,11 +1,13 @@
 import paho.mqtt.client as paho
 import logging
 import time
+import queue
 from json import loads, dumps
 from jsonschema import Draft7Validator
 import ssl
 from jsonschema import ValidationError
 from threading import Lock
+from threading import Thread
 
 KV_SCHEMA = {
     "type": "object",
@@ -68,6 +70,10 @@ TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
 log = logging.getLogger(__name__)
 
 
+class TBTimeoutException(Exception):
+    pass
+
+
 class TBClient:
     def __init__(self, host, token=None):
         self.client = paho.Client()
@@ -77,6 +83,9 @@ class TBClient:
         else:
             self.client.username_pw_set(token)
         self.lock = Lock()
+        self.timeout_queue = queue.Queue()
+        self.timeout_thread = Thread(target=self.__timeout_check)
+        self.timeout_thread.start()
         self.__is_subscribed_to_attributes = False
         self.__is_attribute_requested = False
         self.__is_subscribed_to_server_responses = False
@@ -156,7 +165,7 @@ class TBClient:
             elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
                 req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
                 # pop callback and use it
-                self.__atr_request_dict.pop(req_id)(content)
+                self.__atr_request_dict.pop(req_id)(content, None)
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log
@@ -289,10 +298,34 @@ class TBClient:
                 tmp += key + ","
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
+
+        ts_in_millis = int(round(time.time() * 1000))
+
         with self.lock:
             self.__atr_request_number += 1
             self.__atr_request_dict.update({self.__atr_request_number: callback})
-            self.client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__atr_request_number),
-                                payload=dumps(msg),
-                                qos=1)
+            attr_request_number = self.__atr_request_number
 
+        self.client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__atr_request_number),
+                            payload=dumps(msg),
+                            qos=1)
+        self.timeout_queue.put({"ts": ts_in_millis + 30000, "attribute_request_id": attr_request_number})
+
+    def __timeout_check(self):
+        while True:
+            try:
+                item = self.timeout_queue.get()
+                if item is not None:
+                    while True:
+                        current_ts_in_millis = int(round(time.time() * 1000))
+                        if current_ts_in_millis > item["ts"]:
+                            break
+                        else:
+                            time.sleep(0.1)
+                    callback = self.__atr_request_dict.pop(item["attribute_request_id"])
+                    if callback is not None:
+                        callback(None, TBTimeoutException("Timeout while waiting for reply from ThingsBoard!"))
+                else:
+                    time.sleep(0.1)
+            except Exception as e:
+                log.warning(e)

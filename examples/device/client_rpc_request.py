@@ -10,6 +10,7 @@ def callback(request_id, resp_body):
                                                                         resp_body=resp_body))
 
 
+//TODO: replace
 client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
 client.connect()

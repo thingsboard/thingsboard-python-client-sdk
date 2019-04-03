@@ -2,9 +2,10 @@ import psutil
 import time
 import logging
 from tb_device_mqtt import TBClient
-# this example illustrates situation, where client send cpu and memory usage every 5 seconds. if client receives update
-# of uploadFrequency attribute, it changes frequency of other attributes publishing. also client is listening to rpc
-# and responds immediately to corresponding rpc from server
+# this example illustrates situation, where client send cpu and memory usage every 5 seconds.
+# If client receives an update of uploadFrequency attribute, it changes frequency of other attributes publishing.
+# Also client is listening to rpc and responds immediately to corresponding rpc methods from server
+# ('getCPULoad' or 'getMemoryUsage')
 
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
