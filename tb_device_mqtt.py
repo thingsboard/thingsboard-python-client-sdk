@@ -144,28 +144,31 @@ class TBClient:
                 if self.__on_server_side_rpc_response:
                     self.__on_server_side_rpc_response(request_id, content)
             elif message.topic.startswith(RPC_RESPONSE_TOPIC):
-                request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
-                self.__client_rpc_dict.pop(request_id)(request_id, content, None)
+                with self.lock:
+                    request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
+                    self.__client_rpc_dict.pop(request_id)(request_id, content, None)
             elif message.topic == ATTRIBUTES_TOPIC:
-                # callbacks for everything
-                if self.__sub_dict.get("*"):
-                    for x in self.__sub_dict["*"]:
-                        self.__sub_dict["*"][x](content)
-                # specific callback
-                keys = content.keys()
-                keys_list = []
-                for key in keys:
-                    keys_list.append(key)
-                # iterate through message
-                for key in keys_list:
-                    # find key in our dict
-                    if self.__sub_dict.get(key):
-                        for x in self.__sub_dict[key]:
-                            self.__sub_dict[key][x](content)
+                with self.lock:
+                    # callbacks for everything
+                    if self.__sub_dict.get("*"):
+                        for x in self.__sub_dict["*"]:
+                            self.__sub_dict["*"][x](content)
+                    # specific callback
+                    keys = content.keys()
+                    keys_list = []
+                    for key in keys:
+                        keys_list.append(key)
+                    # iterate through message
+                    for key in keys_list:
+                        # find key in our dict
+                        if self.__sub_dict.get(key):
+                            for x in self.__sub_dict[key]:
+                                self.__sub_dict[key][x](content)
             elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
-                req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
-                # pop callback and use it
-                self.__atr_request_dict.pop(req_id)(content, None)
+                with self.lock:
+                    req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
+                    # pop callback and use it
+                    self.__atr_request_dict.pop(req_id)(content, None)
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log
