@@ -70,7 +70,7 @@ class TBGateway(TBClient):
                 req_id = content["id"]
                 # pop callback and use it
                 if self.__atr_request_dict[req_id]:
-                    self.__atr_request_dict.pop(req_id)(content)
+                    self.__atr_request_dict.pop(req_id)(content, None)
                 else:
                     log.error("Unable to find callback to process attributes response from TB")
             elif message.topic == GATEWAY_ATTRIBUTES_TOPIC:

@@ -5,8 +5,11 @@ import tb_gateway_mqtt as tb
 logging.basicConfig(level=logging.DEBUG)
 
 
-def callback(result):
-    print(result)
+def callback(result, exception):
+    if exception is not None:
+        print("Exception: " + str(exception))
+    else:
+        print(result)
 
 
 gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
