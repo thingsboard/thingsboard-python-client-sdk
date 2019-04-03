@@ -5,8 +5,6 @@ import tb_gateway_mqtt as tb
 import psutil
 logging.basicConfig(level=logging.DEBUG)
 
-gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
-
 
 def rpc_request_response(request_body):
     # request body contains id, method and other parameters
@@ -23,6 +21,7 @@ def rpc_request_response(request_body):
         print('Unknown method: ' + method)
 
 
+gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
 # now rpc_request_response will process rpc requests from servers
 gw.set_server_side_rpc_request_handler(rpc_request_response)
 # without device connection it is impossible to get any messages

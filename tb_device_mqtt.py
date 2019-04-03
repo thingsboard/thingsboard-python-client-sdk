@@ -5,7 +5,7 @@ from json import loads, dumps
 from jsonschema import Draft7Validator
 import ssl
 from jsonschema import ValidationError
-
+from threading import Lock
 
 KV_SCHEMA = {
     "type": "object",
@@ -76,7 +76,9 @@ class TBClient:
             log.warning("token is not set, connection without tls wont be established")
         else:
             self.client.username_pw_set(token)
+        self.lock = Lock()
         self.__is_attribute_requested = False
+        self.__is_subscribed_to_server_responses = False
         self.__is_connected = False
         self.client.on_connect = None
         self.client.on_log = None
@@ -88,6 +90,7 @@ class TBClient:
         self.__rpc_set = None
         self.__atr_request_number = 1
         self.__max_sub_id = 1
+        self.__client_rpc_number = 1
         self.__sub_dict = {}
         self.__client_rpc_dict = {}
         self.__atr_request_dict = {}
@@ -131,17 +134,13 @@ class TBClient:
                 if self.__on_server_side_rpc_response:
                     self.__on_server_side_rpc_response(request_id, content)
             elif message.topic.startswith(RPC_RESPONSE_TOPIC):
-                request_id = message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)]
-                if self.__client_rpc_dict.get(request_id):
-                    x = self.__client_rpc_dict.pop(request_id)
-                    x(request_id, content)
-                self.__on_client_side_rpc_response(request_id, content)
+                request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
+                self.__client_rpc_dict.pop(request_id)(request_id, content)
             elif message.topic == ATTRIBUTES_TOPIC:
                 # callbacks for everything
                 if self.__sub_dict.get("*"):
                     for x in self.__sub_dict["*"]:
                         self.__sub_dict["*"][x](content)
-
                 # specific callback
                 keys = content.keys()
                 keys_list = []
@@ -156,22 +155,19 @@ class TBClient:
             elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
                 req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
                 # pop callback and use it
-                if self.__atr_request_dict[req_id]:
-                    self.__atr_request_dict.pop(req_id)(content)
-                else:
-                    log.error("Unable to find callback to process attributes response from TB")
+                self.__atr_request_dict.pop(req_id)(content)
 
         self.client.on_connect = on_connect
         self.client.on_log = on_log
         self.client.on_publish = on_publish
         self.client.on_message = on_message
 
-    def respond(self, req_id, resp, quality_of_service=1, blocking=False):
+    def respond(self, req_id, resp, quality_of_service=1, wait_for_publish=False):
         if quality_of_service != 0 and quality_of_service != 1:
             log.error("Quality of service (qos) value must be 0 or 1")
             return
         info = self.client.publish(RPC_RESPONSE_TOPIC + req_id, resp, qos=quality_of_service)
-        if blocking:
+        if wait_for_publish:
             info.wait_for_publish()
 
     def send_rpc_call(self, method, params, callback):
@@ -180,25 +176,16 @@ class TBClient:
         except ValidationError as e:
             log.error(e)
             return False
-
-        def find_max_rpc_id():
-            res = 1
-            for item in self.__client_rpc_dict:
-                if item > res:
-                    res = item
-            return res
-
-        self.__client_rpc_dict.update({find_max_rpc_id(): callback})
-        payload = {"method": method, "params": params}
-        self.client.publish(RPC_REQUEST_TOPIC + str(find_max_rpc_id()),
-                            dumps(payload),
-                            qos=1)
-
-    def set_client_side_rpc_request_handler(self, handler):
-        self.__rpc_set = True
-        if self.__is_connected:
-            self.client.subscribe(RPC_RESPONSE_TOPIC + '+')
-        self.__on_client_side_rpc_response = handler
+        if not self.__is_subscribed_to_server_responses:
+            self.__is_subscribed_to_server_responses = True
+            self.client.subscribe(RPC_RESPONSE_TOPIC + '+', qos=1)
+        with self.lock:
+            self.__client_rpc_number += 1
+            self.__client_rpc_dict.update({self.__client_rpc_number: callback})
+            payload = {"method": method, "params": params}
+            self.client.publish(RPC_REQUEST_TOPIC + str(self.__client_rpc_number),
+                                dumps(payload),
+                                qos=1)
 
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
@@ -257,25 +244,27 @@ class TBClient:
         self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service)
 
     def unsubscribe(self, subscription_id):
-        for x in self.__sub_dict:
-            if self.__sub_dict[x].get(subscription_id):
-                del self.__sub_dict[x][subscription_id]
-                log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=x,
-                                                                                           sub_id=subscription_id))
-        self.__sub_dict = dict((k, v) for k, v in self.__sub_dict.items() if v is not {})
+        with self.lock:
+            for x in self.__sub_dict:
+                if self.__sub_dict[x].get(subscription_id):
+                    del self.__sub_dict[x][subscription_id]
+                    log.debug("Unsubscribed from {attribute}, subscription id {sub_id}".format(attribute=x,
+                                                                                               sub_id=subscription_id))
+            self.__sub_dict = dict((k, v) for k, v in self.__sub_dict.items() if v is not {})
 
     def subscribe_to_everything(self, callback):
         self.subscribe("*", callback)
 
     def subscribe(self, key, callback):
         self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
-        self.__max_sub_id += 1
-        if key not in self.__sub_dict:
-            self.__sub_dict.update({key: {self.__max_sub_id: callback}})
-        else:
-            self.__sub_dict[key].update({self.__max_sub_id: callback})
-        log.debug("Subscribed to {key} with id {id}".format(key=key, id=self.__max_sub_id))
-        return self.__max_sub_id
+        with self.lock:
+            self.__max_sub_id += 1
+            if key not in self.__sub_dict:
+                self.__sub_dict.update({key: {self.__max_sub_id: callback}})
+            else:
+                self.__sub_dict[key].update({self.__max_sub_id: callback})
+            log.debug("Subscribed to {key} with id {id}".format(key=key, id=self.__max_sub_id))
+            return self.__max_sub_id
 
     def request_attributes(self, client_keys=None, shared_keys=None, callback=None):
         if client_keys is None and shared_keys is None:
@@ -297,8 +286,10 @@ class TBClient:
                 tmp += key + ","
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
-        self.client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__atr_request_number),
-                            payload=dumps(msg),
-                            qos=1)
-        self.__atr_request_dict.update({self.__atr_request_number: callback})
-        self.__atr_request_number += 1
+        with self.lock:
+            self.__atr_request_number += 1
+            self.__atr_request_dict.update({self.__atr_request_number: callback})
+            self.client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__atr_request_number),
+                                payload=dumps(msg),
+                                qos=1)
+

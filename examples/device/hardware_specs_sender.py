@@ -8,7 +8,6 @@ from tb_device_mqtt import TBClient
 
 logging.basicConfig(level=logging.DEBUG)
 uploadFrequency = 5
-client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 
 
 # this callback changes global variable defining how often telemetry is sent
@@ -26,6 +25,7 @@ def on_server_side_rpc_request(request_id, request_body):
         client.respond(request_id, {"Memory": psutil.virtual_memory().percent})
 
 
+client = TBClient("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
 # to change upload Frequency we need to subscribe to corresponding attribute
