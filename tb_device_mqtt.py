@@ -77,6 +77,7 @@ class TBClient:
         else:
             self.client.username_pw_set(token)
         self.lock = Lock()
+        self.__is_subscribed_to_attributes = False
         self.__is_attribute_requested = False
         self.__is_subscribed_to_server_responses = False
         self.__is_connected = False
@@ -256,7 +257,9 @@ class TBClient:
         self.subscribe("*", callback)
 
     def subscribe(self, key, callback):
-        self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
+        if not self.__is_subscribed_to_attributes:
+            info = self.client.subscribe(ATTRIBUTES_TOPIC, qos=1)
+            self.client.__is_subscribed_to_attributes = True
         with self.lock:
             self.__max_sub_id += 1
             if key not in self.__sub_dict:
