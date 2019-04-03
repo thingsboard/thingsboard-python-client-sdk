@@ -145,7 +145,7 @@ class TBClient:
                     self.__on_server_side_rpc_response(request_id, content)
             elif message.topic.startswith(RPC_RESPONSE_TOPIC):
                 request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
-                self.__client_rpc_dict.pop(request_id)(request_id, content)
+                self.__client_rpc_dict.pop(request_id)(request_id, content, None)
             elif message.topic == ATTRIBUTES_TOPIC:
                 # callbacks for everything
                 if self.__sub_dict.get("*"):
@@ -192,10 +192,11 @@ class TBClient:
         with self.lock:
             self.__client_rpc_number += 1
             self.__client_rpc_dict.update({self.__client_rpc_number: callback})
-            payload = {"method": method, "params": params}
-            self.client.publish(RPC_REQUEST_TOPIC + str(self.__client_rpc_number),
-                                dumps(payload),
-                                qos=1)
+            rpc_request_id = self.__client_rpc_number
+        payload = {"method": method, "params": params}
+        self.client.publish(RPC_REQUEST_TOPIC + str(self.__client_rpc_number),
+                            dumps(payload),
+                            qos=1)
 
     def set_server_side_rpc_request_handler(self, handler):
         self.__rpc_set = True
@@ -322,7 +323,11 @@ class TBClient:
                             break
                         else:
                             time.sleep(0.1)
-                    callback = self.__atr_request_dict.pop(item["attribute_request_id"])
+                    callback = None
+                    if item.get("attribute_request_id"):
+                        callback = self.__atr_request_dict.pop(item["attribute_request_id"])
+                    elif item.get("rpc_request_id"):
+                        callback = self.__client_rpc_dict.pop(item["rpc_request_id"])
                     if callback is not None:
                         callback(None, TBTimeoutException("Timeout while waiting for reply from ThingsBoard!"))
                 else:

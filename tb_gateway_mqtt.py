@@ -2,10 +2,11 @@ import paho.mqtt.client as paho
 import logging
 import time
 from json import loads, dumps
-from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR, TS_KV_VALIDATOR
+from tb_device_mqtt import TBClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR, TBTimeoutException
 from jsonschema import ValidationError
 import ssl
-from threading import Lock
+from threading import Lock, Thread
+import queue
 
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
@@ -35,6 +36,9 @@ class TBGateway(TBClient):
         self.__connected_devices = set("*")
         self.__subscribed_to_attributes = False
         self.lock = Lock()
+        self.timeout_queue = queue.Queue()
+        self.timeout_thread = Thread(target=self.__timeout_check)
+        self.timeout_thread.start()
 
         def on_connect(client, userdata, flags, rc, *extra_params):
             result_codes = {
@@ -128,10 +132,13 @@ class TBGateway(TBClient):
                "device": device,
                "client": type_is_client,
                "id": self.__atr_request_number}
+        ts_in_millis = int(round(time.time() * 1000))
         with self.lock:
             self.__atr_request_dict.update({self.__atr_request_number: callback})
             self.__atr_request_number += 1
-            self.client.publish(GATEWAY_ATTRIBUTES_REQUEST_TOPIC, dumps(msg), 1)
+            attr_request_number = self.__atr_request_number
+        self.client.publish(GATEWAY_ATTRIBUTES_REQUEST_TOPIC, dumps(msg), 1)
+        self.timeout_queue.put({"ts": ts_in_millis + 30000, "attribute_request_id": attr_request_number})
 
     def request_shared_attributes(self, device_name, keys, callback):
         self.__request_attributes(device_name, keys, callback, False)
@@ -216,3 +223,24 @@ class TBGateway(TBClient):
                                    qos=quality_of_service)
         if wait_for_publish:
             info.wait_for_publish()
+
+    def __timeout_check(self):
+        while True:
+            try:
+                item = self.timeout_queue.get()
+                if item is not None:
+                    while True:
+                        current_ts_in_millis = int(round(time.time() * 1000))
+                        if current_ts_in_millis > item["ts"]:
+                            break
+                        else:
+                            time.sleep(0.1)
+                    callback = None
+                    if item.get("attribute_request_id"):
+                        callback = self.__atr_request_dict.pop(item["attribute_request_id"])
+                    if callback is not None:
+                        callback(None, TBTimeoutException("Timeout while waiting for reply from ThingsBoard!"))
+                else:
+                    time.sleep(0.1)
+            except Exception as e:
+                log.warning(e)

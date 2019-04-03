@@ -17,8 +17,9 @@ def callback_for_specific_attr(result):
     print("Specific attribute callback, {0}".format(result))
 
 
-gw = tb.TBGateway("demo.thingsboard.io", "HvbKddqKsxVqowKoSR2J")
+gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
 gw.connect()
+# without device connection it is impossible to get any messages
 gw.connect_device("Test Device A2")
 
 gw.subscribe_to_all(callback_for_everything)
