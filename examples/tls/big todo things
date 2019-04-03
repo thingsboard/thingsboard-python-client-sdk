@@ -1,9 +1,0 @@
-в обратном порядке и в локе
-везде, где оно используется, использовать в локе
-после попытки подписаться, если она не прошла, чистить дикты
-
-        self.client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__atr_request_number),
-                            payload=dumps(msg),
-                            qos=1)
-        self.__atr_request_dict.update({self.__atr_request_number: callback})
-        self.__atr_request_number += 1
