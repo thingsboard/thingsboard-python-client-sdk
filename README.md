@@ -4,7 +4,7 @@
 ThingsBoard is an open-source IoT platform for data collection, processing, visualization, and device management.
 This project ia a Python library that provides convenient client SDK for both [Device](https://thingsboard.io/docs/reference/mqtt-api/) and [Gateway](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs.
 
-<img src="./img/logo.png?raw=true" width="100" height="100">
+<img src="./logo.png?raw=true" width="100" height="100">
 
 ## Getting Started
 
