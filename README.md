@@ -11,7 +11,7 @@ ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/d
 
 ## Getting Started
 
-pip3 install tb_mqtt_client
+pip3 install tb-mqtt-client
 
 ## Support
 
