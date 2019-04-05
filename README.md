@@ -15,7 +15,7 @@ ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/d
 ```
 pip3 install tb-mqtt-client
 ```
-There are more examples for [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
+There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
 
 ```
 from tb_device_mqtt import TBClient
