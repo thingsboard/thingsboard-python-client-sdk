@@ -20,7 +20,7 @@ There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_
 ```
 from tb_device_mqtt import TBClient
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
-client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
+client = TBClient("127.0.0.1", "A1_TEST_TOKEN")
 client.connect()
 client.send_telemetry(telemetry)
 client.disconnect()
