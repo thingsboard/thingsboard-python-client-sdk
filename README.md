@@ -12,8 +12,11 @@ ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/d
 
 ## Getting Started
 
+```
 pip3 install tb-mqtt-client
+```
 
+```
 from tb_device_mqtt import TBClient
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
 client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
@@ -21,6 +24,7 @@ client.connect()
 client.send_telemetry(telemetry)
 client.disconnect()
 
+```
 ## Support
 
  - [Community chat](https://gitter.im/thingsboard/chat)
