@@ -6,11 +6,9 @@ This project ia a Python library that provides convenient client SDK for both [D
 
 <img src="./img/logo.png?raw=true" width="100" height="100">
 
-## Documentation
+## Getting Started
 
 ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/docs).
-
-## Getting Started
 
 ```
 pip3 install tb-mqtt-client
