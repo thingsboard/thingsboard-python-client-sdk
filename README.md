@@ -1,4 +1,4 @@
-# TThingsBoard MQTT client Python SDK
+# ThingsBoard MQTT client Python SDK
 [![Join the chat at https://gitter.im/thingsboard/chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/thingsboard/chat?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ThingsBoard is an open-source IoT platform for data collection, processing, visualization, and device management.
