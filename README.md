@@ -23,7 +23,6 @@ client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
 client.connect()
 client.send_telemetry(telemetry)
 client.disconnect()
-
 ```
 ## Support
 
