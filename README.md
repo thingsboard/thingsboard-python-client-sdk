@@ -9,9 +9,6 @@ ThingsBoard is an open-source IoT platform for data collection, processing, visu
 
 ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/docs).
 
-## IoT use cases
-
-
 ## Getting Started
 
 pip3 install tb_mqtt_client
