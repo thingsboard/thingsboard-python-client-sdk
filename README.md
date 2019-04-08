@@ -10,11 +10,12 @@ This project ia a Python library that provides convenient client SDK for both [D
 
 ThingsBoard documentation is hosted on [thingsboard.io](https://thingsboard.io/docs).
 
+To install using pip:
 ```
-pip3 install tb-mqtt-client
+$ pip install tb-mqtt-client
 ```
-There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
 
+Device connecting and telemetry publishing
 ```
 from tb_device_mqtt import TBClient
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
@@ -23,6 +24,44 @@ client.connect()
 client.send_telemetry(telemetry)
 client.disconnect()
 ```
+
+TLS connection to localhost
+```
+from tb_device_mqtt import TBClient
+import socket
+client = TBClient(socket.gethostname())
+client.connect(tls=True,
+               ca_certs="mqttserver.pub.pem",
+               cert_file="mqttclient.nopass.pem")
+client.disconnect()
+```
+Subscription to attributes
+```
+import time
+from tb_device_mqtt import TBClient
+
+def callback(result):
+    print(result)
+
+client = TBClient("127.0.0.1", "A1_TEST_TOKEN")
+client.connect()
+client.subscribe("temperature", callback)
+while True:
+    time.sleep(1)
+```
+
+Gateway device connecting and disconnecting
+```
+from tb_gateway_mqtt import TBGateway
+gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+gateway.connect()
+gateway.connect_device("Example Name")
+gateway.disconnect_device("Example Name")
+gateway.disconnect()
+```
+There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
+сюда примеры не из моей папки, а из будущей папки примеров tb!
+
 ## Support
 
  - [Community chat](https://gitter.im/thingsboard/chat)
