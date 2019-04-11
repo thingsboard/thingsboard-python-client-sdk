@@ -1,7 +1,6 @@
-import psutil
 import time
 import logging
-from tb_device_mqtt import TBClient
+from tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -13,7 +12,7 @@ def callback(request_id, resp_body, exception):
                                                                             resp_body=resp_body))
 
 
-client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
 
 client.connect()
 # call "getTime" on server and receive result, then process it with callback

@@ -1,5 +1,5 @@
 import logging
-from tb_gateway_mqtt import TBGateway
+from tb_gateway_mqtt import TBGatewayMqttClient
 logging.basicConfig(level=logging.DEBUG)
 import time
 
@@ -10,13 +10,13 @@ telemetry_array = [
     {"ts": 2, "values": {"key2": "22"}}
 ]
 
-gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
 # without device connection it is impossible to get any messages
-gateway.connect_device("Test Device A2")
+gateway.gw_connect_device("Test Device A2")
 gateway.connect()
 
-gateway.send_telemetry("Test Device A2", telemetry_simple)
-gateway.send_telemetry("Test Device A2", telemetry_array)
-gateway.send_attributes("Test Device A2", attributes)
+gateway.gw_send_telemetry("Test Device A2", telemetry_simple)
+gateway.gw_send_telemetry("Test Device A2", telemetry_array)
+gateway.gw_send_attributes("Test Device A2", attributes)
 while True:
     time.sleep(1)

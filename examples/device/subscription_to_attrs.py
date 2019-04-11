@@ -1,7 +1,7 @@
 import logging
 import time
 
-import tb_device_mqtt as tb
+from tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -9,10 +9,11 @@ def callback(result):
     print(result)
 
 
-client = tb.TBClient("127.0.0.1", "A2_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
 client.connect()
-sub_id_1 = client.subscribe("temperature", callback)
-sub_id_2 = client.subscribe_to_everything(callback)
-client.unsubscribe(sub_id_1)
+sub_id_1 = client.subscribe_to_attribute("temperature", callback)
+sub_id_2 = client.subscribe_to_all_attributes(callback)
+client.unsubscribe_from_attribute(sub_id_1)
+client.unsubscribe_from_attribute(sub_id_2)
 while True:
     time.sleep(1)

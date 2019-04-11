@@ -1,7 +1,7 @@
 import logging.handlers
 import time
 
-import tb_gateway_mqtt as tb
+from tb_gateway_mqtt import TBGatewayMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -17,17 +17,17 @@ def callback_for_specific_attr(result):
     print("Specific attribute callback, {0}".format(result))
 
 
-gw = tb.TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
-gw.connect()
+gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+gateway.connect()
 # without device connection it is impossible to get any messages
-gw.connect_device("Test Device A2")
+gateway.gw_connect_device("Test Device A2")
 
-gw.subscribe_to_all(callback_for_everything)
+gateway.gw_subscribe_to_all_attributes(callback_for_everything)
 
-gw.subscribe_to_attribute("Test Device A2", "temperature", callback_for_specific_attr)
+gateway.gw_subscribe_to_attribute("Test Device A2", "temperature", callback_for_specific_attr)
 
-sub_id = gw.subscribe_to_attributes("Test Device A2", callback)
-gw.unsubscribe(sub_id)
+sub_id = gateway.gw_subscribe_to_all_device_attributes("Test Device A2", callback)
+gateway.gw_unsubscribe(sub_id)
 
 while True:
     time.sleep(1)

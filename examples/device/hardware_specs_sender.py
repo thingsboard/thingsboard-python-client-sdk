@@ -1,7 +1,7 @@
 import psutil
 import time
 import logging
-from tb_device_mqtt import TBClient
+from tb_device_mqtt import TBDeviceMqttClient
 # this example illustrates situation, where client send cpu and memory usage every 5 seconds.
 # If client receives an update of uploadFrequency attribute, it changes frequency of other attributes publishing.
 # Also client is listening to rpc and responds immediately to corresponding rpc methods from server
@@ -12,27 +12,32 @@ uploadFrequency = 5
 
 
 # this callback changes global variable defining how often telemetry is sent
-def freq_cb(value=None):
+def on_upload_frequency_change(value, error):
     global uploadFrequency
-    uploadFrequency = int(value["uploadFrequency"])
+    if "uploadFrequency" in value:
+        uploadFrequency = int(value["uploadFrequency"])
+    elif "shared" in value and "uploadFrequency" in value["shared"]:
+        uploadFrequency = int(value["shared"]["uploadFrequency"])
 
 
 # dependently of request method we send different data back
 def on_server_side_rpc_request(request_id, request_body):
     print(request_id, request_body)
     if request_body["method"] == "getCPULoad":
-        client.respond(request_id, {"CPU percent": psutil.cpu_percent()})
+        client.send_rpc_reply(request_id, {"CPU percent": psutil.cpu_percent()})
     elif request_body["method"] == "getMemoryUsage":
-        client.respond(request_id, {"Memory": psutil.virtual_memory().percent})
+        client.send_rpc_reply(request_id, {"Memory": psutil.virtual_memory().percent})
 
 
-client = TBClient("127.0.0.1", "A2_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
-# to change upload Frequency we need to subscribe to corresponding attribute
-client.subscribe(key="uploadFrequency", callback=freq_cb)
+# to fetch the latest setting for upload frequency configured on the server
+client.request_attributes(shared_keys=["uploadFrequency"], callback=on_upload_frequency_change)
+# to subscribe to future changes of upload frequency
+client.subscribe_to_attribute(key="uploadFrequency", callback=on_upload_frequency_change)
 while True:
-    client.send_telemetry({"CPU percent": psutil.cpu_percent()})
-    client.send_telemetry({"Memory": psutil.virtual_memory().percent})
+    client.send_telemetry({"cpu": psutil.cpu_percent(), "memory": psutil.virtual_memory().percent})
+    print("Sleeping for " + str(uploadFrequency))
     time.sleep(uploadFrequency)
 
