@@ -16,8 +16,7 @@ for i in range(0, 100):
     results.append(client.send_telemetry(telemetry_with_ts))
 
 for tmp_result in results:
-    tmp_result.get()
-    result &= tmp_result.rc() == TBPublishInfo.TB_ERR_SUCCESS
+    result &= tmp_result.get() == TBPublishInfo.TB_ERR_SUCCESS
 
 print("Result " + str(result))
 

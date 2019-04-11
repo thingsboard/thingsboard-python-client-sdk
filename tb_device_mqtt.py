@@ -107,7 +107,8 @@ class TBPublishInfo():
         return self.messageInfo.mid
 
     def get(self):
-        return self.messageInfo.wait_for_publish()
+        self.messageInfo.wait_for_publish()
+        return self.messageInfo.rc
 
 
 class TBDeviceMqttClient:
