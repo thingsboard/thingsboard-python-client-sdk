@@ -171,7 +171,7 @@ class TBDeviceMqttClient:
             else:
                 log.error("connection FAIL with unknown error")
 
-    def connect(self, callback=None, timeout=10, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
+    def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
         if tls:
             self._client.tls_set(ca_certs=ca_certs,
                                  certfile=cert_file,
@@ -183,12 +183,7 @@ class TBDeviceMqttClient:
         self._client.connect(self.__host, port)
         self._client.loop_start()
         self.__connect_callback = callback
-        t = time.time()
-        while self.__is_connected is not True:
-            time.sleep(0.5)
-            if time.time() - t > timeout:
-                return False
-        return True
+        self.reconnect_delay_set(min_reconnect_delay, timeout)
 
     def disconnect(self):
         self._client.disconnect()
@@ -244,6 +239,23 @@ class TBDeviceMqttClient:
                 req_id = int(message.topic[len(ATTRIBUTES_TOPIC+"/response/"):])
                 # pop callback and use it
                 self._attr_request_dict.pop(req_id)(content, None)
+
+    def max_inflight_messages_set(self, inflight):
+        """Set the maximum number of messages with QoS>0 that can be part way through their network flow at once.
+        Defaults to 20. Increasing this value will consume more memory but can increase throughput."""
+        self._client.max_inflight_messages_set(inflight)
+
+    def max_queued_messages_set(self, queue_size):
+        """Set the maximum number of outgoing messages with QoS>0 that can be pending in the outgoing message queue.
+        Defaults to 0. 0 means unlimited. When the queue is full, any further outgoing messages would be dropped."""
+        self._client.max_queued_messages_set(queue_size)
+
+    def reconnect_delay_set(self, min_delay=1, max_delay=120):
+        """The client will automatically retry connection. Between each attempt it will wait a number of seconds
+         between min_delay and max_delay. When the connection is lost, initially the reconnection attempt is delayed
+         of min_delay seconds. It’s doubled between subsequent attempt up to max_delay. The delay is reset to min_delay
+          when the connection complete (e.g. the CONNACK is received, not just the TCP connection is established)."""
+        self._client.reconnect_delay_set(min_delay, max_delay)
 
     def send_rpc_reply(self, req_id, resp, quality_of_service=1, wait_for_publish=False):
         if quality_of_service != 0 and quality_of_service != 1:
@@ -359,9 +371,11 @@ class TBDeviceMqttClient:
                     with self._lock:
                         callback = None
                         if item.get("attribute_request_id"):
-                            callback = self._attr_request_dict.pop(item["attribute_request_id"])
+                            if self._attr_request_dict.get(item["attribute_request_id"]):
+                                callback = self._attr_request_dict.pop(item["attribute_request_id"])
                         elif item.get("rpc_request_id"):
-                            callback = self.__device_client_rpc_dict.pop(item["rpc_request_id"])
+                            if self.__device_client_rpc_dict.get(item["rpc_request_id"]):
+                                callback = self.__device_client_rpc_dict.pop(item["rpc_request_id"])
                     if callback is not None:
                         callback(None, TBTimeoutException("Timeout while waiting for reply from ThingsBoard!"))
                 else:

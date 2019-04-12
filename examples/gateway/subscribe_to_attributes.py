@@ -17,7 +17,7 @@ def callback_for_specific_attr(result):
     print("Specific attribute callback, {0}".format(result))
 
 
-gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+gateway = TBGatewayMqttClient("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
 gateway.connect()
 # without device connection it is impossible to get any messages
 gateway.gw_connect_device("Test Device A2")
