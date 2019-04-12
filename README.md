@@ -60,7 +60,7 @@ client.disconnect()
 
 ## Using Device APIs
 
-### Subscription to attributes. 
+**TBDeviceMqttClient** provides access to Device MQTT APIs of ThingsBoard platform. It allows to publish telemetry and attribute updates, subscribe to attribute changes, send and receive RPC commands, etc. 
 
 ```python
 import time
