@@ -4,66 +4,82 @@
 <img src="./logo.png?raw=true" width="100" height="100">
 
 ThingsBoard is an open-source IoT platform for data collection, processing, visualization, and device management.
-This project ia a Python library that provides convenient client SDK for both [Device](https://thingsboard.io/docs/reference/mqtt-api/) and [Gateway](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs.
+This project ia a Python library that provides convenient client SDK for both [Device](https://thingsboard.io/docs/reference/mqtt-api/) 
+and [Gateway](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs.
 
-Device SDK supports:
-- unencrypted and TLS connection;
-- telemetry and attributes publishing;
-- subscription to attributes;
-- request attributes;
-- respond to rpc calls;
-- send client rpc calls;
+SDK supports:
+- Unencrypted and encrypted (TLS v1.2) connection;
+- QoS 0 and 1;
+- Automatic reconnect;
+- All Device MQTT APIs provided by ThingsBoard
+- All Gateway MQTT APIs provided by ThingsBoard
 
-Gateway SDK supports:
-- unencrypted and TLS connection;
-- telemetry and attributes publishing;
-- subscription to attributes;
-- request attributes;
-- respond to rpc calls;
+SDK is based on Paho MQTT library. 
 
-## Getting Started
+## Installation
 
 To install using pip:
-```
+```bash
 pip3 install tb-mqtt-client
 ```
 
-Device connecting and telemetry publishing
-```
-from tb_device_mqtt import TBClient
+## Getting Started
+
+Client initialization and telemetry publishing
+
+```python
+from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
-client = TBClient("127.0.0.1", "A1_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", "A1_TEST_TOKEN")
+# Connect to ThingsBoard
 client.connect()
-client.send_telemetry(telemetry)
+# Sending telemetry without checking the delivery status
+client.send_telemetry(telemetry) 
+# Sending telemetry and checking the delivery status (QoS = 1 by default)
+result = client.send_telemetry(telemetry)
+# get is a blocking call that awaits delivery status  
+success = result.get() == TBPublishInfo.TB_ERR_SUCCESS
+# Disconnect from ThingsBoard
 client.disconnect()
 ```
 
-TLS connection to localhost
-```
-from tb_device_mqtt import TBClient
+### Connection using TLS
+
+TLS connection to localhost. See https://thingsboard.io/docs/user-guide/mqtt-over-ssl/ for more information about client and ThingsBoard configuration.
+
+```python
+from tb_device_mqtt import TBDeviceMqttClient
 import socket
-client = TBClient(socket.gethostname())
+client = TBDeviceMqttClient(socket.gethostname())
 client.connect(tls=True,
                ca_certs="mqttserver.pub.pem",
                cert_file="mqttclient.nopass.pem")
 client.disconnect()
 ```
-Subscription to attributes
-```
+
+## Using Device APIs
+
+### Subscription to attributes. 
+
+```python
 import time
-from tb_device_mqtt import TBClient
+from tb_device_mqtt import TBDeviceMqttClient
 
 def callback(result):
     print(result)
 
-client = TBClient("127.0.0.1", "A1_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", "A1_TEST_TOKEN")
 client.connect()
-client.subscribe("temperature", callback)
+client.subscribe_to_attribute("temperature", callback)
 while True:
     time.sleep(1)
 ```
 
-Gateway device connecting and disconnecting
+## Using Gateway APIs
+
+**TBGatewayMqttClient** extends **TBDeviceMqttClient**, thus has access to all it's APIs as a regular device.
+Besides, gateway is able to represent multiple devices connected to it. For example, sending telemetry or attributes on behalf of other, constrained, device. See more info about the gateway here: 
+ 
 ```
 from tb_gateway_mqtt import TBGateway
 gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
@@ -72,8 +88,12 @@ gateway.connect_device("Example Name")
 gateway.disconnect_device("Example Name")
 gateway.disconnect()
 ```
-There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
-сюда примеры не из моей папки, а из будущей папки примеров tb!
+
+
+## Other Examples
+
+There are more examples for both [device](/tree/master/examples/device) and [gateway](/tree/master/examples/gateway) in corresponding [folders](/tree/master/examples/).
+
 
 ## Support
 
