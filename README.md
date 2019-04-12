@@ -77,7 +77,6 @@ gateway.disconnect_device("Example Name")
 gateway.disconnect()
 ```
 There are more examples for both [device](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/device) and [gateway](https://github.com/serhiilikh/tb_mqtt_client/tree/master/examples/gateway) in corresponding folders.
-сюда примеры не из моей папки, а из будущей папки примеров tb!
 
 ## Support
 
