@@ -40,4 +40,3 @@ while True:
     client.send_telemetry({"cpu": psutil.cpu_percent(), "memory": psutil.virtual_memory().percent})
     print("Sleeping for " + str(uploadFrequency))
     time.sleep(uploadFrequency)
-

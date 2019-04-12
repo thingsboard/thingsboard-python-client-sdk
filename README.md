@@ -19,6 +19,7 @@ SDK is based on Paho MQTT library.
 ## Installation
 
 To install using pip:
+
 ```bash
 pip3 install tb-mqtt-client
 ```
@@ -70,7 +71,8 @@ def callback(result):
 
 client = TBDeviceMqttClient("127.0.0.1", "A1_TEST_TOKEN")
 client.connect()
-client.subscribe_to_attribute("temperature", callback)
+client.subscribe_to_attribute("uploadFrequency", callback)
+client.subscribe_to_all_attributes(callback)
 while True:
     time.sleep(1)
 ```
@@ -80,12 +82,17 @@ while True:
 **TBGatewayMqttClient** extends **TBDeviceMqttClient**, thus has access to all it's APIs as a regular device.
 Besides, gateway is able to represent multiple devices connected to it. For example, sending telemetry or attributes on behalf of other, constrained, device. See more info about the gateway here: 
  
-```
-from tb_gateway_mqtt import TBGateway
-gateway = TBGateway("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
+```python
+import time
+from tb_gateway_mqtt import TBGatewayMqttClient
+gateway = TBGatewayMqttClient("127.0.0.1", "GATEWAY_TEST_TOKEN")
 gateway.connect()
-gateway.connect_device("Example Name")
-gateway.disconnect_device("Example Name")
+gateway.gw_connect_device("Device A1")
+
+gateway.gw_send_telemetry("Test Device A2", {"ts": int(round(time.time() * 1000)), "values": {"temperature": 42.2}})
+gateway.gw_send_attributes("Test Device A2", {"firmwareVersion": "2.3.1"})
+
+gateway.gw_disconnect_device("Device A1")
 gateway.disconnect()
 ```
 
@@ -93,7 +100,6 @@ gateway.disconnect()
 ## Other Examples
 
 There are more examples for both [device](/tree/master/examples/device) and [gateway](/tree/master/examples/gateway) in corresponding [folders](/tree/master/examples/).
-
 
 ## Support
 

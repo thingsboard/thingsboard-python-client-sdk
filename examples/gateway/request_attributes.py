@@ -12,7 +12,7 @@ def callback(result, exception):
         print(result)
 
 
-gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+gateway = TBGatewayMqttClient("127.0.0.1", "SGxDCjGxUUnm5ZJOnYHh")
 gateway.connect()
 gateway.gw_request_shared_attributes("Example Name", ["temperature"], callback)
 
