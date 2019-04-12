@@ -123,6 +123,7 @@ class TBDeviceMqttClient:
         self._attr_request_dict = {}
         self.__timeout_queue = queue.Queue()
         self.__timeout_thread = Thread(target=self.__timeout_check)
+        self.__timeout_thread.daemon = True
         self.__timeout_thread.start()
         self.__is_connected = False
         self.__device_on_server_side_rpc_response = None
