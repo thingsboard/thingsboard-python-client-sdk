@@ -111,7 +111,7 @@ def on_attributes_change(result, exception):
 
 client = TBDeviceMqttClient("127.0.0.1", "A1_TEST_TOKEN")
 client.connect()
-client.request_attributes(["atr1", "atr2"], callback=on_attributes_change)
+client.request_attributes(["configuration","targetFirmwareVersion"], callback=on_attributes_change)
 while True:
     time.sleep(1)
 ```
@@ -168,7 +168,7 @@ def callback(result, exception):
 
 gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
 gateway.connect()
-gateway.gw_request_shared_attributes("Example Name", ["temperature"], callback)
+gateway.gw_request_shared_attributes("Test Device A1", ["temperature"], callback)
 
 while True:
     time.sleep(1)
@@ -199,7 +199,7 @@ gateway.connect()
 # now rpc_request_response will process rpc requests from servers
 gateway.gw_set_server_side_rpc_request_handler(rpc_request_response)
 # without device connection it is impossible to get any messages
-gateway.gw_connect_device("Test Device A2")
+gateway.gw_connect_device("Test Device A1")
 while True:
     time.sleep(1)
 ```
