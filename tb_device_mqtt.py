@@ -6,8 +6,7 @@ from json import loads, dumps
 from jsonschema import Draft7Validator
 import ssl
 from jsonschema import ValidationError
-from threading import Lock
-from threading import Thread
+import threading
 
 KV_SCHEMA = {
     "type": "object",
@@ -119,12 +118,10 @@ class TBDeviceMqttClient:
             log.warning("token is not set, connection without tls wont be established")
         else:
             self._client.username_pw_set(token)
-        self._lock = Lock()
+        self._lock = threading.Lock()
         self._attr_request_dict = {}
         self.__timeout_queue = queue.Queue()
-        self.__timeout_thread = Thread(target=self.__timeout_check)
-        self.__timeout_thread.daemon = True
-        self.__timeout_thread.start()
+        self.__timeout_thread = None
         self.__is_connected = False
         self.__device_on_server_side_rpc_response = None
         self.__connect_callback = None
@@ -134,6 +131,7 @@ class TBDeviceMqttClient:
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
         self._client.on_connect = self._on_connect
+        self._client.on_disconnect = self._on_disconnect
         self._client.on_log = self._on_log
         self._client.on_publish = self._on_publish
         self._client.on_message = self._on_message
@@ -172,6 +170,11 @@ class TBDeviceMqttClient:
             else:
                 log.error("connection FAIL with unknown error")
 
+    def _on_disconnect(self, client, userdata, rc):
+        log.debug("MQTT client disconnected")
+        self.__is_connected = False
+        self._client.loop_stop()
+
     def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
         if tls:
             self._client.tls_set(ca_certs=ca_certs,
@@ -185,9 +188,16 @@ class TBDeviceMqttClient:
         self._client.loop_start()
         self.__connect_callback = callback
         self.reconnect_delay_set(min_reconnect_delay, timeout)
+        self.__timeout_thread = threading.Thread(target=self.__timeout_check)
+        self.__timeout_thread.do_run = True
+        self.__timeout_thread.start()
 
     def disconnect(self):
         self._client.disconnect()
+        if self.__timeout_thread:
+            self.__timeout_thread.do_run = False
+            self.__timeout_thread.join()
+            self.__timeout_thread = None
         log.info("Disconnected from ThingsBoard!")
 
     def _on_message(self, client, userdata, message):
@@ -359,11 +369,16 @@ class TBDeviceMqttClient:
         return attr_request_number
 
     def __timeout_check(self):
-        while True:
+        t = threading.currentThread()
+        while getattr(t, "do_run", True):
             try:
-                item = self.__timeout_queue.get()
+                try:
+                    item = self.__timeout_queue.get(False)
+                except queue.Empty:
+                    time.sleep(0.1)
+                    continue
                 if item is not None:
-                    while True:
+                    while getattr(t, "do_run", True):
                         current_ts_in_millis = int(round(time.time() * 1000))
                         if current_ts_in_millis > item["ts"]:
                             break
