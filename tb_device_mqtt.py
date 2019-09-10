@@ -173,7 +173,6 @@ class TBDeviceMqttClient:
     def _on_disconnect(self, client, userdata, rc):
         log.debug("MQTT client disconnected")
         self.__is_connected = False
-        self._client.loop_stop()
 
     def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, port=1883, ca_certs=None, cert_file=None, key_file=None):
         if tls:
