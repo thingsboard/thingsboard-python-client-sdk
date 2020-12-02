@@ -10,20 +10,26 @@ telemetry_with_ts_as_array = [{"ts": 1451649600000, "values": {"temperature": 42
                               {"ts": 1451649601000, "values": {"temperature": 42.3, "humidity": 72}}]
 attributes = {"sensorModel": "DHT-22", "attribute_2": "value"}
 
-client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
-client.connect()
-# Sending data in async way
-client.send_attributes(attributes)
-client.send_telemetry(telemetry)
-client.send_telemetry(telemetry_as_array, quality_of_service=1)
-client.send_telemetry(telemetry_with_ts)
-client.send_telemetry(telemetry_with_ts_as_array)
 
-# Waiting for data to be delivered
-result = client.send_attributes(attributes)
-result.get()
-print("Attribute update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
-result = client.send_attributes(attributes)
-result.get()
-print("Telemetry update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
-client.disconnect()
+def main():
+    client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
+    client.connect()
+    # Sending data in async way
+    client.send_attributes(attributes)
+    client.send_telemetry(telemetry)
+    client.send_telemetry(telemetry_as_array, quality_of_service=1)
+    client.send_telemetry(telemetry_with_ts)
+    client.send_telemetry(telemetry_with_ts_as_array)
+
+    # Waiting for data to be delivered
+    result = client.send_attributes(attributes)
+    result.get()
+    print("Attribute update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
+    result = client.send_attributes(attributes)
+    result.get()
+    print("Telemetry update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
+    client.stop()
+
+
+if __name__ == '__main__':
+    main()

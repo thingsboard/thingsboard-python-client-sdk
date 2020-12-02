@@ -21,8 +21,8 @@ def on_upload_frequency_change(value, error):
 
 
 # dependently of request method we send different data back
-def on_server_side_rpc_request(request_id, request_body):
-    print(request_id, request_body)
+def on_server_side_rpc_request(client, request_id, request_body):
+    print(client, request_id, request_body)
     if request_body["method"] == "getCPULoad":
         client.send_rpc_reply(request_id, {"CPU percent": psutil.cpu_percent()})
     elif request_body["method"] == "getMemoryUsage":
@@ -36,7 +36,14 @@ client.connect()
 client.request_attributes(shared_keys=["uploadFrequency"], callback=on_upload_frequency_change)
 # to subscribe to future changes of upload frequency
 client.subscribe_to_attribute(key="uploadFrequency", callback=on_upload_frequency_change)
-while True:
-    client.send_telemetry({"cpu": psutil.cpu_percent(), "memory": psutil.virtual_memory().percent})
-    print("Sleeping for " + str(uploadFrequency))
-    time.sleep(uploadFrequency)
+
+
+def main():
+    while True:
+        client.send_telemetry({"cpu": psutil.cpu_percent(), "memory": psutil.virtual_memory().percent})
+        print("Sleeping for " + str(uploadFrequency))
+        time.sleep(uploadFrequency)
+
+
+if __name__ == '__main__':
+    main()
