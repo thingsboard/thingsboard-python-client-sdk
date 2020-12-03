@@ -82,8 +82,17 @@ ATTRIBUTES_TOPIC = 'v1/devices/me/attributes'
 ATTRIBUTES_TOPIC_REQUEST = 'v1/devices/me/attributes/request/'
 ATTRIBUTES_TOPIC_RESPONSE = 'v1/devices/me/attributes/response/'
 TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
+PROVISION_TOPIC_REQUEST = '/provision/request'
+PROVISION_TOPIC_RESPONSE = '/provision/response'
 log = logging.getLogger(__name__)
 
+RESULT_CODES = {
+    1: "incorrect protocol version",
+    2: "invalid client identifier",
+    3: "server unavailable",
+    4: "bad username or password",
+    5: "not authorised",
+    }
 
 class TBTimeoutException(Exception):
     pass
@@ -92,6 +101,48 @@ class TBTimeoutException(Exception):
 class TBQoSException(Exception):
     pass
 
+class ProvisionClient(paho.Client):
+    PROVISION_REQUEST_TOPIC = "/provision/request"
+    PROVISION_RESPONSE_TOPIC = "/provision/response"
+
+    def __init__(self, host, port, provision_request):
+        super().__init__()
+        self._host = host
+        self._port = port
+        self._username = "provision"
+        self.on_connect = self.__on_connect
+        self.on_message = self.__on_message
+        self.__provision_request = provision_request
+
+    def __on_connect(self, client, userdata, flags, rc):  # Callback for connect
+        if rc == 0:
+            log.info("[Provisioning client] Connected to ThingsBoard ")
+            client.subscribe(self.PROVISION_RESPONSE_TOPIC)  # Subscribe to provisioning response topic
+            provision_request = dumps(self.__provision_request)
+            log.info("[Provisioning client] Sending provisioning request %s" % provision_request)
+            client.publish(self.PROVISION_REQUEST_TOPIC, provision_request)  # Publishing provisioning request topic
+        else:
+            log.info("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % RESULT_CODES[rc])
+
+    def __on_message(self, client, userdata, msg):
+        decoded_payload = msg.payload.decode("UTF-8")
+        log.info("[Provisioning client] Received data from ThingsBoard: %s" % decoded_payload)
+        decoded_message = loads(decoded_payload)
+        provision_device_status = decoded_message.get("status")
+        if provision_device_status == "SUCCESS":
+            self.__credentials = decoded_message["credentialsValue"]
+        else:
+            log.error("[Provisioning client] Provisioning was unsuccessful with status %s and message: %s" % (provision_device_status, decoded_message["errorMsg"]))
+        self.disconnect()
+
+    def provision(self):
+        log.info("[Provisioning client] Connecting to ThingsBoard")
+        self.__credentials = None
+        self.connect(self._host, self._port, 60)
+        self.loop_forever()
+
+    def get_credentials(self):
+        return self.__credentials
 
 class TBPublishInfo:
 
@@ -179,13 +230,6 @@ class TBDeviceMqttClient:
         log.setLevel(prev_level)
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
-        result_codes = {
-            1: "incorrect protocol version",
-            2: "invalid client identifier",
-            3: "server unavailable",
-            4: "bad username or password",
-            5: "not authorised",
-        }
         if self.__connect_callback:
             time.sleep(.05)
             self.__connect_callback(self, userdata, flags, result_code, *extra_params)
@@ -197,8 +241,8 @@ class TBDeviceMqttClient:
             self._client.subscribe(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
             self._client.subscribe(RPC_RESPONSE_TOPIC + '+', qos=self.quality_of_service)
         else:
-            if result_code in result_codes:
-                log.error("connection FAIL with error %s %s", result_code, result_codes[result_code])
+            if result_code in RESULT_CODES:
+                log.error("connection FAIL with error %s %s", result_code, RESULT_CODES[result_code])
             else:
                 log.error("connection FAIL with unknown error")
 
@@ -436,3 +480,38 @@ class TBDeviceMqttClient:
                         callback(self, None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
             else:
                 time.sleep(0.01)
+
+    @staticmethod
+    def provision(host,
+                  provision_device_key,
+                  provision_device_secret,
+                  port=1883,
+                  device_name=None,
+                  access_token=None,
+                  client_id=None,
+                  username=None,
+                  password=None,
+                  hash=None):
+        provision_request = {
+            "provisionDeviceKey": provision_device_key,
+            "provisionDeviceSecret": provision_device_secret
+            }
+
+        if access_token is not None:
+            provision_request["token"] = access_token
+            provision_request["credentialsType"] = "ACCESS_TOKEN"
+        elif username is not None or password is not None or client_id is not None:
+            provision_request["username"] = username
+            provision_request["password"] = password
+            provision_request["clientId"] = client_id
+            provision_request["credentialsType"] = "MQTT_BASIC"
+        elif hash is not None:
+            provision_request["hash"] = hash
+            provision_request["credentialsType"] = "X509_CERTIFICATE"
+
+        if device_name is not None:
+            provision_request["deviceName"] = device_name
+
+        provisioning_client = ProvisionClient(host=host, port=port, provision_request=provision_request)
+        provisioning_client.provision()
+        return provisioning_client.get_credentials()
