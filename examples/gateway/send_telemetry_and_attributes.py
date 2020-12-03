@@ -10,13 +10,18 @@ telemetry_array = [
     {"ts": 2, "values": {"key2": "22"}}
 ]
 
-gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
-# without device connection it is impossible to get any messages
-gateway.gw_connect_device("Test Device A2")
-gateway.connect()
 
-gateway.gw_send_telemetry("Test Device A2", telemetry_simple)
-gateway.gw_send_telemetry("Test Device A2", telemetry_array)
-gateway.gw_send_attributes("Test Device A2", attributes)
-while True:
-    time.sleep(1)
+def main():
+    gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+    # without device connection it is impossible to get any messages
+    gateway.connect()
+    gateway.gw_connect_device("Test Device A2")
+
+    gateway.gw_send_telemetry("Test Device A2", telemetry_simple)
+    gateway.gw_send_telemetry("Test Device A2", telemetry_array)
+    gateway.gw_send_attributes("Test Device A2", attributes)
+    gateway.stop()
+
+
+if __name__ == '__main__':
+    main()
