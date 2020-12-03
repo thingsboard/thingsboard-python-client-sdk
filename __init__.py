@@ -12,15 +12,7 @@
 #      See the License for the specific language governing permissions and
 #      limitations under the License.
 #
+#
 
-import logging
-from tb_gateway_mqtt import TBGatewayMqttClient
-import socket
 
-logging.basicConfig(level=logging.DEBUG)
-# connecting to localhost
-gateway = TBGatewayMqttClient(socket.gethostname())
-gateway.connect(tls=True,
-                ca_certs="mqttserver.pub.pem",
-                cert_file="mqttclient.nopass.pem")
-gateway.disconnect()
+__name__ = "tb_mqtt_client"

@@ -1,0 +1,5 @@
+/build/
+/dist/
+/tb_mqtt_client.egg-info/
+/.idea/
+/venv/
