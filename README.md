@@ -1,7 +1,7 @@
 # ThingsBoard MQTT client Python SDK
 [![Join the chat at https://gitter.im/thingsboard/chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/thingsboard/chat?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-<img src="./logo.png?raw=true" width="100" height="100">
+<a href="https://thingsboard.io"><img src="./logo.png?raw=true" width="100" height="100"></a>
 
 ThingsBoard is an open-source IoT platform for data collection, processing, visualization, and device management.
 This project ia a Python library that provides convenient client SDK for both [Device](https://thingsboard.io/docs/reference/mqtt-api/) 
@@ -205,7 +205,7 @@ while True:
 ```
 ## Other Examples
 
-There are more examples for both [device](/tree/master/examples/device) and [gateway](/tree/master/examples/gateway) in corresponding [folders](/tree/master/examples/).
+There are more examples for both [device](https://github.com/thingsboard/thingsboard-python-client-sdk/tree/master/examples/device) and [gateway](https://github.com/thingsboard/thingsboard-python-client-sdk/tree/master/examples/gateway) in corresponding [folders](https://github.com/thingsboard/thingsboard-python-client-sdk/tree/master/examples).
 
 ## Support
 
