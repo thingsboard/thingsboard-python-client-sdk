@@ -199,7 +199,6 @@ class TBDeviceMqttClient:
         self.__timeout_thread.start()
         self.__is_connected = False
         self.__device_on_server_side_rpc_response = None
-        self.__claiming_callback = None
         self.__connect_callback = None
         self.__device_max_sub_id = 0
         self.__device_client_rpc_number = 0
@@ -307,9 +306,6 @@ class TBDeviceMqttClient:
             request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
             if self.__device_on_server_side_rpc_response:
                 self.__device_on_server_side_rpc_response(client, request_id, content)
-        elif message.topic.startswith(CLAIMING_TOPIC):
-            if self.__claiming_callback:
-                self.__claiming_callback(client, content)
         elif message.topic.startswith(RPC_RESPONSE_TOPIC):
             with self._lock:
                 request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
@@ -486,15 +482,12 @@ class TBDeviceMqttClient:
             else:
                 time.sleep(0.01)
 
-    def claim(self, secret_key, duration=30000, callback=None):
-        expiration_time = int(time.time()*1000) + duration
+    def claim(self, secret_key, duration=30000):
         claiming_request = {
             "secretKey": secret_key,
-            "expirationTime": expiration_time
+            "durationMs": duration
             }
-        if callback is not None:
-            self.__claiming_callback = callback
-        info = TBPublishInfo(self._client.publish(CLAIMING_TOPIC, dumps(claiming_request), qos=1))
+        info = TBPublishInfo(self._client.publish(CLAIMING_TOPIC, dumps(claiming_request), qos=self.quality_of_service))
         return info
 
     @staticmethod
