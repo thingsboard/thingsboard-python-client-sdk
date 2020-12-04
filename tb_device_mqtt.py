@@ -82,6 +82,7 @@ ATTRIBUTES_TOPIC = 'v1/devices/me/attributes'
 ATTRIBUTES_TOPIC_REQUEST = 'v1/devices/me/attributes/request/'
 ATTRIBUTES_TOPIC_RESPONSE = 'v1/devices/me/attributes/response/'
 TELEMETRY_TOPIC = 'v1/devices/me/telemetry'
+CLAIMING_TOPIC = 'v1/devices/me/claim'
 PROVISION_TOPIC_REQUEST = '/provision/request'
 PROVISION_TOPIC_RESPONSE = '/provision/response'
 log = logging.getLogger(__name__)
@@ -198,6 +199,7 @@ class TBDeviceMqttClient:
         self.__timeout_thread.start()
         self.__is_connected = False
         self.__device_on_server_side_rpc_response = None
+        self.__claiming_callback = None
         self.__connect_callback = None
         self.__device_max_sub_id = 0
         self.__device_client_rpc_number = 0
@@ -305,6 +307,9 @@ class TBDeviceMqttClient:
             request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
             if self.__device_on_server_side_rpc_response:
                 self.__device_on_server_side_rpc_response(client, request_id, content)
+        elif message.topic.startswith(CLAIMING_TOPIC):
+            if self.__claiming_callback:
+                self.__claiming_callback(client, content)
         elif message.topic.startswith(RPC_RESPONSE_TOPIC):
             with self._lock:
                 request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
@@ -480,6 +485,17 @@ class TBDeviceMqttClient:
                         callback(self, None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
             else:
                 time.sleep(0.01)
+
+    def claim(self, secret_key, duration=30000, callback=None):
+        expiration_time = int(time.time()*1000) + duration
+        claiming_request = {
+            "secretKey": secret_key,
+            "expirationTime": expiration_time
+            }
+        if callback is not None:
+            self.__claiming_callback = callback
+        info = TBPublishInfo(self._client.publish(CLAIMING_TOPIC, dumps(claiming_request), qos=1))
+        return info
 
     @staticmethod
     def provision(host,
