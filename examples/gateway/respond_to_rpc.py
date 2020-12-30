@@ -29,9 +29,9 @@ def rpc_request_response(gateway, request_body):
     req_id = request_body["data"]["id"]
     # dependently of request method we send different data back
     if method == 'getCPULoad':
-        gateway.gw_send_rpc_reply(device, req_id, {"CPU load": psutil.cpu_percent()})
+        gateway.gw_send_rpc_reply(device, req_id, psutil.cpu_percent())
     elif method == 'getMemoryLoad':
-        gateway.gw_send_rpc_reply(device, req_id, {"Memory": psutil.virtual_memory().percent})
+        gateway.gw_send_rpc_reply(device, req_id, psutil.virtual_memory().percent)
     else:
         print('Unknown method: ' + method)
     gateway.stop()
