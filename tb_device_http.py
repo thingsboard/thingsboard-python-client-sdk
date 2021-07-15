@@ -6,10 +6,13 @@ import requests
 class TBHTTPClient:
     """Thingsboard HTTP API Device"""
 
-    def __init__(self, host: str, token: str):
+    def __init__(self, host: str, token: str, name: str = None):
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
-        self.api_base_url = f'{host}/api/v1/{token}/'
+        self.token = token
+        self.name = name
+        self.host = host
+        self.api_base_url = f'{self.host}/api/v1/{self.token}/'
 
     def connect(self):
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
@@ -51,5 +54,5 @@ class TBHTTPClient:
         response.raise_for_status()
         device = response.json()
         if device['status'] == 'SUCCESS' and device['credentialsType'] == 'ACCESS_TOKEN':
-            return cls(host=host, token=device['credentialsValue'])
+            return cls(host=host, token=device['credentialsValue'], name=device_name)
         return None
