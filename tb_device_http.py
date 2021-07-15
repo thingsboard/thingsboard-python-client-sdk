@@ -38,3 +38,18 @@ class TBHTTPClient:
         """Request attributes from the ThingsBoard HTTP Device API."""
         params = {'client_keys': client_keys, 'shared_keys': shared_keys}
         return self.get_data(params=params, endpoint='attributes')
+
+    @classmethod
+    def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
+        """Initiate device provisioning through the ThingsBoard HTTP Device API."""
+        data = {
+            'deviceName': device_name,
+            'provisionDeviceKey': device_key,
+            'provisionDeviceSecret': device_secret
+        }
+        response = requests.post(f'{host}/api/v1/provision', json=data)
+        response.raise_for_status()
+        device = response.json()
+        if device['status'] == 'SUCCESS' and device['credentialsType'] == 'ACCESS_TOKEN':
+            return cls(host=host, token=device['credentialsValue'])
+        return None
