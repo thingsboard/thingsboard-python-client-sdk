@@ -14,6 +14,9 @@ class TBHTTPClient:
         self.host = host
         self.api_base_url = f'{self.host}/api/v1/{self.token}/'
 
+    def __repr__(self):
+        return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
+
     def connect(self):
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
         self.publish_data({}, 'telemetry')
