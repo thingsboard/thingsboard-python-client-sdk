@@ -1,5 +1,5 @@
 """Thingsboard HTTP API Device module"""
-
+import threading
 import requests
 
 
@@ -13,6 +13,11 @@ class TBHTTPClient:
         self.name = name
         self.host = host
         self.api_base_url = f'{self.host}/api/v1/{self.token}/'
+        self.subscriptions = {
+            'attributes': {
+                'event': threading.Event()
+            }
+        }
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
@@ -44,6 +49,33 @@ class TBHTTPClient:
         """Request attributes from the ThingsBoard HTTP Device API."""
         params = {'client_keys': client_keys, 'shared_keys': shared_keys}
         return self.get_data(params=params, endpoint='attributes')
+
+    def subscribe_to_attributes(self, callback, timeout: int = None):
+        """Subscribe to shared attributes updates from the ThingsBoard HTTP device API."""
+        params = {'timeout': timeout} if timeout else {}
+
+        def subscription():
+            self.subscriptions['attributes']['event'].clear()
+            while True:
+                response = self.session.get(url=f'{self.api_base_url}/attributes/updates',
+                                            params=params)
+                if self.subscriptions['attributes']['event'].is_set():
+                    break
+                if response.status_code == 408 and timeout:
+                    break
+                response.raise_for_status()
+                callback(response.json())
+            self.subscriptions['attributes']['event'].clear()
+
+        self.subscriptions['attributes']['thread'] = threading.Thread(
+            name='subscribe_attributes',
+            target=subscription,
+            daemon=True)
+        self.subscriptions['attributes']['thread'].start()
+
+    def unsubscribe_from_attributes(self):
+        """Unsubscribe shared attributes updates from the ThingsBoard HTTP device API."""
+        self.subscriptions['attributes']['event'].set()
 
     @classmethod
     def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
