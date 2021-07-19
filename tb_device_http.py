@@ -66,6 +66,8 @@ class TBHTTPClient:
                     break
                 if response.status_code == 408 and timeout:
                     break
+                if response.status_code == 504:  # Gateway Timeout
+                    continue  # Reconnect
                 response.raise_for_status()
                 callback(response.json())
             self.subscriptions['attributes']['event'].clear()
@@ -93,6 +95,8 @@ class TBHTTPClient:
                     break
                 if response.status_code == 408 and timeout:
                     break
+                if response.status_code == 504:  # Gateway Timeout
+                    continue  # Reconnect
                 response.raise_for_status()
                 callback(response.json())
             self.subscriptions['rpc']['event'].clear()
