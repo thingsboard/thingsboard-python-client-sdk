@@ -16,6 +16,9 @@ class TBHTTPClient:
         self.subscriptions = {
             'attributes': {
                 'event': threading.Event()
+            },
+            'rpc': {
+                'event': threading.Event()
             }
         }
 
@@ -76,6 +79,33 @@ class TBHTTPClient:
     def unsubscribe_from_attributes(self):
         """Unsubscribe shared attributes updates from the ThingsBoard HTTP device API."""
         self.subscriptions['attributes']['event'].set()
+
+    def subscribe_to_rpc(self, callback, timeout: int = None):
+        """Subscribe to RPC from the ThingsBoard HTTP device API."""
+        params = {'timeout': timeout} if timeout else {}
+
+        def subscription():
+            self.subscriptions['rpc']['event'].clear()
+            while True:
+                response = self.session.get(url=f'{self.api_base_url}/rpc',
+                                            params=params)
+                if self.subscriptions['rpc']['event'].is_set():
+                    break
+                if response.status_code == 408 and timeout:
+                    break
+                response.raise_for_status()
+                callback(response.json())
+            self.subscriptions['rpc']['event'].clear()
+
+        self.subscriptions['rpc']['thread'] = threading.Thread(
+            name='subscribe_rpc',
+            target=subscription,
+            daemon=True)
+        self.subscriptions['rpc']['thread'].start()
+
+    def unsubscribe_from_rpc(self):
+        """Unsubscribe to RPC from the ThingsBoard HTTP device API."""
+        self.subscriptions['rpc']['event'].set()
 
     @classmethod
     def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
