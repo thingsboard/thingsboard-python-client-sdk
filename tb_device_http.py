@@ -20,7 +20,7 @@ class TBHTTPClient:
         self.token = token
         self.name = name
         self.host = host
-        self.api_base_url = f'{self.host}/api/v1/{self.token}/'
+        self.api_base_url = f'{self.host}/api/v1/{self.token}'
         self.subscriptions = {
             'attributes': {
                 'event': threading.Event()
