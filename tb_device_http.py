@@ -3,6 +3,14 @@ import threading
 import requests
 
 
+class TBHTTPAPIException(Exception):
+    """ThingsBoard HTTP Device API Exception class."""
+
+
+class TBProvisionFailure(TBHTTPAPIException):
+    """Exception raised if device provisioning failed."""
+
+
 class TBHTTPClient:
     """Thingsboard HTTP API Device"""
 
@@ -124,4 +132,4 @@ class TBHTTPClient:
         device = response.json()
         if device['status'] == 'SUCCESS' and device['credentialsType'] == 'ACCESS_TOKEN':
             return cls(host=host, token=device['credentialsValue'], name=device_name)
-        return None
+        raise TBProvisionFailure(device)
