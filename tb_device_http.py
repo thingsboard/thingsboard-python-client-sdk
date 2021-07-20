@@ -37,10 +37,11 @@ class TBHTTPClient:
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
         self.publish_data({}, 'telemetry')
 
-    def publish_data(self, data: dict, endpoint: str):
+    def publish_data(self, data: dict, endpoint: str) -> dict:
         """Send data to the ThingsBoard HTTP API."""
         response = self.session.post(f'{self.api_base_url}/{endpoint}', json=data)
         response.raise_for_status()
+        return response.json() if response.content else {}
 
     def get_data(self, params: dict, endpoint: str) -> dict:
         """Send data to the ThingsBoard HTTP API."""
