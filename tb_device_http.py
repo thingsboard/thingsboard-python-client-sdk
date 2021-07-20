@@ -57,6 +57,10 @@ class TBHTTPClient:
         """Send attributes to the ThingsBoard HTTP Device API."""
         self.publish_data(attributes, 'attributes')
 
+    def send_rpc(self, name: str, params: dict = None) -> dict:
+        """Send RPC to the ThingsBoard HTTP Device API."""
+        return self.publish_data({'method': name, 'params': params or {}}, 'rpc')
+
     def request_attributes(self, client_keys: list = None, shared_keys: list = None) -> dict:
         """Request attributes from the ThingsBoard HTTP Device API."""
         params = {'client_keys': client_keys, 'shared_keys': shared_keys}
