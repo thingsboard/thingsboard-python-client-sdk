@@ -1,5 +1,6 @@
 """Thingsboard HTTP API Device module"""
 import threading
+from datetime import datetime, timezone
 import requests
 
 
@@ -49,9 +50,17 @@ class TBHTTPClient:
         response.raise_for_status()
         return response.json()
 
-    def send_telemetry(self, telemetry: dict):
+    def send_telemetry(self, telemetry: dict, timestamp: datetime = None):
         """Publish telemetry to the ThingsBoard HTTP Device API."""
-        self.publish_data(telemetry, 'telemetry')
+        if timestamp:
+            # Convert timestamp to UTC milliseconds as required by API specification.
+            payload = {
+                'ts': int(timestamp.replace(tzinfo=timezone.utc).timestamp()*1000),
+                'values': telemetry
+            }
+        else:
+            payload = telemetry
+        self.publish_data(payload, 'telemetry')
 
     def send_attributes(self, attributes: dict):
         """Send attributes to the ThingsBoard HTTP Device API."""
