@@ -1,5 +1,6 @@
 """ThingsBoard HTTP API Device module"""
 import threading
+import logging
 from datetime import datetime, timezone
 import requests
 
@@ -30,6 +31,10 @@ class TBHTTPClient:
                 'event': threading.Event()
             }
         }
+        self.logger = logging.getLogger('TBHTTPDevice')
+        self.log_level = 'INFO'
+        self.logger.setLevel(getattr(logging, self.log_level))
+        self.logger.warning('Log level set to %s', self.log_level)
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
@@ -113,6 +118,7 @@ class TBHTTPClient:
 
         def subscription():
             self.subscriptions['attributes']['event'].clear()
+            self.logger.info('Start subscription to attribute updates.')
             while True:
                 response = self.session.get(url=f'{self.api_base_url}/attributes/updates',
                                             params=params)
@@ -125,6 +131,7 @@ class TBHTTPClient:
                 response.raise_for_status()
                 callback(response.json())
             self.subscriptions['attributes']['event'].clear()
+            self.logger.info('Stop subscription to attribute updates.')
 
         self.subscriptions['attributes']['thread'] = threading.Thread(
             name='subscribe_attributes',
@@ -134,6 +141,7 @@ class TBHTTPClient:
 
     def unsubscribe_from_attributes(self):
         """Unsubscribe from shared attributes updates."""
+        self.logger.debug('Set stop event for attributes subscription.')
         self.subscriptions['attributes']['event'].set()
 
     def subscribe_to_rpc(self, callback, timeout: int = None):
@@ -147,6 +155,7 @@ class TBHTTPClient:
 
         def subscription():
             self.subscriptions['rpc']['event'].clear()
+            self.logger.info('Start subscription to RPCs.')
             while True:
                 response = self.session.get(url=f'{self.api_base_url}/rpc',
                                             params=params)
@@ -159,6 +168,7 @@ class TBHTTPClient:
                 response.raise_for_status()
                 callback(response.json())
             self.subscriptions['rpc']['event'].clear()
+            self.logger.info('Stop subscription to attribute updates.')
 
         self.subscriptions['rpc']['thread'] = threading.Thread(
             name='subscribe_rpc',
@@ -168,6 +178,7 @@ class TBHTTPClient:
 
     def unsubscribe_from_rpc(self):
         """Unsubscribe from RPC."""
+        self.logger.debug('Set stop event for RPC subscription.')
         self.subscriptions['rpc']['event'].set()
 
     @classmethod
