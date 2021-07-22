@@ -22,6 +22,7 @@ class TBHTTPClient:
         self.token = token
         self.name = name
         self.host = host
+        self.timeout = 30
         self.api_base_url = f'{self.host}/api/v1/{self.token}'
         self.subscriptions = {
             'attributes': {
@@ -45,6 +46,7 @@ class TBHTTPClient:
         :return: True if no errors occurred, False otherwise.
         """
         self.logger.debug('Start connection test')
+        self.logger.info('Connection timeout is set to %ss', self.timeout)
         success = False
         try:
             self.connect()
@@ -68,28 +70,36 @@ class TBHTTPClient:
             self.logger.debug('End connection test')
         return success
 
-    def connect(self):
+    def connect(self, timeout: int = None):
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
-        self.publish_data({}, 'telemetry')
+        self.publish_data(data={}, endpoint='telemetry', timeout=timeout)
 
-    def publish_data(self, data: dict, endpoint: str) -> dict:
+    def publish_data(self, data: dict, endpoint: str, timeout: int = None) -> dict:
         """Send POST data to ThingsBoard.
 
         :param data: The data dictionary to send.
         :param endpoint: The receiving API endpoint.
+        :param timeout: Override the instance timeout for this request.
         """
-        response = self.session.post(f'{self.api_base_url}/{endpoint}', json=data)
+        response = self.session.post(
+            url=f'{self.api_base_url}/{endpoint}',
+            json=data,
+            timeout=timeout or self.timeout)
         response.raise_for_status()
         return response.json() if response.content else {}
 
-    def get_data(self, params: dict, endpoint: str) -> dict:
+    def get_data(self, params: dict, endpoint: str, timeout: int = None) -> dict:
         """Retrieve data with GET from ThingsBoard.
 
         :param params: A dictionary with the parameters for the request.
         :param endpoint: The receiving API endpoint.
+        :param timeout: Override the instance timeout for this request.
         :return: A dictionary with the response from the ThingsBoard instance.
         """
-        response = self.session.get(f'{self.api_base_url}/{endpoint}', params=params)
+        response = self.session.get(
+            url=f'{self.api_base_url}/{endpoint}',
+            params=params,
+            timeout=timeout or self.timeout)
         response.raise_for_status()
         return response.json()
 
@@ -141,20 +151,21 @@ class TBHTTPClient:
 
         :param callback: A callback tacking one argument (dict) that is called for each received
             shared attribute update.
-        :param timeout: Connection timeout. If not set, the subscription is not limited in time.
+        :param timeout: Override the instance timeout for this request.
         """
-        params = {'timeout': timeout} if timeout else {}
+        params = {'timeout': timeout or self.timeout}
 
         def subscription():
             self.subscriptions['attributes']['event'].clear()
             self.logger.info('Start subscription to attribute updates.')
             while True:
                 response = self.session.get(url=f'{self.api_base_url}/attributes/updates',
-                                            params=params)
+                                            params=params,
+                                            timeout=params.get('timeout'))
                 if self.subscriptions['attributes']['event'].is_set():
                     break
-                if response.status_code == 408 and timeout:
-                    break
+                if response.status_code == 408:  # Request timeout
+                    continue
                 if response.status_code == 504:  # Gateway Timeout
                     continue  # Reconnect
                 response.raise_for_status()
@@ -178,20 +189,21 @@ class TBHTTPClient:
 
         :param callback: A callback tacking one argument (dict) that is called for each received
             RPC event.
-        :param timeout: Connection timeout. If not set, the subscription is not limited in time.
+        :param timeout: Override the instance timeout for this request.
         """
-        params = {'timeout': timeout} if timeout else {}
+        params = {'timeout': timeout or self.timeout}
 
         def subscription():
             self.subscriptions['rpc']['event'].clear()
             self.logger.info('Start subscription to RPCs.')
             while True:
                 response = self.session.get(url=f'{self.api_base_url}/rpc',
-                                            params=params)
+                                            params=params,
+                                            timeout=params.get('timeout'))
                 if self.subscriptions['rpc']['event'].is_set():
                     break
-                if response.status_code == 408 and timeout:
-                    break
+                if response.status_code == 408:  # Connection timeout
+                    continue
                 if response.status_code == 504:  # Gateway Timeout
                     continue  # Reconnect
                 response.raise_for_status()
