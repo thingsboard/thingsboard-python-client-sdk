@@ -39,6 +39,35 @@ class TBHTTPClient:
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
 
+    def test_connection(self) -> bool:
+        """Test connection to the API.
+
+        :return: True if no errors occurred, False otherwise.
+        """
+        self.logger.debug('Start connection test')
+        success = False
+        try:
+            self.connect()
+        except requests.exceptions.Timeout as error:
+            self.logger.error('Connection timeout for host %s', self.host)
+            self.logger.debug(error)
+        except requests.exceptions.ConnectionError as error:
+            self.logger.error('Connection failed for host %s', self.host)
+            self.logger.debug(error)
+        except requests.exceptions.HTTPError as error:
+            self.logger.debug(error)
+            status_code = error.response.status_code
+            if status_code == 401:
+                self.logger.error('Error 401: Unauthorized. Check if token is correct.')
+            else:
+                self.logger.error('Error %s', status_code)
+        else:
+            self.logger.info('Connection test successful')
+            success = True
+        finally:
+            self.logger.debug('End connection test')
+        return success
+
     def connect(self):
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
         self.publish_data({}, 'telemetry')
