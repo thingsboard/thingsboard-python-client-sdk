@@ -1,6 +1,8 @@
 """ThingsBoard HTTP API Device module"""
 import threading
 import logging
+import queue
+import time
 from datetime import datetime, timezone
 import requests
 
@@ -36,9 +38,56 @@ class TBHTTPClient:
         self.log_level = 'INFO'
         self.logger.setLevel(getattr(logging, self.log_level))
         self.logger.warning('Log level set to %s', self.log_level)
+        self.worker = {
+            'publish': {
+                'queue': queue.Queue(),
+                'thread': threading.Thread(target=self.__publish_worker, daemon=True),
+                'stop_event': threading.Event()
+            }
+        }
+        self.start_publish_worker()
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
+
+    def start_publish_worker(self):
+        """Start the publish worker thread."""
+        self.worker['publish']['stop_event'].clear()
+        self.worker['publish']['thread'].start()
+
+    def stop_publish_worker(self):
+        """Stop the publish worker thread."""
+        self.worker['publish']['stop_event'].set()
+
+    def __publish_worker(self):
+        """Publish telemetry data from the queue."""
+        logger = self.logger.getChild('worker.publish')
+        logger.info('Start publisher thread')
+        logger.debug('Perform connection test before entering worker loop')
+        if not self.test_connection():
+            logger.error('Connection test failed, exit publisher thread')
+            return
+        logger.debug('Connection test successful')
+        while True:
+            try:
+                task = self.worker['publish']['queue'].get(timeout=1)
+            except queue.Empty:
+                if self.worker['publish']['stop_event'].is_set():
+                    break
+                continue
+            endpoint = task.pop('endpoint')
+            try:
+                self.publish_data(task, endpoint)
+            except Exception as error:
+                # ToDo: More precise exception catching
+                logger.error(error)
+                task.update({'endpoint': endpoint})
+                self.worker['publish']['queue'].put(task)
+                time.sleep(1)
+            else:
+                logger.debug('Published %s to %s', task, endpoint)
+                self.worker['publish']['queue'].task_done()
+        logger.info('Stop publisher thread.')
 
     def test_connection(self) -> bool:
         """Test connection to the API.
@@ -103,22 +152,24 @@ class TBHTTPClient:
         response.raise_for_status()
         return response.json()
 
-    def send_telemetry(self, telemetry: dict, timestamp: datetime = None):
+    def send_telemetry(self, telemetry: dict, timestamp: datetime = None, queued: bool = True):
         """Publish telemetry to ThingsBoard.
 
         :param telemetry: A dictionary with the telemetry data to send.
         :param timestamp: Timestamp to set for the values. If not set the ThingsBoard server uses
             the time of reception as timestamp.
+        :param queued: Add the telemetry to the queue. If False, the data is send immediately.
         """
-        if timestamp:
-            # Convert timestamp to UTC milliseconds as required by API specification.
-            payload = {
-                'ts': int(timestamp.replace(tzinfo=timezone.utc).timestamp()*1000),
-                'values': telemetry
-            }
+        timestamp = datetime.now() if timestamp is None else timestamp
+        payload = {
+            'ts': int(timestamp.replace(tzinfo=timezone.utc).timestamp()*1000),
+            'values': telemetry,
+        }
+        if queued:
+            payload.update({'endpoint': 'telemetry'})
+            self.worker['publish']['queue'].put(payload)
         else:
-            payload = telemetry
-        self.publish_data(payload, 'telemetry')
+            self.publish_data(payload, 'telemetry')
 
     def send_attributes(self, attributes: dict):
         """Send attributes to ThingsBoard.
