@@ -3,6 +3,7 @@ import threading
 import logging
 import queue
 import time
+import typing
 from datetime import datetime, timezone
 import requests
 
@@ -34,10 +35,6 @@ class TBHTTPClient:
                 'event': threading.Event()
             }
         }
-        self.logger = logging.getLogger('TBHTTPDevice')
-        self.log_level = 'INFO'
-        self.logger.setLevel(getattr(logging, self.log_level))
-        self.logger.warning('Log level set to %s', self.log_level)
         self.worker = {
             'publish': {
                 'queue': queue.Queue(),
@@ -49,6 +46,22 @@ class TBHTTPClient:
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
+
+    @property
+    def logger(self) -> logging.Logger:
+        """Get the logger instance."""
+        return logging.getLogger('TBHTTPDevice')
+
+    @property
+    def log_level(self) -> str:
+        """Get the log level."""
+        levels = {0: 'NOTSET', 10: 'DEBUG', 20: 'INFO', 30: 'WARNING', 40: 'ERROR', 50: 'CRITICAL'}
+        return levels.get(self.logger.level)
+
+    @log_level.setter
+    def log_level(self, value: typing.Union[int, str]):
+        self.logger.setLevel(value)
+        self.logger.critical('Log level set to %s', self.log_level)
 
     def start_publish_worker(self):
         """Start the publish worker thread."""
