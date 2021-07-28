@@ -47,7 +47,6 @@ class TBHTTPClient:
                 'stop_event': threading.Event(),
             }
         }
-        self.start_publish_worker()
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
@@ -113,15 +112,10 @@ class TBHTTPClient:
         :return: True if no errors occurred, False otherwise.
         """
         self.logger.debug('Start connection test')
-        self.logger.info('Connection timeout is set to %ss', self.timeout)
         success = False
         try:
-            self.connect()
-        except requests.exceptions.Timeout as error:
-            self.logger.error('Connection timeout for host %s', self.host)
-            self.logger.debug(error)
-        except requests.exceptions.ConnectionError as error:
-            self.logger.error('Connection failed for host %s', self.host)
+            self.publish_data(data={}, endpoint='telemetry')
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
             self.logger.debug(error)
         except requests.exceptions.HTTPError as error:
             self.logger.debug(error)
@@ -131,15 +125,17 @@ class TBHTTPClient:
             else:
                 self.logger.error('Error %s', status_code)
         else:
-            self.logger.info('Connection test successful')
+            self.logger.debug('Connection test successful')
             success = True
         finally:
             self.logger.debug('End connection test')
         return success
 
-    def connect(self, timeout: int = None):
+    def connect(self):
         """Publish an empty telemetry data to ThingsBoard to test the connection."""
-        self.publish_data(data={}, endpoint='telemetry', timeout=timeout)
+        if self.test_connection():
+            self.logger.info('Connected to ThingsBoard')
+            self.start_publish_worker()
 
     def publish_data(self, data: dict, endpoint: str, timeout: int = None) -> dict:
         """Send POST data to ThingsBoard.
