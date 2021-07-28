@@ -5,6 +5,7 @@ import queue
 import time
 import typing
 from datetime import datetime, timezone
+from collections.abc import Callable
 import requests
 
 
@@ -27,19 +28,23 @@ class TBHTTPClient:
         self.host = host
         self.timeout = 30
         self.api_base_url = f'{self.host}/api/v1/{self.token}'
-        self.subscriptions = {
-            'attributes': {
-                'event': threading.Event()
-            },
-            'rpc': {
-                'event': threading.Event()
-            }
-        }
         self.worker = {
             'publish': {
                 'queue': queue.Queue(),
                 'thread': threading.Thread(target=self.__publish_worker, daemon=True),
                 'stop_event': threading.Event()
+            },
+            'attributes': {
+                'thread': threading.Thread(target=self.__subscription_worker,
+                                           daemon=True,
+                                           kwargs={'endpoint': 'attributes'}),
+                'stop_event': threading.Event(),
+            },
+            'rpc': {
+                'thread': threading.Thread(target=self.__subscription_worker,
+                                           daemon=True,
+                                           kwargs={'endpoint': 'rpc'}),
+                'stop_event': threading.Event(),
             }
         }
         self.start_publish_worker()
@@ -210,81 +215,65 @@ class TBHTTPClient:
         params = {'client_keys': client_keys, 'shared_keys': shared_keys}
         return self.get_data(params=params, endpoint='attributes')
 
-    def subscribe_to_attributes(self, callback, timeout: int = None):
+    def __subscription_worker(self, endpoint: str, timeout: int = None):
+        logger = self.logger.getChild(f'worker.subscription.{endpoint}')
+        stop_event = self.worker[endpoint]['stop_event']
+        logger.info('Start subscription to %s updates', endpoint)
+
+        if not self.worker[endpoint].get('callback'):
+            logger.warning('No callback set for %s subscription', endpoint)
+            stop_event.set()
+        callback = self.worker[endpoint].get('callback', lambda data: None)
+        params = {
+            'timeout': (timeout or self.timeout)*1000
+        }
+        url = {
+            'attributes': f'{self.api_base_url}/attributes/updates',
+            'rpc': f'{self.api_base_url}/rpc'
+        }
+        logger.debug('Timeout set to %ss', params['timeout']/1000)
+        while not stop_event.is_set():
+            response = self.session.get(url=url[endpoint], params=params, timeout=params['timeout'])
+            if stop_event.is_set():
+                break
+            if response.status_code == 408:  # Request timeout
+                continue
+            if response.status_code == 504:  # Gateway Timeout
+                continue  # Reconnect
+            response.raise_for_status()
+            callback(response.json())
+        stop_event.clear()
+        logger.info('Stop subscription to %s updates', endpoint)
+
+    def subscribe_to_attributes(self, callback: Callable[[dict], None] = None):
         """Subscribe to shared attributes updates.
 
-        :param callback: A callback tacking one argument (dict) that is called for each received
-            shared attribute update.
-        :param timeout: Override the instance timeout for this request.
+        :param callback: Callback to execute on an attribute update. Takes a dict as only argument.
         """
-        params = {'timeout': timeout or self.timeout}
-
-        def subscription():
-            self.subscriptions['attributes']['event'].clear()
-            self.logger.info('Start subscription to attribute updates.')
-            while True:
-                response = self.session.get(url=f'{self.api_base_url}/attributes/updates',
-                                            params=params,
-                                            timeout=params.get('timeout'))
-                if self.subscriptions['attributes']['event'].is_set():
-                    break
-                if response.status_code == 408:  # Request timeout
-                    continue
-                if response.status_code == 504:  # Gateway Timeout
-                    continue  # Reconnect
-                response.raise_for_status()
-                callback(response.json())
-            self.subscriptions['attributes']['event'].clear()
-            self.logger.info('Stop subscription to attribute updates.')
-
-        self.subscriptions['attributes']['thread'] = threading.Thread(
-            name='subscribe_attributes',
-            target=subscription,
-            daemon=True)
-        self.subscriptions['attributes']['thread'].start()
+        if callback:
+            self.worker['attributes']['callback'] = callback
+        self.worker['attributes']['stop_event'].clear()
+        self.worker['attributes']['thread'].start()
 
     def unsubscribe_from_attributes(self):
         """Unsubscribe from shared attributes updates."""
         self.logger.debug('Set stop event for attributes subscription.')
-        self.subscriptions['attributes']['event'].set()
+        self.worker['attributes']['stop_event'].set()
 
-    def subscribe_to_rpc(self, callback, timeout: int = None):
+    def subscribe_to_rpc(self, callback: Callable[[dict], None] = None):
         """Subscribe to RPC.
 
-        :param callback: A callback tacking one argument (dict) that is called for each received
-            RPC event.
-        :param timeout: Override the instance timeout for this request.
+        :param callback: Callback to execute on an RPC update. Takes a dict as only argument.
         """
-        params = {'timeout': timeout or self.timeout}
-
-        def subscription():
-            self.subscriptions['rpc']['event'].clear()
-            self.logger.info('Start subscription to RPCs.')
-            while True:
-                response = self.session.get(url=f'{self.api_base_url}/rpc',
-                                            params=params,
-                                            timeout=params.get('timeout'))
-                if self.subscriptions['rpc']['event'].is_set():
-                    break
-                if response.status_code == 408:  # Connection timeout
-                    continue
-                if response.status_code == 504:  # Gateway Timeout
-                    continue  # Reconnect
-                response.raise_for_status()
-                callback(response.json())
-            self.subscriptions['rpc']['event'].clear()
-            self.logger.info('Stop subscription to attribute updates.')
-
-        self.subscriptions['rpc']['thread'] = threading.Thread(
-            name='subscribe_rpc',
-            target=subscription,
-            daemon=True)
-        self.subscriptions['rpc']['thread'].start()
+        if callback:
+            self.worker['rpc']['callback'] = callback
+        self.worker['rpc']['stop_event'].clear()
+        self.worker['rpc']['thread'].start()
 
     def unsubscribe_from_rpc(self):
         """Unsubscribe from RPC."""
         self.logger.debug('Set stop event for RPC subscription.')
-        self.subscriptions['rpc']['event'].set()
+        self.worker['rpc']['stop_event'].set()
 
     @classmethod
     def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
