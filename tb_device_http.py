@@ -5,7 +5,6 @@ import queue
 import time
 import typing
 from datetime import datetime, timezone
-from collections.abc import Callable
 import requests
 
 
@@ -248,7 +247,9 @@ class TBHTTPClient:
         }
         logger.debug('Timeout set to %ss', params['timeout']/1000)
         while not stop_event.is_set():
-            response = self.__session.get(url=url[endpoint], params=params, timeout=params['timeout'])
+            response = self.__session.get(url=url[endpoint],
+                                          params=params,
+                                          timeout=params['timeout'])
             if stop_event.is_set():
                 break
             if response.status_code == 408:  # Request timeout
@@ -260,7 +261,7 @@ class TBHTTPClient:
         stop_event.clear()
         logger.info('Stop subscription to %s updates', endpoint)
 
-    def subscribe(self, endpoint: str, callback: Callable[[dict], None] = None):
+    def subscribe(self, endpoint: str, callback: typing.Callable[[dict], None] = None):
         """Subscribe to updates.
 
         :param endpoint: The endpoint to subscribe.
