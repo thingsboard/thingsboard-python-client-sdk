@@ -23,11 +23,9 @@ class TBHTTPClient:
     def __init__(self, host: str, token: str, name: str = None):
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
-        self.token = token
-        self.name = name
-        self.host = host
-        self.timeout = 30
-        self.api_base_url = f'{self.host}/api/v1/{self.token}'
+        self.__config = {
+            'host': host, 'token': token, 'name': name, 'timeout': 30
+        }
         self.worker = {
             'publish': {
                 'queue': queue.Queue(),
@@ -50,6 +48,27 @@ class TBHTTPClient:
 
     def __repr__(self):
         return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
+
+    @property
+    def host(self) -> str:
+        """Get the ThingsBoard hostname"""
+        return self.__config['host']
+
+    @property
+    def name(self) -> str:
+        """Get the device name."""
+        return self.__config['name']
+
+    @property
+    def timeout(self)-> int:
+        """Get the connection timeout."""
+        return self.__config['timeout']
+
+    @property
+    def api_base_url(self) -> str:
+        """Get the ThingsBoard API base URL."""
+        token = self.__config['token']
+        return f'{self.host}/api/v1/{token}'
 
     @property
     def logger(self) -> logging.Logger:
