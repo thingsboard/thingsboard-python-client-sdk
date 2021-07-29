@@ -21,12 +21,12 @@ class TBHTTPClient:
     """ThingsBoard HTTP Device API class."""
 
     def __init__(self, host: str, token: str, name: str = None):
-        self.session = requests.Session()
-        self.session.headers.update({'Content-Type': 'application/json'})
+        self.__session = requests.Session()
+        self.__session.headers.update({'Content-Type': 'application/json'})
         self.__config = {
             'host': host, 'token': token, 'name': name, 'timeout': 30
         }
-        self.worker = {
+        self.__worker = {
             'publish': {
                 'queue': queue.Queue(),
                 'thread': threading.Thread(target=self.__publish_worker, daemon=True),
@@ -88,12 +88,12 @@ class TBHTTPClient:
 
     def start_publish_worker(self):
         """Start the publish worker thread."""
-        self.worker['publish']['stop_event'].clear()
-        self.worker['publish']['thread'].start()
+        self.__worker['publish']['stop_event'].clear()
+        self.__worker['publish']['thread'].start()
 
     def stop_publish_worker(self):
         """Stop the publish worker thread."""
-        self.worker['publish']['stop_event'].set()
+        self.__worker['publish']['stop_event'].set()
 
     def __publish_worker(self):
         """Publish telemetry data from the queue."""
@@ -106,23 +106,23 @@ class TBHTTPClient:
         logger.debug('Connection test successful')
         while True:
             try:
-                task = self.worker['publish']['queue'].get(timeout=1)
+                task = self.__worker['publish']['queue'].get(timeout=1)
             except queue.Empty:
-                if self.worker['publish']['stop_event'].is_set():
+                if self.__worker['publish']['stop_event'].is_set():
                     break
                 continue
             endpoint = task.pop('endpoint')
             try:
-                self.publish_data(task, endpoint)
+                self._publish_data(task, endpoint)
             except Exception as error:
                 # ToDo: More precise exception catching
                 logger.error(error)
                 task.update({'endpoint': endpoint})
-                self.worker['publish']['queue'].put(task)
+                self.__worker['publish']['queue'].put(task)
                 time.sleep(1)
             else:
                 logger.debug('Published %s to %s', task, endpoint)
-                self.worker['publish']['queue'].task_done()
+                self.__worker['publish']['queue'].task_done()
         logger.info('Stop publisher thread.')
 
     def test_connection(self) -> bool:
@@ -133,7 +133,7 @@ class TBHTTPClient:
         self.logger.debug('Start connection test')
         success = False
         try:
-            self.publish_data(data={}, endpoint='telemetry')
+            self._publish_data(data={}, endpoint='telemetry')
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
             self.logger.debug(error)
         except requests.exceptions.HTTPError as error:
@@ -156,21 +156,21 @@ class TBHTTPClient:
             self.logger.info('Connected to ThingsBoard')
             self.start_publish_worker()
 
-    def publish_data(self, data: dict, endpoint: str, timeout: int = None) -> dict:
+    def _publish_data(self, data: dict, endpoint: str, timeout: int = None) -> dict:
         """Send POST data to ThingsBoard.
 
         :param data: The data dictionary to send.
         :param endpoint: The receiving API endpoint.
         :param timeout: Override the instance timeout for this request.
         """
-        response = self.session.post(
+        response = self.__session.post(
             url=f'{self.api_base_url}/{endpoint}',
             json=data,
             timeout=timeout or self.timeout)
         response.raise_for_status()
         return response.json() if response.content else {}
 
-    def get_data(self, params: dict, endpoint: str, timeout: int = None) -> dict:
+    def _get_data(self, params: dict, endpoint: str, timeout: int = None) -> dict:
         """Retrieve data with GET from ThingsBoard.
 
         :param params: A dictionary with the parameters for the request.
@@ -178,7 +178,7 @@ class TBHTTPClient:
         :param timeout: Override the instance timeout for this request.
         :return: A dictionary with the response from the ThingsBoard instance.
         """
-        response = self.session.get(
+        response = self.__session.get(
             url=f'{self.api_base_url}/{endpoint}',
             params=params,
             timeout=timeout or self.timeout)
@@ -200,16 +200,16 @@ class TBHTTPClient:
         }
         if queued:
             payload.update({'endpoint': 'telemetry'})
-            self.worker['publish']['queue'].put(payload)
+            self.__worker['publish']['queue'].put(payload)
         else:
-            self.publish_data(payload, 'telemetry')
+            self._publish_data(payload, 'telemetry')
 
     def send_attributes(self, attributes: dict):
         """Send attributes to ThingsBoard.
 
         :param attributes: Attributes to send.
         """
-        self.publish_data(attributes, 'attributes')
+        self._publish_data(attributes, 'attributes')
 
     def send_rpc(self, name: str, params: dict = None) -> dict:
         """Send RPC to ThingsBoard and return response.
@@ -218,7 +218,7 @@ class TBHTTPClient:
         :param params: Parameter for the RPC.
         :return: A dictionary with the response.
         """
-        return self.publish_data({'method': name, 'params': params or {}}, 'rpc')
+        return self._publish_data({'method': name, 'params': params or {}}, 'rpc')
 
     def request_attributes(self, client_keys: list = None, shared_keys: list = None) -> dict:
         """Request attributes from ThingsBoard.
@@ -228,17 +228,17 @@ class TBHTTPClient:
         :return: A dictionary with the request attributes.
         """
         params = {'client_keys': client_keys, 'shared_keys': shared_keys}
-        return self.get_data(params=params, endpoint='attributes')
+        return self._get_data(params=params, endpoint='attributes')
 
     def __subscription_worker(self, endpoint: str, timeout: int = None):
         logger = self.logger.getChild(f'worker.subscription.{endpoint}')
-        stop_event = self.worker[endpoint]['stop_event']
+        stop_event = self.__worker[endpoint]['stop_event']
         logger.info('Start subscription to %s updates', endpoint)
 
-        if not self.worker[endpoint].get('callback'):
+        if not self.__worker[endpoint].get('callback'):
             logger.warning('No callback set for %s subscription', endpoint)
             stop_event.set()
-        callback = self.worker[endpoint].get('callback', lambda data: None)
+        callback = self.__worker[endpoint].get('callback', lambda data: None)
         params = {
             'timeout': (timeout or self.timeout)*1000
         }
@@ -248,7 +248,7 @@ class TBHTTPClient:
         }
         logger.debug('Timeout set to %ss', params['timeout']/1000)
         while not stop_event.is_set():
-            response = self.session.get(url=url[endpoint], params=params, timeout=params['timeout'])
+            response = self.__session.get(url=url[endpoint], params=params, timeout=params['timeout'])
             if stop_event.is_set():
                 break
             if response.status_code == 408:  # Request timeout
@@ -260,35 +260,28 @@ class TBHTTPClient:
         stop_event.clear()
         logger.info('Stop subscription to %s updates', endpoint)
 
-    def subscribe_to_attributes(self, callback: Callable[[dict], None] = None):
-        """Subscribe to shared attributes updates.
+    def subscribe(self, endpoint: str, callback: Callable[[dict], None] = None):
+        """Subscribe to updates.
 
-        :param callback: Callback to execute on an attribute update. Takes a dict as only argument.
+        :param endpoint: The endpoint to subscribe.
+        :param callback: Callback to execute on an update. Takes a dict as only argument.
         """
+        if endpoint not in ['attributes', 'rpc']:
+            raise ValueError
         if callback:
-            self.worker['attributes']['callback'] = callback
-        self.worker['attributes']['stop_event'].clear()
-        self.worker['attributes']['thread'].start()
+            self.__worker[endpoint]['callback'] = callback
+        self.__worker[endpoint]['stop_event'].clear()
+        self.__worker[endpoint]['thread'].start()
 
-    def unsubscribe_from_attributes(self):
-        """Unsubscribe from shared attributes updates."""
-        self.logger.debug('Set stop event for attributes subscription.')
-        self.worker['attributes']['stop_event'].set()
+    def unsubscribe(self, endpoint: str):
+        """Unsubscribe from endpoint.
 
-    def subscribe_to_rpc(self, callback: Callable[[dict], None] = None):
-        """Subscribe to RPC.
-
-        :param callback: Callback to execute on an RPC update. Takes a dict as only argument.
+        :param endpoint: The endpoint to unsubscribe.
         """
-        if callback:
-            self.worker['rpc']['callback'] = callback
-        self.worker['rpc']['stop_event'].clear()
-        self.worker['rpc']['thread'].start()
-
-    def unsubscribe_from_rpc(self):
-        """Unsubscribe from RPC."""
-        self.logger.debug('Set stop event for RPC subscription.')
-        self.worker['rpc']['stop_event'].set()
+        if endpoint not in ['attributes', 'rpc']:
+            raise ValueError
+        self.logger.debug('Set stop event for %s subscription', endpoint)
+        self.__worker[endpoint]['stop_event'].set()
 
     @classmethod
     def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
