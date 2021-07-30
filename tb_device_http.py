@@ -16,8 +16,13 @@ class TBProvisionFailure(TBHTTPAPIException):
     """Exception raised if device provisioning failed."""
 
 
-class TBHTTPClient:
-    """ThingsBoard HTTP Device API class."""
+class TBHTTPDevice:
+    """ThingsBoard HTTP Device API class.
+
+    :param host: The ThingsBoard hostname.
+    :param token: The device token.
+    :param name: A name for this device. The name is only set locally.
+    """
 
     def __init__(self, host: str, token: str, name: str = None):
         self.__session = requests.Session()
@@ -46,7 +51,7 @@ class TBHTTPClient:
         }
 
     def __repr__(self):
-        return f'<ThingsBoard ({self.host}) HTTP client {self.name}>'
+        return f'<ThingsBoard ({self.host}) HTTP device {self.name}>'
 
     @property
     def host(self) -> str:
@@ -305,3 +310,10 @@ class TBHTTPClient:
         if device['status'] == 'SUCCESS' and device['credentialsType'] == 'ACCESS_TOKEN':
             return cls(host=host, token=device['credentialsValue'], name=device_name)
         raise TBProvisionFailure(device)
+
+
+class TBHTTPClient(TBHTTPDevice):
+    """Legacy class name"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger.critical('TBHTTPClient class is deprecated, please use TBHTTPDevice')
