@@ -215,14 +215,16 @@ class TBHTTPDevice:
         """
         self._publish_data(attributes, 'attributes')
 
-    def send_rpc(self, name: str, params: dict = None) -> dict:
+    def send_rpc(self, name: str, params: dict = None, rpc_id: int = None) -> dict:
         """Send RPC to ThingsBoard and return response.
 
         :param name: Name of the RPC method.
         :param params: Parameter for the RPC.
+        :param rpc_id: Specify an Id for this RPC.
         :return: A dictionary with the response.
         """
-        return self._publish_data({'method': name, 'params': params or {}}, 'rpc')
+        endpoint = f'rpc/{rpc_id}' if rpc_id else 'rpc'
+        return self._publish_data({'method': name, 'params': params or {}}, endpoint)
 
     def request_attributes(self, client_keys: list = None, shared_keys: list = None) -> dict:
         """Request attributes from ThingsBoard.
