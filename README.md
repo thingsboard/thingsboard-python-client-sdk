@@ -1,18 +1,18 @@
-# ThingsBoard MQTT client Python SDK
+# ThingsBoard MQTT and HTTP client Python SDK
 [![Join the chat at https://gitter.im/thingsboard/chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/thingsboard/chat?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 <a href="https://thingsboard.io"><img src="./logo.png?raw=true" width="100" height="100"></a>
 
 ThingsBoard is an open-source IoT platform for data collection, processing, visualization, and device management.
-This project ia a Python library that provides convenient client SDK for both [Device](https://thingsboard.io/docs/reference/mqtt-api/) 
-and [Gateway](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs.
+This project ia a Python library that provides convenient client SDK for both Device and [Gateway](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs.
 
 SDK supports:
-- Unencrypted and encrypted (TLS v1.2) connection;
-- QoS 0 and 1;
-- Automatic reconnect;
-- All Device MQTT APIs provided by ThingsBoard
-- All Gateway MQTT APIs provided by ThingsBoard
+- Unencrypted and encrypted (TLS v1.2) connection
+- QoS 0 and 1
+- Automatic reconnect
+- All [Device MQTT](https://thingsboard.io/docs/reference/mqtt-api/) APIs provided by ThingsBoard
+- All [Gateway MQTT](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs provided by ThingsBoard
+- All [Device HTTP](https://thingsboard.io/docs/reference/http-api/) APIs provided by ThingsBoard
 
 SDK is based on Paho MQTT library. 
 
@@ -27,7 +27,7 @@ pip3 install tb-mqtt-client
 ## Getting Started
 
 Client initialization and telemetry publishing
-
+### MQTT
 ```python
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
@@ -44,7 +44,7 @@ success = result.get() == TBPublishInfo.TB_ERR_SUCCESS
 client.disconnect()
 ```
 
-### Connection using TLS
+### MQTT using TLS
 
 TLS connection to localhost. See https://thingsboard.io/docs/user-guide/mqtt-over-ssl/ for more information about client and ThingsBoard configuration.
 
@@ -58,10 +58,21 @@ client.connect(tls=True,
 client.disconnect()
 ```
 
+### HTTP
+
+````python
+from tb_device_http import TBHTTPDevice
+
+client = TBHTTPDevice('https://thingsboard.example.com', 'secret-token')
+client.connect()
+client.send_telemetry({'temperature': 41.9})
+````
+
 ## Using Device APIs
 
-**TBDeviceMqttClient** provides access to Device MQTT APIs of ThingsBoard platform. It allows to publish telemetry and attribute updates, subscribe to attribute changes, send and receive RPC commands, etc. 
-#### Subscribtion to attributes
+**TBDeviceMqttClient** provides access to Device MQTT APIs of ThingsBoard platform. It allows to publish telemetry and attribute updates, subscribe to attribute changes, send and receive RPC commands, etc. Use **TBHTTPClient** for the Device HTTP API.
+#### Subscription to attributes
+##### MQTT
 ```python
 import time
 from tb_device_mqtt import TBDeviceMqttClient
@@ -77,7 +88,24 @@ while True:
     time.sleep(1)
 ```
 
+##### HTTP
+Note: The HTTP API only allows a subscription to updates for all attribute.
+```python
+from tb_device_http import TBHTTPClient
+client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
+
+def callback(data):
+    print(data)
+    # ...
+
+# Subscribe
+client.subscribe('attributes', callback)
+# Unsubscribe
+client.unsubscribe('attributes')
+```
+
 #### Telemetry pack sending
+##### MQTT
 ```python
 import logging
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
@@ -96,8 +124,11 @@ for tmp_result in results:
 print("Result " + str(result))
 client.disconnect()
 ```
+##### HTTP
+Unsupported, the HTTP API does not allow the packing of values.
 
 #### Request attributes from server
+##### MQTT
 ```python
 import logging
 import time
@@ -115,7 +146,18 @@ client.request_attributes(["configuration","targetFirmwareVersion"], callback=on
 while True:
     time.sleep(1)
 ```
+##### HTTP
+```python
+from tb_device_http import TBHTTPClient
+client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
+
+client_keys = ['attr1', 'attr2']
+shared_keys = ['shared1', 'shared2']
+data = client.request_attributes(client_keys=client_keys, shared_keys=shared_keys)
+```
+
 #### Respond to server RPC call
+##### MQTT
 ```python
 import psutil
 import time
@@ -136,6 +178,24 @@ client.connect()
 while True:
     time.sleep(1)
 ```
+
+##### HTTP
+```python
+from tb_device_http import TBHTTPClient
+client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
+
+def callback(data):
+    rpc_id = data['id']
+    # ... do something with data['params'] and data['method']...
+    response_params = {'result': 1}
+    client.send_rpc(name='rpc_response', rpc_id=rpc_id, params=response_params)
+
+# Subscribe
+client.subscribe('rpc', callback)
+# Unsubscribe
+client.unsubscribe('rpc')
+```
+
 ## Using Gateway APIs
 
 **TBGatewayMqttClient** extends **TBDeviceMqttClient**, thus has access to all it's APIs as a regular device.

@@ -1,4 +1,4 @@
-"""ThingsBoard HTTP API Device module"""
+"""ThingsBoard HTTP API device module."""
 import threading
 import logging
 import queue
@@ -55,7 +55,7 @@ class TBHTTPDevice:
 
     @property
     def host(self) -> str:
-        """Get the ThingsBoard hostname"""
+        """Get the ThingsBoard hostname."""
         return self.__config['host']
 
     @property
@@ -64,7 +64,7 @@ class TBHTTPDevice:
         return self.__config['name']
 
     @property
-    def timeout(self)-> int:
+    def timeout(self) -> int:
         """Get the connection timeout."""
         return self.__config['timeout']
 
@@ -154,11 +154,16 @@ class TBHTTPDevice:
             self.logger.debug('End connection test')
         return success
 
-    def connect(self):
-        """Publish an empty telemetry data to ThingsBoard to test the connection."""
+    def connect(self) -> bool:
+        """Publish an empty telemetry data to ThingsBoard to test the connection.
+
+        :return: True if connected, false otherwise.
+        """
         if self.test_connection():
             self.logger.info('Connected to ThingsBoard')
             self.start_publish_worker()
+            return True
+        return False
 
     def _publish_data(self, data: dict, endpoint: str, timeout: int = None) -> dict:
         """Send POST data to ThingsBoard.
@@ -237,6 +242,11 @@ class TBHTTPDevice:
         return self._get_data(params=params, endpoint='attributes')
 
     def __subscription_worker(self, endpoint: str, timeout: int = None):
+        """Worker thread for subscription to HTTP API endpoints.
+
+        :param endpoint: The endpoint name.
+        :param timeout: Timeout value in seconds.
+        """
         logger = self.logger.getChild(f'worker.subscription.{endpoint}')
         stop_event = self.__worker[endpoint]['stop_event']
         logger.info('Start subscription to %s updates', endpoint)
@@ -269,7 +279,7 @@ class TBHTTPDevice:
         logger.info('Stop subscription to %s updates', endpoint)
 
     def subscribe(self, endpoint: str, callback: typing.Callable[[dict], None] = None):
-        """Subscribe to updates.
+        """Subscribe to updates from a given endpoint.
 
         :param endpoint: The endpoint to subscribe.
         :param callback: Callback to execute on an update. Takes a dict as only argument.
@@ -277,12 +287,14 @@ class TBHTTPDevice:
         if endpoint not in ['attributes', 'rpc']:
             raise ValueError
         if callback:
+            if not callable(callback):
+                raise TypeError
             self.__worker[endpoint]['callback'] = callback
         self.__worker[endpoint]['stop_event'].clear()
         self.__worker[endpoint]['thread'].start()
 
     def unsubscribe(self, endpoint: str):
-        """Unsubscribe from endpoint.
+        """Unsubscribe from a given endpoint.
 
         :param endpoint: The endpoint to unsubscribe.
         """
@@ -293,7 +305,7 @@ class TBHTTPDevice:
 
     @classmethod
     def provision(cls, host: str, device_name: str, device_key: str, device_secret: str):
-        """Initiate device provisioning and return a client instance.
+        """Initiate device provisioning and return a device instance.
 
         :param host: The root URL to the ThingsBoard instance.
         :param device_name: Name of the device to provision.
@@ -315,7 +327,7 @@ class TBHTTPDevice:
 
 
 class TBHTTPClient(TBHTTPDevice):
-    """Legacy class name"""
+    """Legacy class name."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger.critical('TBHTTPClient class is deprecated, please use TBHTTPDevice')
