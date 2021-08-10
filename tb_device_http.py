@@ -71,8 +71,12 @@ class TBHTTPDevice:
     @property
     def api_base_url(self) -> str:
         """Get the ThingsBoard API base URL."""
-        token = self.__config['token']
-        return f'{self.host}/api/v1/{token}'
+        return f'{self.host}/api/v1/{self.token}'
+
+    @property
+    def token(self) -> str:
+        """Get the device token."""
+        return self.__config['token']
 
     @property
     def logger(self) -> logging.Logger:
