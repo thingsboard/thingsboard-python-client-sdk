@@ -112,13 +112,13 @@ RESULT_CODES = {
 
 def verify_checksum(firmware_data, checksum_alg, checksum):
     if firmware_data is None:
-        print("Firmware wasn't received!")
+        log.debug('Firmware wasn\'t received!')
         return False
     if checksum is None:
-        print("Checksum was't provided!")
+        log.debug('Checksum was\'t provided!')
         return False
     checksum_of_received_firmware = None
-    print(f"Checksum algorithm is: {checksum_alg}")
+    log.debug('Checksum algorithm is: %s' % checksum_alg)
     if checksum_alg.lower() == "sha256":
         checksum_of_received_firmware = sha256(firmware_data).digest().hex()
     elif checksum_alg.lower() == "sha384":
@@ -146,11 +146,11 @@ def verify_checksum(firmware_data, checksum_alg, checksum):
         checksum_of_received_firmware = "".join(
             reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
     else:
-        print("Client error. Unsupported checksum algorithm.")
-    print(checksum_of_received_firmware)
+        log.error('Client error. Unsupported checksum algorithm.')
+    log.debug(checksum_of_received_firmware)
     random_value = randint(0, 5)
     if random_value > 3:
-        print("Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%")
+        log.debug('Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%')
         return False
     return checksum_of_received_firmware == checksum
 
@@ -376,7 +376,7 @@ class TBDeviceMqttClient:
                     FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) or \
                     (self.firmware_info.get(FW_TITLE_ATTR) is not None and self.firmware_info.get(
                         FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR)):
-                print("Firmware is not the same")
+                log.debug('Firmware is not the same')
                 self.firmware_data = b''
                 self.__current_chunk = 0
 
@@ -395,7 +395,7 @@ class TBDeviceMqttClient:
             self.firmware_data = self.firmware_data + firmware_data
             self.__current_chunk = self.__current_chunk + 1
 
-            print(f'Getting chunk with number: {self.__current_chunk}. Chunk size is : {self.__chunk_size} byte(s).')
+            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (self.__current_chunk, self.__chunk_size))
 
             if len(self.firmware_data) == self.__target_firmware_length:
                 self.process_firmware()
@@ -414,12 +414,12 @@ class TBDeviceMqttClient:
                                               self.firmware_info.get(FW_CHECKSUM_ATTR))
 
         if verification_result:
-            print("Checksum verified!")
+            log.debug('Checksum verified!')
             self.current_firmware_info[FW_STATE_ATTR] = "VERIFIED"
             self.send_telemetry(self.current_firmware_info)
             time.sleep(1)
         else:
-            print("Checksum verification failed!")
+            log.debug('Checksum verification failed!')
             self.current_firmware_info[FW_STATE_ATTR] = "FAILED"
             self.send_telemetry(self.current_firmware_info)
             self.request_firmware_info()
@@ -435,7 +435,7 @@ class TBDeviceMqttClient:
     def on_firmware_received(self, version_to):
         with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
             firmware_file.write(self.firmware_data)
-        print(f"Firmware is updated!\n Current firmware version is: {version_to}")
+        log.info('Firmware is updated!\n Current firmware version is: %s' % version_to)
 
     def __update_thread(self):
         while True:
