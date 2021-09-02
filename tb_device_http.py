@@ -5,13 +5,10 @@ import queue
 import time
 import typing
 from datetime import datetime, timezone
-from random import randint
+from sdk_utils import verify_checksum
 
 import requests
 from math import ceil
-from zlib import crc32
-from hashlib import sha256, sha384, sha512, md5
-from mmh3 import hash, hash128
 
 FW_CHECKSUM_ATTR = "fw_checksum"
 FW_CHECKSUM_ALG_ATTR = "fw_checksum_algorithm"
@@ -115,13 +112,13 @@ class TBHTTPDevice:
         self.logger.setLevel(value)
         self.logger.critical('Log level set to %s', self.log_level)
 
-    def get_firmware_info(self):
+    def __get_firmware_info(self):
         response = self.__session.get(
             f"{self.__config['host']}/api/v1/{self.__config['token']}/attributes",
             params={"sharedKeys": REQUIRED_SHARED_KEYS}).json()
         return response.get("shared", {})
 
-    def get_firmware(self, fw_info):
+    def __get_firmware(self, fw_info):
         chunk_count = ceil(fw_info.get(FW_SIZE_ATTR, 0) / self.chunk_size) if self.chunk_size > 0 else 0
         firmware_data = b''
         for chunk_number in range(chunk_count + 1):
@@ -145,79 +142,35 @@ class TBHTTPDevice:
             firmware_data = firmware_data + response.content
         return firmware_data
 
-    def on_firmware_received(self, firmware_info, firmware_data):
+    def __on_firmware_received(self, firmware_info, firmware_data):
         with open(firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
             firmware_file.write(firmware_data)
 
         self.logger.info('Firmware is updated!\n Current firmware version is: %s' % firmware_info.get(FW_VERSION_ATTR))
 
-    def verify_checksum(self, firmware_data, checksum_alg, checksum):
-        if firmware_data is None:
-            self.logger.debug('Firmware wasn\'t received!')
-            return False
-        if checksum is None:
-            self.logger.debug('Checksum was\'t provided!')
-            return False
-        checksum_of_received_firmware = None
-        self.logger.debug('Checksum algorithm is: %s' % checksum_alg)
-        if checksum_alg.lower() == "sha256":
-            checksum_of_received_firmware = sha256(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "sha384":
-            checksum_of_received_firmware = sha384(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "sha512":
-            checksum_of_received_firmware = sha512(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "md5":
-            checksum_of_received_firmware = md5(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "murmur3_32":
-            reversed_checksum = f'{hash(firmware_data, signed=False):0>2X}'
-            if len(reversed_checksum) % 2 != 0:
-                reversed_checksum = '0' + reversed_checksum
-            checksum_of_received_firmware = "".join(
-                reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-        elif checksum_alg.lower() == "murmur3_128":
-            reversed_checksum = f'{hash128(firmware_data, signed=False):0>2X}'
-            if len(reversed_checksum) % 2 != 0:
-                reversed_checksum = '0' + reversed_checksum
-            checksum_of_received_firmware = "".join(
-                reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-        elif checksum_alg.lower() == "crc32":
-            reversed_checksum = f'{crc32(firmware_data) & 0xffffffff:0>2X}'
-            if len(reversed_checksum) % 2 != 0:
-                reversed_checksum = '0' + reversed_checksum
-            checksum_of_received_firmware = "".join(
-                reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-        else:
-            self.logger.debug('Client error. Unsupported checksum algorithm.')
-        self.logger.debug(checksum_of_received_firmware)
-        random_value = randint(0, 5)
-        if random_value > 3:
-            self.logger.debug('Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%')
-            return False
-        return checksum_of_received_firmware == checksum
-
     def get_firmware_update(self):
         self.send_telemetry(self.current_firmware_info)
         self.logger.info('Getting firmware info from %s' % self.__config['host'])
 
-        firmware_info = self.get_firmware_info()
+        firmware_info = self.__get_firmware_info()
         if (firmware_info.get(FW_VERSION_ATTR) is not None and firmware_info.get(
                 FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) \
                 or (firmware_info.get(FW_TITLE_ATTR) is not None and firmware_info.get(
-            FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR)):
+                FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR)):
             self.logger.info('New firmware available!')
 
             self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADING"
             time.sleep(1)
             self.send_telemetry(self.current_firmware_info)
 
-            firmware_data = self.get_firmware(firmware_info)
+            firmware_data = self.__get_firmware(firmware_info)
 
             self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADED"
             time.sleep(1)
             self.send_telemetry(self.current_firmware_info)
 
-            verification_result = self.verify_checksum(firmware_data, firmware_info.get(FW_CHECKSUM_ALG_ATTR),
-                                                       firmware_info.get(FW_CHECKSUM_ATTR))
+            verification_result = verify_checksum(firmware_data, firmware_info.get(FW_CHECKSUM_ALG_ATTR),
+                                                  firmware_info.get(FW_CHECKSUM_ATTR))
 
             if verification_result:
                 self.logger.debug('Checksum verified!')
@@ -229,14 +182,14 @@ class TBHTTPDevice:
                 self.current_firmware_info[FW_STATE_ATTR] = "FAILED"
                 time.sleep(1)
                 self.send_telemetry(self.current_firmware_info)
-                firmware_data = self.get_firmware(firmware_info)
+                firmware_data = self.__get_firmware(firmware_info)
                 return
 
             self.current_firmware_info[FW_STATE_ATTR] = "UPDATING"
             time.sleep(1)
             self.send_telemetry(self.current_firmware_info)
 
-            self.on_firmware_received(firmware_info, firmware_data)
+            self.__on_firmware_received(firmware_info, firmware_data)
 
             current_firmware_info = {
                 "current_" + FW_TITLE_ATTR: firmware_info.get(FW_TITLE_ATTR),
@@ -317,7 +270,6 @@ class TBHTTPDevice:
         """
         if self.test_connection():
             self.logger.info('Connected to ThingsBoard')
-            self.get_firmware_update()
             self.start_publish_worker()
             return True
         return False

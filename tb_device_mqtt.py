@@ -12,7 +12,6 @@
 #      See the License for the specific language governing permissions and
 #      limitations under the License.
 #
-from random import randint
 
 import paho.mqtt.client as paho
 from math import ceil
@@ -25,9 +24,8 @@ import ssl
 from jsonschema import ValidationError
 from threading import RLock
 from threading import Thread
-from zlib import crc32
-from hashlib import sha256, sha384, sha512, md5
-from mmh3 import hash, hash128
+from sdk_utils import verify_checksum
+
 
 KV_SCHEMA = {
     "type": "object",
@@ -108,51 +106,6 @@ RESULT_CODES = {
     4: "bad username or password",
     5: "not authorised",
 }
-
-
-def verify_checksum(firmware_data, checksum_alg, checksum):
-    if firmware_data is None:
-        log.debug('Firmware wasn\'t received!')
-        return False
-    if checksum is None:
-        log.debug('Checksum was\'t provided!')
-        return False
-    checksum_of_received_firmware = None
-    log.debug('Checksum algorithm is: %s' % checksum_alg)
-    if checksum_alg.lower() == "sha256":
-        checksum_of_received_firmware = sha256(firmware_data).digest().hex()
-    elif checksum_alg.lower() == "sha384":
-        checksum_of_received_firmware = sha384(firmware_data).digest().hex()
-    elif checksum_alg.lower() == "sha512":
-        checksum_of_received_firmware = sha512(firmware_data).digest().hex()
-    elif checksum_alg.lower() == "md5":
-        checksum_of_received_firmware = md5(firmware_data).digest().hex()
-    elif checksum_alg.lower() == "murmur3_32":
-        reversed_checksum = f'{hash(firmware_data, signed=False):0>2X}'
-        if len(reversed_checksum) % 2 != 0:
-            reversed_checksum = '0' + reversed_checksum
-        checksum_of_received_firmware = "".join(
-            reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-    elif checksum_alg.lower() == "murmur3_128":
-        reversed_checksum = f'{hash128(firmware_data, signed=False):0>2X}'
-        if len(reversed_checksum) % 2 != 0:
-            reversed_checksum = '0' + reversed_checksum
-        checksum_of_received_firmware = "".join(
-            reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-    elif checksum_alg.lower() == "crc32":
-        reversed_checksum = f'{crc32(firmware_data) & 0xffffffff:0>2X}'
-        if len(reversed_checksum) % 2 != 0:
-            reversed_checksum = '0' + reversed_checksum
-        checksum_of_received_firmware = "".join(
-            reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-    else:
-        log.error('Client error. Unsupported checksum algorithm.')
-    log.debug(checksum_of_received_firmware)
-    random_value = randint(0, 5)
-    if random_value > 3:
-        log.debug('Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%')
-        return False
-    return checksum_of_received_firmware == checksum
 
 
 class TBTimeoutException(Exception):
@@ -282,7 +235,6 @@ class TBDeviceMqttClient:
         self.firmware_received = False
         self.__updating_thread = Thread(target=self.__update_thread, name="Updating thread")
         self.__updating_thread.daemon = True
-        self.__updating_thread.start()
         # TODO: enable configuration available here:
         # https://pypi.org/project/paho-mqtt/#option-functions
 
@@ -315,16 +267,20 @@ class TBDeviceMqttClient:
             self._client.subscribe(ATTRIBUTES_TOPIC + "/response/+", qos=self.quality_of_service)
             self._client.subscribe(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
             self._client.subscribe(RPC_RESPONSE_TOPIC + '+', qos=self.quality_of_service)
-            self._client.subscribe("v2/fw/response/+")
-            self.send_telemetry(self.current_firmware_info)
-            self.request_firmware_info()
         else:
             if result_code in RESULT_CODES:
                 log.error("connection FAIL with error %s %s", result_code, RESULT_CODES[result_code])
             else:
                 log.error("connection FAIL with unknown error")
 
-    def request_firmware_info(self):
+    def get_firmware_update(self):
+        self._client.subscribe("v2/fw/response/+")
+        self.send_telemetry(self.current_firmware_info)
+        self.__request_firmware_info()
+
+        self.__updating_thread.start()
+
+    def __request_firmware_info(self):
         self.__request_id = self.__request_id + 1
         self._client.publish(f"v1/devices/me/attributes/request/{self.__request_id}",
                              dumps({"sharedKeys": REQUIRED_SHARED_KEYS}))
@@ -388,7 +344,7 @@ class TBDeviceMqttClient:
                 self.__target_firmware_length = self.firmware_info[FW_SIZE_ATTR]
                 self.__chunk_count = 0 if not self.__chunk_size else ceil(
                     self.firmware_info[FW_SIZE_ATTR] / self.__chunk_size)
-                self.get_firmware()
+                self.__get_firmware()
         elif message.topic.startswith(update_response_pattern):
             firmware_data = message.payload
 
@@ -398,14 +354,14 @@ class TBDeviceMqttClient:
             log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (self.__current_chunk, self.__chunk_size))
 
             if len(self.firmware_data) == self.__target_firmware_length:
-                self.process_firmware()
+                self.__process_firmware()
             else:
-                self.get_firmware()
+                self.__get_firmware()
         else:
             content = self._decode(message)
             self._on_decoded_message(self, content, message)
 
-    def process_firmware(self):
+    def __process_firmware(self):
         self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADED"
         self.send_telemetry(self.current_firmware_info)
         time.sleep(1)
@@ -422,17 +378,17 @@ class TBDeviceMqttClient:
             log.debug('Checksum verification failed!')
             self.current_firmware_info[FW_STATE_ATTR] = "FAILED"
             self.send_telemetry(self.current_firmware_info)
-            self.request_firmware_info()
+            self.__request_firmware_info()
             return
         self.firmware_received = True
 
-    def get_firmware(self):
+    def __get_firmware(self):
         payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) else str(
             self.__chunk_size).encode()
         self._client.publish(f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
                              payload=payload, qos=1)
 
-    def on_firmware_received(self, version_to):
+    def __on_firmware_received(self, version_to):
         with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
             firmware_file.write(self.firmware_data)
         log.info('Firmware is updated!\n Current firmware version is: %s' % version_to)
@@ -444,7 +400,7 @@ class TBDeviceMqttClient:
                 self.send_telemetry(self.current_firmware_info)
                 time.sleep(1)
 
-                self.on_firmware_received(self.firmware_info.get(FW_VERSION_ATTR))
+                self.__on_firmware_received(self.firmware_info.get(FW_VERSION_ATTR))
 
                 self.current_firmware_info = {
                     "current_" + FW_TITLE_ATTR: self.firmware_info.get(FW_TITLE_ATTR),
