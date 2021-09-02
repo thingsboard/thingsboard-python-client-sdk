@@ -374,11 +374,9 @@ class TBDeviceMqttClient:
         self.disconnect()
 
     def _on_message(self, client, userdata, message):
-        print(message.topic)
         update_response_pattern = "v2/fw/response/" + str(self.__firmware_request_id) + "/chunk/"
         if message.topic.startswith("v1/devices/me/attributes"):
             self.firmware_info = loads(message.payload)
-            print(message.payload)
             if "/response/" in message.topic:
                 self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info,
                                                                                         dict) else {}
