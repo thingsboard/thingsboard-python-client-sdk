@@ -155,14 +155,6 @@ def verify_checksum(firmware_data, checksum_alg, checksum):
     return checksum_of_received_firmware == checksum
 
 
-def dummy_upgrade(version_from, version_to):
-    print(f"Updating from {version_from} to {version_to}:")
-    for x in range(5):
-        time.sleep(1)
-        print(20*(x+1), "%", sep="")
-    print(f"Firmware is updated!\n Current firmware version is: {version_to}")
-
-
 class TBTimeoutException(Exception):
     pass
 
@@ -440,6 +432,11 @@ class TBDeviceMqttClient:
         self._client.publish(f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
                              payload=payload, qos=1)
 
+    def on_firmware_received(self, version_to):
+        with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
+            firmware_file.write(self.firmware_data)
+        print(f"Firmware is updated!\n Current firmware version is: {version_to}")
+
     def __update_thread(self):
         while True:
             if self.firmware_received:
@@ -447,11 +444,7 @@ class TBDeviceMqttClient:
                 self.send_telemetry(self.current_firmware_info)
                 time.sleep(1)
 
-                with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
-                    firmware_file.write(self.firmware_data)
-
-                dummy_upgrade(self.current_firmware_info["current_" + FW_VERSION_ATTR],
-                              self.firmware_info.get(FW_VERSION_ATTR))
+                self.on_firmware_received(self.firmware_info.get(FW_VERSION_ATTR))
 
                 self.current_firmware_info = {
                     "current_" + FW_TITLE_ATTR: self.firmware_info.get(FW_TITLE_ATTR),
