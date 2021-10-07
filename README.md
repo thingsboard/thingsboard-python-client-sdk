@@ -78,13 +78,16 @@ client.send_telemetry({'temperature': 41.9})
 import time
 from tb_device_mqtt import TBDeviceMqttClient
 
-def callback(result):
-    print(result)
+def on_attributes_change(client, result, exception):
+    if exception is not None:
+        print("Exception: " + str(exception))
+    else:
+        print(result)
 
 client = TBDeviceMqttClient("127.0.0.1", "A1_TEST_TOKEN")
 client.connect()
-client.subscribe_to_attribute("uploadFrequency", callback)
-client.subscribe_to_all_attributes(callback)
+client.subscribe_to_attribute("uploadFrequency", on_attributes_change)
+client.subscribe_to_all_attributes(on_attributes_change)
 while True:
     time.sleep(1)
 ```
@@ -135,7 +138,7 @@ import logging
 import time
 from tb_device_mqtt import TBDeviceMqttClient
 
-def on_attributes_change(result, exception):
+def on_attributes_change(client,result, exception:
     if exception is not None:
         print("Exception: " + str(exception))
     else:
