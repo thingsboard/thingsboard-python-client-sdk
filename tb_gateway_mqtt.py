@@ -115,13 +115,11 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if not keys:
             log.error("There are no keys to request")
             return False
-        keys_str = ""
-        for key in keys:
-            keys_str += key + ","
-        keys_str = keys_str[:len(keys_str) - 1]
+        is_multiple_keys = isinstance(keys, list) and len(keys) > 1
+        keys_dict_key = "keys" if is_multiple_keys else "key"
         ts_in_millis = int(round(time.time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
-        msg = {"key": keys_str,
+        msg = {keys_dict_key: keys[0] if is_multiple_keys or isinstance(keys, str) else keys,
                "device": device,
                "client": type_is_client,
                "id": attr_request_number}
