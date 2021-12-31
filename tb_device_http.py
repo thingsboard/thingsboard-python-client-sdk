@@ -218,24 +218,30 @@ class TBHTTPDevice:
             return
         logger.debug('Connection test successful')
         while True:
-            try:
-                task = self.__worker['publish']['queue'].get(timeout=1)
-            except queue.Empty:
-                if self.__worker['publish']['stop_event'].is_set():
-                    break
-                continue
-            endpoint = task.pop('endpoint')
-            try:
-                self._publish_data(task, endpoint)
-            except Exception as error:
-                # ToDo: More precise exception catching
-                logger.error(error)
-                task.update({'endpoint': endpoint})
-                self.__worker['publish']['queue'].put(task)
-                time.sleep(1)
-            else:
-                logger.debug('Published %s to %s', task, endpoint)
-                self.__worker['publish']['queue'].task_done()
+            if not self.__worker['publish']['queue'].empty():
+                try:
+                    task = self.__worker['publish']['queue'].get(timeout=1)
+                except queue.Empty:
+                    if self.__worker['publish']['stop_event'].is_set():
+                        break
+                    continue
+
+                endpoint = task.pop('endpoint')
+
+                try:
+                    self._publish_data(task, endpoint)
+                except Exception as error:
+                    # ToDo: More precise exception catching
+                    logger.error(error)
+                    task.update({'endpoint': endpoint})
+                    self.__worker['publish']['queue'].put(task)
+                    time.sleep(1)
+                else:
+                    logger.debug('Published %s to %s', task, endpoint)
+                    self.__worker['publish']['queue'].task_done()
+
+            time.sleep(.2)
+
         logger.info('Stop publisher thread.')
 
     def test_connection(self) -> bool:
@@ -384,6 +390,8 @@ class TBHTTPDevice:
                 continue  # Reconnect
             response.raise_for_status()
             callback(response.json())
+            time.sleep(.1)
+
         stop_event.clear()
         logger.info('Stop subscription to %s updates', endpoint)
 

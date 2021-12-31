@@ -409,7 +409,8 @@ class TBDeviceMqttClient:
                 }
                 self.send_telemetry(self.current_firmware_info)
                 self.firmware_received = False
-                time.sleep(1)
+
+            time.sleep(0.2)
 
     @staticmethod
     def _decode(message):
