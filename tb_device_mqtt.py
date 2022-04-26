@@ -34,7 +34,8 @@ KV_SCHEMA = {
             ".": {"type": ["integer",
                            "string",
                            "boolean",
-                           "number"]}
+                           "number",
+                           "object"]}
         },
     "minProperties": 1,
 }
