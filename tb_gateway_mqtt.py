@@ -111,15 +111,14 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             if self.devices_server_side_rpc_request_handler:
                 self.devices_server_side_rpc_request_handler(self, content)
 
-    def __request_attributes(self, client, device, keys, callback, type_is_client=False):
+    def __request_attributes(self, device, keys, callback, type_is_client=False):
         if not keys:
             log.error("There are no keys to request")
             return False
-        is_multiple_keys = isinstance(keys, list) and len(keys) > 1
-        keys_dict_key = "keys" if is_multiple_keys else "key"
+
         ts_in_millis = int(round(time.time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
-        msg = {keys_dict_key: keys[0] if is_multiple_keys or isinstance(keys, str) else keys,
+        msg = {"keys": keys,
                "device": device,
                "client": type_is_client,
                "id": attr_request_number}
@@ -135,10 +134,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             time.sleep(.1)
 
     def gw_request_shared_attributes(self, device_name, keys, callback):
-        return self.__request_attributes(self, device_name, keys, callback, False)
+        return self.__request_attributes(device_name, keys, callback, False)
 
     def gw_request_client_attributes(self, device_name, keys, callback):
-        return self.__request_attributes(self, device_name, keys, callback, True)
+        return self.__request_attributes(device_name, keys, callback, True)
 
     def gw_send_attributes(self, device, attributes, quality_of_service=1):
         self.validate(KV_VALIDATOR, attributes)
