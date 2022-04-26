@@ -3,3 +3,4 @@
 /tb_mqtt_client.egg-info/
 /.idea/
 /venv/
+__pycache__
