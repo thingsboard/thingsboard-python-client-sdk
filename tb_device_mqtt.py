@@ -1,17 +1,16 @@
-#      Copyright 2020. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#     Copyright 2022. ThingsBoard
 #
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
 
 import paho.mqtt.client as paho
 from math import ceil
@@ -25,7 +24,6 @@ from jsonschema import ValidationError
 from threading import RLock
 from threading import Thread
 from sdk_utils import verify_checksum
-
 
 KV_SCHEMA = {
     "type": "object",
@@ -129,8 +127,9 @@ class ProvisionClient(paho.Client):
         self.on_connect = self.__on_connect
         self.on_message = self.__on_message
         self.__provision_request = provision_request
+        self.__credentials = None
 
-    def __on_connect(self, client, userdata, flags, rc):  # Callback for connect
+    def __on_connect(self, client, _, __, rc):  # Callback for connect
         if rc == 0:
             log.info("[Provisioning client] Connected to ThingsBoard ")
             client.subscribe(self.PROVISION_RESPONSE_TOPIC)  # Subscribe to provisioning response topic
@@ -140,7 +139,7 @@ class ProvisionClient(paho.Client):
         else:
             log.info("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % RESULT_CODES[rc])
 
-    def __on_message(self, client, userdata, msg):
+    def __on_message(self, _, __, msg):
         decoded_payload = msg.payload.decode("UTF-8")
         log.info("[Provisioning client] Received data from ThingsBoard: %s" % decoded_payload)
         decoded_message = loads(decoded_payload)
@@ -196,8 +195,8 @@ class TBPublishInfo:
 
 
 class TBDeviceMqttClient:
-    def __init__(self, host, token=None, port=1883, quality_of_service=None, chunk_size=0):
-        self._client = paho.Client()
+    def __init__(self, host, port=1883, token=None, quality_of_service=None, chunk_size=0):
+        self._client = paho.Client(protocol=4)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
         self.__port = port
@@ -250,7 +249,8 @@ class TBDeviceMqttClient:
         # log.debug("Data published to ThingsBoard!")
         pass
 
-    def _on_disconnect(self, client, userdata, result_code):
+    @staticmethod
+    def _on_disconnect(client, userdata, result_code):
         prev_level = log.level
         log.setLevel("DEBUG")
         log.debug("Disconnected client: %s, user data: %s, result code: %s", str(client), str(userdata),
@@ -259,8 +259,8 @@ class TBDeviceMqttClient:
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         if self.__connect_callback:
-            time.sleep(.05)
-            self.__connect_callback(self, userdata, flags, result_code, *extra_params)
+            time.sleep(.2)
+            self.__connect_callback(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
             self.__is_connected = True
             log.info("connection SUCCESS")
@@ -306,10 +306,6 @@ class TBDeviceMqttClient:
         self.reconnect_delay_set(min_reconnect_delay, timeout)
         self._client.loop_start()
         self.__connect_callback = callback
-        self.reconnect_delay_set(min_reconnect_delay, timeout)
-        while not self.__is_connected and not self.stopped:
-            log.info("Trying to connect to %s...", self.__host)
-            time.sleep(1)
 
     def disconnect(self):
         self._client.disconnect()
@@ -352,7 +348,8 @@ class TBDeviceMqttClient:
             self.firmware_data = self.firmware_data + firmware_data
             self.__current_chunk = self.__current_chunk + 1
 
-            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (self.__current_chunk, self.__chunk_size))
+            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
+                self.__current_chunk, self.__chunk_size))
 
             if len(self.firmware_data) == self.__target_firmware_length:
                 self.__process_firmware()
@@ -367,7 +364,8 @@ class TBDeviceMqttClient:
         self.send_telemetry(self.current_firmware_info)
         time.sleep(1)
 
-        verification_result = verify_checksum(self.firmware_data, self.firmware_info.get(FW_CHECKSUM_ALG_ATTR),
+        verification_result = verify_checksum(self.firmware_data,
+                                              self.firmware_info.get(FW_CHECKSUM_ALG_ATTR),
                                               self.firmware_info.get(FW_CHECKSUM_ATTR))
 
         if verification_result:
@@ -516,7 +514,7 @@ class TBDeviceMqttClient:
 
     def send_telemetry(self, telemetry, quality_of_service=None):
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
-        if not isinstance(telemetry, list):
+        if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
         self.validate(DEVICE_TS_OR_KV_VALIDATOR, telemetry)
         return self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service)
@@ -537,6 +535,9 @@ class TBDeviceMqttClient:
 
     def subscribe_to_all_attributes(self, callback):
         return self.subscribe_to_attribute("*", callback)
+
+    def clean_device_sub_dict(self):
+        self.__device_sub_dict = {}
 
     def subscribe_to_attribute(self, key, callback):
         with self._lock:
