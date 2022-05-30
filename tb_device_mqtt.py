@@ -249,8 +249,7 @@ class TBDeviceMqttClient:
         # log.debug("Data published to ThingsBoard!")
         pass
 
-    @staticmethod
-    def _on_disconnect(client, userdata, result_code):
+    def _on_disconnect(self, client, userdata, result_code):
         prev_level = log.level
         log.setLevel("DEBUG")
         log.debug("Disconnected client: %s, user data: %s, result code: %s", str(client), str(userdata),
@@ -319,45 +318,8 @@ class TBDeviceMqttClient:
         self.disconnect()
 
     def _on_message(self, client, userdata, message):
-        update_response_pattern = "v2/fw/response/" + str(self.__firmware_request_id) + "/chunk/"
-        if message.topic.startswith("v1/devices/me/attributes"):
-            self.firmware_info = loads(message.payload)
-            if "/response/" in message.topic:
-                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info,
-                                                                                        dict) else {}
-            if (self.firmware_info.get(FW_VERSION_ATTR) is not None and self.firmware_info.get(
-                    FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) or \
-                    (self.firmware_info.get(FW_TITLE_ATTR) is not None and self.firmware_info.get(
-                        FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR)):
-                log.debug('Firmware is not the same')
-                self.firmware_data = b''
-                self.__current_chunk = 0
-
-                self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADING"
-                self.send_telemetry(self.current_firmware_info)
-                time.sleep(1)
-
-                self.__firmware_request_id = self.__firmware_request_id + 1
-                self.__target_firmware_length = self.firmware_info[FW_SIZE_ATTR]
-                self.__chunk_count = 0 if not self.__chunk_size else ceil(
-                    self.firmware_info[FW_SIZE_ATTR] / self.__chunk_size)
-                self.__get_firmware()
-        elif message.topic.startswith(update_response_pattern):
-            firmware_data = message.payload
-
-            self.firmware_data = self.firmware_data + firmware_data
-            self.__current_chunk = self.__current_chunk + 1
-
-            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
-                self.__current_chunk, self.__chunk_size))
-
-            if len(self.firmware_data) == self.__target_firmware_length:
-                self.__process_firmware()
-            else:
-                self.__get_firmware()
-        else:
-            content = self._decode(message)
-            self._on_decoded_message(self, content, message)
+        content = self._decode(message)
+        self._on_decoded_message(self, content, message)
 
     def __process_firmware(self):
         self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADED"
@@ -427,6 +389,8 @@ class TBDeviceMqttClient:
             raise e
 
     def _on_decoded_message(self, client, content, message):
+        update_response_pattern = "v2/fw/response/" + str(self.__firmware_request_id) + "/chunk/"
+
         if message.topic.startswith(RPC_REQUEST_TOPIC):
             request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
             if self.__device_on_server_side_rpc_response:
@@ -462,6 +426,41 @@ class TBDeviceMqttClient:
                 # pop callback and use it
                 callback = self._attr_request_dict.pop(req_id)
             callback(client, content, None)
+        elif message.topic.startswith(ATTRIBUTES_TOPIC):
+            self.firmware_info = loads(message.payload)
+            if "/response/" in message.topic:
+                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info,
+                                                                                        dict) else {}
+            if (self.firmware_info.get(FW_VERSION_ATTR) is not None and self.firmware_info.get(
+                    FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) or \
+                    (self.firmware_info.get(FW_TITLE_ATTR) is not None and self.firmware_info.get(
+                        FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR)):
+                log.debug('Firmware is not the same')
+                self.firmware_data = b''
+                self.__current_chunk = 0
+
+                self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADING"
+                self.send_telemetry(self.current_firmware_info)
+                time.sleep(1)
+
+                self.__firmware_request_id = self.__firmware_request_id + 1
+                self.__target_firmware_length = self.firmware_info[FW_SIZE_ATTR]
+                self.__chunk_count = 0 if not self.__chunk_size else ceil(
+                    self.firmware_info[FW_SIZE_ATTR] / self.__chunk_size)
+                self.__get_firmware()
+        elif message.topic.startswith(update_response_pattern):
+            firmware_data = message.payload
+
+            self.firmware_data = self.firmware_data + firmware_data
+            self.__current_chunk = self.__current_chunk + 1
+
+            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
+                self.__current_chunk, self.__chunk_size))
+
+            if len(self.firmware_data) == self.__target_firmware_length:
+                self.__process_firmware()
+            else:
+                self.__get_firmware()
 
     def max_inflight_messages_set(self, inflight):
         """Set the maximum number of messages with QoS>0 that can be part way through their network flow at once.
@@ -596,7 +595,7 @@ class TBDeviceMqttClient:
                         current_ts_in_millis = int(round(time.time() * 1000))
                         if current_ts_in_millis > item["ts"]:
                             break
-                        time.sleep(0.001)
+                        time.sleep(0.2)
                     with self._lock:
                         callback = None
                         if item.get("attribute_request_id"):
@@ -606,9 +605,9 @@ class TBDeviceMqttClient:
                             if self.__device_client_rpc_dict.get(item["rpc_request_id"]):
                                 callback = self.__device_client_rpc_dict.pop(item["rpc_request_id"])
                     if callback is not None:
-                        callback(self, None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
+                        callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
             else:
-                time.sleep(0.01)
+                time.sleep(0.2)
 
     def claim(self, secret_key, duration=30000):
         claiming_request = {
