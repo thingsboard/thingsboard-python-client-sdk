@@ -24,8 +24,7 @@ import ssl
 from jsonschema import ValidationError
 from threading import RLock
 from threading import Thread
-from sdk_utils import verify_checksum
-
+from .sdk_utils import verify_checksum
 
 KV_SCHEMA = {
     "type": "object",
@@ -196,15 +195,16 @@ class TBPublishInfo:
 
 
 class TBDeviceMqttClient:
-    def __init__(self, host, token=None, port=1883, quality_of_service=None, chunk_size=0):
-        self._client = paho.Client()
+    def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
+                 chunk_size=0):
+        self._client = paho.Client(protocol=4, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
         self.__port = port
-        if token == "":
+        if username == "":
             log.warning("token is not set, connection without tls wont be established")
         else:
-            self._client.username_pw_set(token)
+            self._client.username_pw_set(username, password=password)
         self._lock = RLock()
 
         self._attr_request_dict = {}
@@ -306,10 +306,6 @@ class TBDeviceMqttClient:
         self.reconnect_delay_set(min_reconnect_delay, timeout)
         self._client.loop_start()
         self.__connect_callback = callback
-        self.reconnect_delay_set(min_reconnect_delay, timeout)
-        while not self.__is_connected and not self.stopped:
-            log.info("Trying to connect to %s...", self.__host)
-            time.sleep(1)
 
     def disconnect(self):
         self._client.disconnect()
@@ -320,7 +316,6 @@ class TBDeviceMqttClient:
 
     def stop(self):
         self.stopped = True
-        self.disconnect()
 
     def _on_message(self, client, userdata, message):
         update_response_pattern = "v2/fw/response/" + str(self.__firmware_request_id) + "/chunk/"
@@ -352,7 +347,8 @@ class TBDeviceMqttClient:
             self.firmware_data = self.firmware_data + firmware_data
             self.__current_chunk = self.__current_chunk + 1
 
-            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (self.__current_chunk, self.__chunk_size))
+            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
+            self.__current_chunk, self.__chunk_size))
 
             if len(self.firmware_data) == self.__target_firmware_length:
                 self.__process_firmware()
@@ -432,12 +428,12 @@ class TBDeviceMqttClient:
         if message.topic.startswith(RPC_REQUEST_TOPIC):
             request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
             if self.__device_on_server_side_rpc_response:
-                self.__device_on_server_side_rpc_response(client, request_id, content)
+                self.__device_on_server_side_rpc_response(request_id, content)
         elif message.topic.startswith(RPC_RESPONSE_TOPIC):
             with self._lock:
                 request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
                 callback = self.__device_client_rpc_dict.pop(request_id)
-            callback(client, request_id, content, None)
+            callback(request_id, content, None)
         elif message.topic == ATTRIBUTES_TOPIC:
             dict_results = []
             with self._lock:
@@ -457,13 +453,16 @@ class TBDeviceMqttClient:
                         for subscription in self.__device_sub_dict[key]:
                             dict_results.append(self.__device_sub_dict[key][subscription])
             for res in dict_results:
-                res(client, content, None)
+                res(content, None)
         elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
             with self._lock:
                 req_id = int(message.topic[len(ATTRIBUTES_TOPIC + "/response/"):])
                 # pop callback and use it
                 callback = self._attr_request_dict.pop(req_id)
-            callback(client, content, None)
+            if isinstance(callback, tuple):
+                callback[0](content, None, callback[1])
+            else:
+                callback(content, None)
 
     def max_inflight_messages_set(self, inflight):
         """Set the maximum number of messages with QoS>0 that can be part way through their network flow at once.
@@ -492,7 +491,6 @@ class TBDeviceMqttClient:
             info.wait_for_publish()
 
     def send_rpc_call(self, method, params, callback):
-        self.validate(RPC_VALIDATOR, params)
         with self._lock:
             self.__device_client_rpc_number += 1
             self.__device_client_rpc_dict.update({self.__device_client_rpc_number: callback})
@@ -516,9 +514,8 @@ class TBDeviceMqttClient:
 
     def send_telemetry(self, telemetry, quality_of_service=None):
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
-        if not isinstance(telemetry, list):
+        if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        self.validate(DEVICE_TS_OR_KV_VALIDATOR, telemetry)
         return self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service)
 
     def send_attributes(self, attributes, quality_of_service=None):
@@ -535,6 +532,9 @@ class TBDeviceMqttClient:
                 self.__device_sub_dict = {}
             self.__device_sub_dict = dict((k, v) for k, v in self.__device_sub_dict.items() if v)
 
+    def clean_device_sub_dict(self):
+        self.__device_sub_dict = {}
+
     def subscribe_to_all_attributes(self, callback):
         return self.subscribe_to_attribute("*", callback)
 
@@ -549,9 +549,6 @@ class TBDeviceMqttClient:
             return self.__device_max_sub_id
 
     def request_attributes(self, client_keys=None, shared_keys=None, callback=None):
-        if client_keys is None and shared_keys is None:
-            log.error("There are no keys to request")
-            return False
         msg = {}
         if client_keys:
             tmp = ""
@@ -566,7 +563,7 @@ class TBDeviceMqttClient:
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
 
-        ts_in_millis = int(round(time.time() * 1000))
+        ts_in_millis = int(time.time() * 1000)
 
         attr_request_number = self._add_attr_request_callback(callback)
 
@@ -592,10 +589,11 @@ class TBDeviceMqttClient:
                 item = self.__timeout_queue.get_nowait()
                 if item is not None:
                     while not self.stopped:
-                        current_ts_in_millis = int(round(time.time() * 1000))
+                        current_ts_in_millis = int(time.time() * 1000)
                         if current_ts_in_millis > item["ts"]:
                             break
-                        time.sleep(0.001)
+                        time.sleep(0.2)
+
                     with self._lock:
                         callback = None
                         if item.get("attribute_request_id"):
@@ -605,9 +603,13 @@ class TBDeviceMqttClient:
                             if self.__device_client_rpc_dict.get(item["rpc_request_id"]):
                                 callback = self.__device_client_rpc_dict.pop(item["rpc_request_id"])
                     if callback is not None:
-                        callback(self, None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
+                        if isinstance(callback, tuple):
+                            callback[0](None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"),
+                                        callback[1])
+                        else:
+                            callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
             else:
-                time.sleep(0.01)
+                time.sleep(0.2)
 
     def claim(self, secret_key, duration=30000):
         claiming_request = {

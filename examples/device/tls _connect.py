@@ -14,7 +14,7 @@
 #
 
 import logging
-from tb_device_mqtt import TBDeviceMqttClient
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 import socket
 
 logging.basicConfig(level=logging.DEBUG)
