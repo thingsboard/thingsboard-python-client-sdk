@@ -15,12 +15,11 @@
 
 import time
 import logging
-from tb_device_mqtt import TBDeviceMqttClient
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
-def callback(client, request_id, resp_body, exception):
-    client.stop()
+def callback(request_id, resp_body, exception=None):
     if exception is not None:
         print("Exception: " + str(exception))
     else:
@@ -29,7 +28,7 @@ def callback(client, request_id, resp_body, exception):
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
 
     client.connect()
     # call "getTime" on server and receive result, then process it with callback

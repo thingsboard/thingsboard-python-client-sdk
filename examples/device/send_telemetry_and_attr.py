@@ -14,7 +14,7 @@
 #
 
 import logging
-from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
 import time
 logging.basicConfig(level=logging.DEBUG)
 
@@ -27,7 +27,7 @@ attributes = {"sensorModel": "DHT-22", "attribute_2": "value"}
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
     client.connect()
     # Sending data in async way
     client.send_attributes(attributes)
@@ -43,7 +43,7 @@ def main():
     result = client.send_attributes(attributes)
     result.get()
     print("Telemetry update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
-    client.stop()
+    client.disconnect()
 
 
 if __name__ == '__main__':

@@ -16,8 +16,8 @@
 
 import logging
 import time
-from json import dumps
-from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient, DEVICE_TS_KV_VALIDATOR, KV_VALIDATOR
+from simplejson import dumps
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
@@ -27,7 +27,7 @@ GATEWAY_RPC_TOPIC = "v1/gateway/rpc"
 GATEWAY_RPC_RESPONSE_TOPIC = "v1/gateway/rpc/response"
 GATEWAY_CLAIMING_TOPIC = "v1/gateway/claim"
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("tb_connection")
 
 
 class TBGatewayAPI:
@@ -59,7 +59,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             self._gw_subscriptions[int(self._client.subscribe(GATEWAY_RPC_TOPIC, qos=1)[1])] = GATEWAY_RPC_TOPIC
             # self._gw_subscriptions[int(self._client.subscribe(GATEWAY_RPC_RESPONSE_TOPIC)[1])] = GATEWAY_RPC_RESPONSE_TOPIC
 
-    def _on_subscribe(self, client, userdata, mid, granted_qos):
+    def _on_subscribe(self, client, userdata, mid, reasoncodes, properties=None):
         subscription = self._gw_subscriptions.get(mid)
         if subscription is not None:
             if mid == 128:
@@ -77,10 +77,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     def _on_message(self, client, userdata, message):
         content = self._decode(message)
-        super()._on_decoded_message(self, content, message)
-        self._on_decoded_message(self, content, message)
+        super()._on_decoded_message(content, message)
+        self._on_decoded_message(content, message)
 
-    def _on_decoded_message(self, client, content, message):
+    def _on_decoded_message(self, content, message, **kwargs):
         if message.topic.startswith(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC):
             with self._lock:
                 req_id = content["id"]
@@ -131,13 +131,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         self._add_timeout(attr_request_number, ts_in_millis + 30000)
         return info
 
-    def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, ca_certs=None, cert_file=None,
-                key_file=None, keepalive=120):
-        super(TBGatewayMqttClient, self).connect(callback, min_reconnect_delay, timeout, tls, ca_certs, cert_file,
-                                                 key_file, keepalive)
-        while self.get_subscriptions_in_progress() and not self.stopped and self.is_connected():
-            time.sleep(.1)
-
     def gw_request_shared_attributes(self, device_name, keys, callback):
         return self.__request_attributes(device_name, keys, callback, False)
 
@@ -145,13 +138,11 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         return self.__request_attributes(device_name, keys, callback, True)
 
     def gw_send_attributes(self, device, attributes, quality_of_service=1):
-        self.validate(KV_VALIDATOR, attributes)
         return self.publish_data({device: attributes}, GATEWAY_MAIN_TOPIC + "attributes", quality_of_service)
 
     def gw_send_telemetry(self, device, telemetry, quality_of_service=1):
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        self.validate(DEVICE_TS_KV_VALIDATOR, telemetry)
         return self.publish_data({device: telemetry}, GATEWAY_MAIN_TOPIC + "telemetry", quality_of_service, )
 
     def gw_connect_device(self, device_name, device_type="default"):

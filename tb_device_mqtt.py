@@ -19,65 +19,14 @@ import logging
 import time
 import queue
 from json import loads, dumps
-from jsonschema import Draft7Validator
 import ssl
-from jsonschema import ValidationError
 from threading import RLock
 from threading import Thread
+
+from simplejson import JSONDecodeError
+
 from .sdk_utils import verify_checksum
 
-KV_SCHEMA = {
-    "type": "object",
-    "patternProperties":
-        {
-            ".": {"type": ["integer",
-                           "string",
-                           "boolean",
-                           "number",
-                           "object"]}
-        },
-    "minProperties": 1,
-}
-SCHEMA_FOR_CLIENT_RPC = {
-    "type": "object",
-    "patternProperties":
-        {
-            ".": {"type": ["integer",
-                           "string",
-                           "boolean",
-                           "number"]}
-        },
-    "minProperties": 0,
-}
-TS_KV_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "ts": {
-            "type": "integer"
-        },
-        "values": KV_SCHEMA
-    },
-    "additionalProperties": False
-}
-DEVICE_TS_KV_SCHEMA = {
-    "type": "array",
-    "items": TS_KV_SCHEMA
-}
-DEVICE_TS_OR_KV_SCHEMA = {
-    "type": "array",
-    "items": {
-        "anyOf":
-            [
-                TS_KV_SCHEMA,
-                KV_SCHEMA
-            ]
-    }
-}
-RPC_VALIDATOR = Draft7Validator(SCHEMA_FOR_CLIENT_RPC)
-KV_VALIDATOR = Draft7Validator(KV_SCHEMA)
-TS_KV_VALIDATOR = Draft7Validator(TS_KV_SCHEMA)
-DEVICE_TS_KV_VALIDATOR = Draft7Validator(DEVICE_TS_KV_SCHEMA)
-DEVICE_TS_OR_KV_VALIDATOR = Draft7Validator(DEVICE_TS_OR_KV_SCHEMA)
 
 FW_TITLE_ATTR = "fw_title"
 FW_VERSION_ATTR = "fw_version"
@@ -129,7 +78,7 @@ class ProvisionClient(paho.Client):
         self.on_message = self.__on_message
         self.__provision_request = provision_request
 
-    def __on_connect(self, client, userdata, flags, rc):  # Callback for connect
+    def __on_connect(self, client, _, __, rc):  # Callback for connect
         if rc == 0:
             log.info("[Provisioning client] Connected to ThingsBoard ")
             client.subscribe(self.PROVISION_RESPONSE_TOPIC)  # Subscribe to provisioning response topic
@@ -139,7 +88,7 @@ class ProvisionClient(paho.Client):
         else:
             log.info("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % RESULT_CODES[rc])
 
-    def __on_message(self, client, userdata, msg):
+    def __on_message(self, _, __, msg):
         decoded_payload = msg.payload.decode("UTF-8")
         log.info("[Provisioning client] Received data from ThingsBoard: %s" % decoded_payload)
         decoded_message = loads(decoded_payload)
@@ -183,6 +132,7 @@ class TBPublishInfo:
     def __init__(self, message_info):
         self.message_info = message_info
 
+    # pylint: disable=invalid-name
     def rc(self):
         return self.message_info.rc
 
@@ -190,7 +140,7 @@ class TBPublishInfo:
         return self.message_info.mid
 
     def get(self):
-        self.message_info.wait_for_publish()
+        self.message_info.wait_for_publish(timeout=1)
         return self.message_info.rc
 
 
@@ -222,7 +172,7 @@ class TBDeviceMqttClient:
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
         self._client.on_connect = self._on_connect
-        self._client.on_log = self._on_log
+        # self._client.on_log = self._on_log
         self._client.on_publish = self._on_publish
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
@@ -239,12 +189,12 @@ class TBDeviceMqttClient:
         # TODO: enable configuration available here:
         # https://pypi.org/project/paho-mqtt/#option-functions
 
-    def _on_log(self, client, userdata, level, buf):
-        #     if isinstance(buf, Exception):
-        #         log.exception(buf)
-        #     else:
-        #         log.debug("%s - %s - %s - %s", client, userdata, level, buf)
-        pass
+    # def _on_log(self, client, userdata, level, buf):
+    #     #     if isinstance(buf, Exception):
+    #     #         log.exception(buf)
+    #     #     else:
+    #     #         log.debug("%s - %s - %s - %s", client, userdata, level, buf)
+    #     pass
 
     def _on_publish(self, client, userdata, result):
         # log.debug("Data published to ThingsBoard!")
@@ -259,8 +209,8 @@ class TBDeviceMqttClient:
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         if self.__connect_callback:
-            time.sleep(.05)
-            self.__connect_callback(self, userdata, flags, result_code, *extra_params)
+            time.sleep(.2)
+            self.__connect_callback(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
             self.__is_connected = True
             log.info("connection SUCCESS")
@@ -319,6 +269,64 @@ class TBDeviceMqttClient:
 
     def _on_message(self, client, userdata, message):
         update_response_pattern = "v2/fw/response/" + str(self.__firmware_request_id) + "/chunk/"
+
+        if message.topic.startswith(update_response_pattern):
+            firmware_data = message.payload
+
+            self.firmware_data = self.firmware_data + firmware_data
+            self.__current_chunk = self.__current_chunk + 1
+
+            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
+                self.__current_chunk, self.__chunk_size))
+
+            if len(self.firmware_data) == self.__target_firmware_length:
+                self.__process_firmware()
+            else:
+                self.__get_firmware()
+        else:
+            content = self._decode(message)
+            self._on_decoded_message(content, message)
+
+    def _on_decoded_message(self, content, message):
+        if message.topic.startswith(RPC_REQUEST_TOPIC):
+            request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
+            if self.__device_on_server_side_rpc_response:
+                self.__device_on_server_side_rpc_response(request_id, content)
+        elif message.topic.startswith(RPC_RESPONSE_TOPIC):
+            with self._lock:
+                request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
+                callback = self.__device_client_rpc_dict.pop(request_id)
+            callback(request_id, content, None)
+        elif message.topic == ATTRIBUTES_TOPIC:
+            dict_results = []
+            with self._lock:
+                # callbacks for everything
+                if self.__device_sub_dict.get("*"):
+                    for subscription_id in self.__device_sub_dict["*"]:
+                        dict_results.append(self.__device_sub_dict["*"][subscription_id])
+                # specific callback
+                keys = content.keys()
+                keys_list = []
+                for key in keys:
+                    keys_list.append(key)
+                # iterate through message
+                for key in keys_list:
+                    # find key in our dict
+                    if self.__device_sub_dict.get(key):
+                        for subscription in self.__device_sub_dict[key]:
+                            dict_results.append(self.__device_sub_dict[key][subscription])
+            for res in dict_results:
+                res(content, None)
+        elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
+            with self._lock:
+                req_id = int(message.topic[len(ATTRIBUTES_TOPIC + "/response/"):])
+                # pop callback and use it
+                callback = self._attr_request_dict.pop(req_id)
+            if isinstance(callback, tuple):
+                callback[0](content, None, callback[1])
+            else:
+                callback(content, None)
+
         if message.topic.startswith("v1/devices/me/attributes"):
             self.firmware_info = loads(message.payload)
             if "/response/" in message.topic:
@@ -341,22 +349,6 @@ class TBDeviceMqttClient:
                 self.__chunk_count = 0 if not self.__chunk_size else ceil(
                     self.firmware_info[FW_SIZE_ATTR] / self.__chunk_size)
                 self.__get_firmware()
-        elif message.topic.startswith(update_response_pattern):
-            firmware_data = message.payload
-
-            self.firmware_data = self.firmware_data + firmware_data
-            self.__current_chunk = self.__current_chunk + 1
-
-            log.debug('Getting chunk with number: %s. Chunk size is : %r byte(s).' % (
-            self.__current_chunk, self.__chunk_size))
-
-            if len(self.firmware_data) == self.__target_firmware_length:
-                self.__process_firmware()
-            else:
-                self.__get_firmware()
-        else:
-            content = self._decode(message)
-            self._on_decoded_message(self, content, message)
 
     def __process_firmware(self):
         self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADED"
@@ -411,58 +403,17 @@ class TBDeviceMqttClient:
 
     @staticmethod
     def _decode(message):
-        content = loads(message.payload.decode("utf-8"))
-        log.debug(content)
-        log.debug(message.topic)
-        return content
-
-    @staticmethod
-    def validate(validator, data):
         try:
-            validator.validate(data)
-        except ValidationError as e:
-            log.error(e)
-            raise e
-
-    def _on_decoded_message(self, client, content, message):
-        if message.topic.startswith(RPC_REQUEST_TOPIC):
-            request_id = message.topic[len(RPC_REQUEST_TOPIC):len(message.topic)]
-            if self.__device_on_server_side_rpc_response:
-                self.__device_on_server_side_rpc_response(request_id, content)
-        elif message.topic.startswith(RPC_RESPONSE_TOPIC):
-            with self._lock:
-                request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
-                callback = self.__device_client_rpc_dict.pop(request_id)
-            callback(request_id, content, None)
-        elif message.topic == ATTRIBUTES_TOPIC:
-            dict_results = []
-            with self._lock:
-                # callbacks for everything
-                if self.__device_sub_dict.get("*"):
-                    for subscription_id in self.__device_sub_dict["*"]:
-                        dict_results.append(self.__device_sub_dict["*"][subscription_id])
-                # specific callback
-                keys = content.keys()
-                keys_list = []
-                for key in keys:
-                    keys_list.append(key)
-                # iterate through message
-                for key in keys_list:
-                    # find key in our dict
-                    if self.__device_sub_dict.get(key):
-                        for subscription in self.__device_sub_dict[key]:
-                            dict_results.append(self.__device_sub_dict[key][subscription])
-            for res in dict_results:
-                res(content, None)
-        elif message.topic.startswith(ATTRIBUTES_TOPIC_RESPONSE):
-            with self._lock:
-                req_id = int(message.topic[len(ATTRIBUTES_TOPIC + "/response/"):])
-                # pop callback and use it
-                callback = self._attr_request_dict.pop(req_id)
-            if isinstance(callback, tuple):
-                callback[0](content, None, callback[1])
+            if isinstance(message.payload, bytes):
+                content = loads(message.payload.decode("utf-8", "ignore"))
             else:
-                callback(content, None)
+                content = loads(message.payload)
+        except JSONDecodeError:
+            try:
+                content = message.payload.decode("utf-8", "ignore")
+            except JSONDecodeError:
+                content = message.payload
+        return content
 
     def max_inflight_messages_set(self, inflight):
         """Set the maximum number of messages with QoS>0 that can be part way through their network flow at once.

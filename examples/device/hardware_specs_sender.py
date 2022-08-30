@@ -16,7 +16,7 @@
 import psutil
 import time
 import logging
-from tb_device_mqtt import TBDeviceMqttClient
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 # this example illustrates situation, where client send cpu and memory usage every 5 seconds.
 # If client receives an update of uploadFrequency attribute, it changes frequency of other attributes publishing.
 # Also client is listening to rpc and responds immediately to corresponding rpc methods from server
@@ -44,7 +44,7 @@ def on_server_side_rpc_request(client, request_id, request_body):
         client.send_rpc_reply(request_id, {"Memory": psutil.virtual_memory().percent})
 
 
-client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
 # to fetch the latest setting for upload frequency configured on the server

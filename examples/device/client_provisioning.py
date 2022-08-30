@@ -48,7 +48,7 @@ def main():
     credentials = TBDeviceMqttClient.provision("127.0.0.1", "PROVISION_DEVICE_KEY", "PROVISION_DEVICE_SECRET")
 
     if credentials is not None:
-        client = TBDeviceMqttClient("127.0.0.1", credentials)
+        client = TBDeviceMqttClient("127.0.0.1", 1883, credentials)
         client.connect()
         # Sending data in async way
 

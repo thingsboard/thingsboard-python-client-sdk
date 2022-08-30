@@ -19,7 +19,7 @@ import socket
 
 logging.basicConfig(level=logging.DEBUG)
 # connecting to localhost
-client = TBDeviceMqttClient(socket.gethostname())
+client = TBDeviceMqttClient(socket.gethostname(), 1883, "A2_TEST_TOKEN")
 client.connect(tls=True,
                ca_certs="mqttserver.pub.pem",
                cert_file="mqttclient.nopass.pem")

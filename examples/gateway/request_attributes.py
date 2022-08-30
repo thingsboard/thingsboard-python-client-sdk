@@ -16,12 +16,11 @@
 import logging
 import time
 
-from tb_gateway_mqtt import TBGatewayMqttClient
+from tb_mqtt_client.tb_gateway_mqtt import TBGatewayMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
-def callback(client, result, exception):
-    client.stop()
+def callback(result, exception=None):
     if exception is not None:
         print("Exception: " + str(exception))
     else:
@@ -29,7 +28,7 @@ def callback(client, result, exception):
 
 
 def main():
-    gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+    gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
     gateway.connect()
     gateway.gw_request_shared_attributes("Example Name", ["temperature"], callback)
 

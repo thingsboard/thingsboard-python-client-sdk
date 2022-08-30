@@ -16,7 +16,7 @@
 import logging.handlers
 import time
 
-from tb_gateway_mqtt import TBGatewayMqttClient
+from tb_mqtt_client.tb_gateway_mqtt import TBGatewayMqttClient
 import psutil
 logging.basicConfig(level=logging.DEBUG)
 
@@ -38,7 +38,7 @@ def rpc_request_response(gateway, request_body):
 
 
 def main():
-    gateway = TBGatewayMqttClient("127.0.0.1", "TEST_GATEWAY_TOKEN")
+    gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
     gateway.connect()
     # now rpc_request_response will process rpc requests from servers
     gateway.gw_set_server_side_rpc_request_handler(rpc_request_response)

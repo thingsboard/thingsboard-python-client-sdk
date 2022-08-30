@@ -16,12 +16,11 @@
 import logging
 import time
 
-from tb_device_mqtt import TBDeviceMqttClient
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
-def on_attributes_change(client, result, exception):
-    client.stop()
+def on_attributes_change(result, exception=None):
     if exception is not None:
         print("Exception: " + str(exception))
     else:
@@ -29,7 +28,7 @@ def on_attributes_change(client, result, exception):
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
     client.connect()
     client.request_attributes(["atr1", "atr2"], callback=on_attributes_change)
     while not client.stopped:

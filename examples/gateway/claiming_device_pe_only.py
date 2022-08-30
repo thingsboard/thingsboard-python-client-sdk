@@ -14,9 +14,8 @@
 #
 
 import logging
-import time
 
-from tb_gateway_mqtt import TBGatewayMqttClient
+from tb_mqtt_client.tb_gateway_mqtt import TBGatewayMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 THINGSBOARD_HOST = "127.0.0.1"
@@ -28,7 +27,7 @@ DURATION = 30000  # In milliseconds (30 seconds)
 
 
 def main():
-    client = TBGatewayMqttClient(THINGSBOARD_HOST, GATEWAY_ACCESS_TOKEN)
+    client = TBGatewayMqttClient(THINGSBOARD_HOST, 1883, GATEWAY_ACCESS_TOKEN)
     client.connect()
 
     """

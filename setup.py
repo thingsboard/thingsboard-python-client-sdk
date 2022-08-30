@@ -36,5 +36,5 @@ setup(
     long_description_content_type="text/markdown",
     python_requires=">=3.6",
     packages=["."],
-    install_requires=['paho-mqtt', 'jsonschema', 'requests', 'mmh3'],
+    install_requires=['paho-mqtt', 'jsonschema', 'requests', 'mmh3', 'simplejson'],
     download_url='https://github.com/thingsboard/thingsboard-python-client-sdk/archive/%s.tar.gz' % VERSION)

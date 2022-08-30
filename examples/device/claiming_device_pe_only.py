@@ -16,7 +16,7 @@
 import logging
 import time
 
-from tb_device_mqtt import TBDeviceMqttClient
+from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 THINGSBOARD_HOST = "127.0.0.1"
@@ -27,7 +27,7 @@ DURATION = 30000  # In milliseconds (30 seconds)
 
 
 def main():
-    client = TBDeviceMqttClient(THINGSBOARD_HOST, DEVICE_ACCESS_TOKEN)
+    client = TBDeviceMqttClient(THINGSBOARD_HOST, 1883, DEVICE_ACCESS_TOKEN)
     client.connect()
     rc = client.claim(secret_key=SECRET_KEY, duration=DURATION).get()
     if rc == 0:
