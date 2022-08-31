@@ -25,7 +25,7 @@ from threading import Thread
 
 from simplejson import JSONDecodeError
 
-from .sdk_utils import verify_checksum
+from sdk_utils import verify_checksum
 
 
 FW_TITLE_ATTR = "fw_title"

@@ -14,7 +14,7 @@
 #
 
 import logging
-from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
+from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
 import time
 logging.basicConfig(level=logging.DEBUG)
 
