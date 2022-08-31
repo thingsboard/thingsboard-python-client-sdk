@@ -16,7 +16,7 @@
 import logging
 import time
 
-from tb_mqtt_client.tb_device_mqtt import TBDeviceMqttClient
+from tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 THINGSBOARD_HOST = "127.0.0.1"
