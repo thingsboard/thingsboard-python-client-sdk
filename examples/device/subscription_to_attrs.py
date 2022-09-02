@@ -20,8 +20,8 @@ from tb_device_mqtt import TBDeviceMqttClient
 logging.basicConfig(level=logging.DEBUG)
 
 
-def callback(client, result):
-    print(client, result)
+def callback(result, *args):
+    print(result, *args)
 
 
 def main():
