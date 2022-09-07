@@ -22,7 +22,7 @@ this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.md')) as f:
     long_description = f.read()
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 setup(
     version=VERSION,
@@ -34,7 +34,7 @@ setup(
     url="https://github.com/thingsboard/thingsboard-python-client-sdk",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     packages=["."],
     install_requires=['paho-mqtt', 'requests', 'mmh3', 'simplejson'],
     download_url='https://github.com/thingsboard/thingsboard-python-client-sdk/archive/%s.tar.gz' % VERSION)
