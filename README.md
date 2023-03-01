@@ -13,7 +13,8 @@ SDK supports:
 - All [Device MQTT](https://thingsboard.io/docs/reference/mqtt-api/) APIs provided by ThingsBoard
 - All [Gateway MQTT](https://thingsboard.io/docs/reference/gateway-mqtt-api/) APIs provided by ThingsBoard
 - Most [Device HTTP](https://thingsboard.io/docs/reference/http-api/) APIs provided by ThingsBoard
-  - Device Claiming and Firmware updates are not supported yet.
+- Device Claiming
+- Firmware updates
 
 The [Device MQTT](https://thingsboard.io/docs/reference/mqtt-api/) API and the [Gateway MQTT](https://thingsboard.io/docs/reference/gateway-mqtt-api/) API are base on the Paho MQTT library. The [Device HTTP](https://thingsboard.io/docs/reference/http-api/) API is based on the Requests library.
 
