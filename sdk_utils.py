@@ -1,8 +1,20 @@
 from random import randint
 from zlib import crc32
 from hashlib import sha256, sha384, sha512, md5
-from mmh3 import hash, hash128
 import logging
+from subprocess import CalledProcessError
+
+from utils import install_package
+
+try:
+    install_package('mmh3')
+except CalledProcessError:
+    install_package('pymmh3')
+
+try:
+    from mmh3 import hash, hash128
+except ImportError:
+    from pymmh3 import hash, hash128
 
 log = logging.getLogger(__name__)
 
