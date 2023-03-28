@@ -94,7 +94,7 @@ class ProvisionClient(paho.Client):
         decoded_message = loads(decoded_payload)
         provision_device_status = decoded_message.get("status")
         if provision_device_status == "SUCCESS":
-            self.__credentials = decoded_message["credentialsValue"]
+            self.__credentials = decoded_message
         else:
             log.error("[Provisioning client] Provisioning was unsuccessful with status %s and message: %s" % (
                 provision_device_status, decoded_message["errorMsg"]))
