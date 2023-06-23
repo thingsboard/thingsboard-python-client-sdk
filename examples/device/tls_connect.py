@@ -11,7 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 
+import logging
+from tb_device_mqtt import TBDeviceMqttClient
+import socket
 
-__name__ = "tb_mqtt_client"
+logging.basicConfig(level=logging.DEBUG)
+# connecting to localhost
+client = TBDeviceMqttClient(socket.gethostname(), 1883, "A2_TEST_TOKEN")
+client.connect(tls=True,
+               ca_certs="mqttserver.pub.pem",
+               cert_file="mqttclient.nopass.pem")
+client.disconnect()
