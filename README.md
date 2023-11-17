@@ -25,6 +25,16 @@ To install using pip:
 ```bash
 pip3 install tb-mqtt-client
 ```
+### Note on dependencies
+
+If you are running this on a platform that can't run packages with C library dependencies, and want to use the package `pymmh3` instead of `mmh3`, do the following instead:
+
+```bash
+pip3 install pymmh3 tb-mqtt-client --no-binary tb-mqtt-client
+```
+What happens by default, is that if python doesn't detect that `pymmh3` is installed, it will install `mmh3`. By running this command you install `pymmh3`. Therefore it is used, and `mmh3` is not installed.
+
+`--no-binary tb-mqtt-client` is required.
 
 ## Getting Started
 
