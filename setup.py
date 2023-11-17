@@ -14,6 +14,8 @@
 #
 
 from os import path
+from pkg_resources import DistributionNotFound, get_distribution
+from re import split
 from setuptools import setup
 
 
@@ -22,6 +24,39 @@ with open(path.join(this_directory, 'README.md')) as f:
     long_description = f.read()
 
 VERSION = "1.5"
+
+INSTALL_REQUIRES = ['tb-paho-mqtt-client>=1.6.3', 'requests>=2.31.0', 'simplejson']
+
+# If none of packages in first installed, install second package
+CHOOSE_INSTALL_REQUIRES = [
+    (
+        ('pymmh3'),
+        'mmh3',
+    )
+]
+
+def choose_requirement(mains, secondary):
+    """If some version of main requirement installed, return main,
+    else return secondary.
+
+    """
+    chosen = secondary
+    for main in mains:
+        try:
+            name = split(r"[!<>=]", main)[0]
+            get_distribution(name)
+            chosen = main
+            break
+        except DistributionNotFound:
+            pass
+
+    return str(chosen)
+
+def get_install_requirements(install_requires, choose_install_requires):
+    for mains, secondary in choose_install_requires:
+        install_requires.append(choose_requirement(mains, secondary))
+
+    return install_requires
 
 setup(
     version=VERSION,
@@ -35,5 +70,5 @@ setup(
     long_description_content_type="text/markdown",
     python_requires=">=3.7",
     packages=["."],
-    install_requires=['tb-paho-mqtt-client>=1.6.3', 'requests>=2.31.0', 'mmh3', 'simplejson'],
+    install_requires=get_install_requirements(INSTALL_REQUIRES, CHOOSE_INSTALL_REQUIRES),
     download_url='https://github.com/thingsboard/thingsboard-python-client-sdk/archive/%s.tar.gz' % VERSION)
