@@ -20,10 +20,17 @@ from subprocess import CalledProcessError
 
 from utils import install_package
 
+
 try:
-    install_package('mmh3')
-except CalledProcessError:
-    install_package('pymmh3')
+    from mmh3 import hash, hash128
+except ImportError:
+    try:
+        from pymmh3 import hash, hash128
+    except ImportError:
+        try:
+            install_package('mmh3')
+        except CalledProcessError:
+            install_package('pymmh3')
 
 try:
     from mmh3 import hash, hash128
