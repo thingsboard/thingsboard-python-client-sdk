@@ -25,7 +25,7 @@ DURATION = 30000  # In milliseconds (30 seconds)
 
 
 def main():
-    client = TBDeviceMqttClient(THINGSBOARD_HOST, 1883, DEVICE_ACCESS_TOKEN)
+    client = TBDeviceMqttClient(THINGSBOARD_HOST, username=DEVICE_ACCESS_TOKEN)
     client.connect()
     rc = client.claim(secret_key=SECRET_KEY, duration=DURATION).get()
     if rc == 0:

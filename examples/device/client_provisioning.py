@@ -38,18 +38,31 @@ def main():
       password=None - not required - You may pass here password and use it later for connecting
 
       ### Credentials type = X509_CERTIFICATE
-      hash=None - required (If you wanna use this credentials type) - You should pass here public key of the device, generated from mqttserver.jks
+      hash=None - required (If you want to use this credentials type) - You should pass here public key of the device, generated from mqttserver.jks
 
     """
 
     # Call device provisioning, to do this we don't need an instance of the TBDeviceMqttClient to provision device
 
-    credentials = TBDeviceMqttClient.provision("127.0.0.1", "PROVISION_DEVICE_KEY", "PROVISION_DEVICE_SECRET")
+    THINGSBOARD_HOST = "mqtt.thingsboard.cloud"
 
-    if credentials is not None:
-        client = TBDeviceMqttClient("127.0.0.1", 1883, credentials)
+    credentials = TBDeviceMqttClient.provision(THINGSBOARD_HOST, "33ys471ev5p223sw7aog", "zccrh97fl56ul8b7np38",
+                                               device_name="hrTviVUA0c3LL7T4kBwo")
+
+    if credentials is not None and credentials.get("status") == "SUCCESS":
+        username = None
+        password = None
+        client_id = None
+        if credentials["credentialsType"] == "ACCESS_TOKEN":
+            username = credentials["credentialsValue"]
+        elif credentials["credentialsType"] == "MQTT_BASIC":
+            username = credentials["credentialsValue"]["userName"]
+            password = credentials["credentialsValue"]["password"]
+            client_id = credentials["credentialsValue"]["clientId"]
+
+        client = TBDeviceMqttClient(THINGSBOARD_HOST, username=username, password=password, client_id=client_id)
         client.connect()
-        # Sending data in async way
+        # Other code
 
         client.stop()
 

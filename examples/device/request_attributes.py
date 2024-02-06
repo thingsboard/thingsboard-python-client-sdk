@@ -27,7 +27,7 @@ def on_attributes_change(result, exception=None):
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
     client.connect()
     client.request_attributes(["atr1", "atr2"], callback=on_attributes_change)
     while not client.stopped:

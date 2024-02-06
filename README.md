@@ -32,8 +32,12 @@ Client initialization and telemetry publishing
 ### MQTT
 ```python
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
+
+
 telemetry = {"temperature": 41.9, "enabled": False, "currentFirmwareVersion": "v1.2.2"}
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A1_TEST_TOKEN")
+
+# Initialize ThingsBoard client
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 # Connect to ThingsBoard
 client.connect()
 # Sending telemetry without checking the delivery status
@@ -44,6 +48,7 @@ result = client.send_telemetry(telemetry)
 success = result.get() == TBPublishInfo.TB_ERR_SUCCESS
 # Disconnect from ThingsBoard
 client.disconnect()
+
 ```
 
 ### MQTT using TLS
@@ -53,11 +58,14 @@ TLS connection to localhost. See https://thingsboard.io/docs/user-guide/mqtt-ove
 ```python
 from tb_device_mqtt import TBDeviceMqttClient
 import socket
+
+
 client = TBDeviceMqttClient(socket.gethostname())
 client.connect(tls=True,
                ca_certs="mqttserver.pub.pem",
                cert_file="mqttclient.nopass.pem")
 client.disconnect()
+
 ```
 
 ### HTTP
@@ -65,19 +73,23 @@ client.disconnect()
 ````python
 from tb_device_http import TBHTTPDevice
 
+
 client = TBHTTPDevice('https://thingsboard.example.com', 'secret-token')
 client.connect()
 client.send_telemetry({'temperature': 41.9})
+
 ````
 
 ## Using Device APIs
 
 **TBDeviceMqttClient** provides access to Device MQTT APIs of ThingsBoard platform. It allows to publish telemetry and attribute updates, subscribe to attribute changes, send and receive RPC commands, etc. Use **TBHTTPClient** for the Device HTTP API.
 #### Subscription to attributes
+You can subscribe to attribute updates from the server. The following example demonstrates how to subscribe to attribute updates from the server.
 ##### MQTT
 ```python
 import time
 from tb_device_mqtt import TBDeviceMqttClient
+
 
 def on_attributes_change(client, result, exception):
     if exception is not None:
@@ -85,18 +97,22 @@ def on_attributes_change(client, result, exception):
     else:
         print(result)
 
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A1_TEST_TOKEN")
+        
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 client.connect()
 client.subscribe_to_attribute("uploadFrequency", on_attributes_change)
 client.subscribe_to_all_attributes(on_attributes_change)
 while True:
     time.sleep(1)
+
 ```
 
 ##### HTTP
 Note: The HTTP API only allows a subscription to updates for all attribute.
 ```python
 from tb_device_http import TBHTTPClient
+
+
 client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
 
 def callback(data):
@@ -107,16 +123,20 @@ def callback(data):
 client.subscribe('attributes', callback)
 # Unsubscribe
 client.unsubscribe('attributes')
+
 ```
 
 #### Telemetry pack sending
+You can send multiple telemetry messages at once. The following example demonstrates how to send multiple telemetry messages at once.
 ##### MQTT
 ```python
-import logging
+
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo
 import time
+
+
 telemetry_with_ts = {"ts": int(round(time.time() * 1000)), "values": {"temperature": 42.1, "humidity": 70}}
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A1_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 # we set maximum amount of messages sent to send them at the same time. it may stress memory but increases performance
 client.max_inflight_messages_set(100)
 client.connect()
@@ -128,43 +148,61 @@ for tmp_result in results:
     result &= tmp_result.get() == TBPublishInfo.TB_ERR_SUCCESS
 print("Result " + str(result))
 client.disconnect()
+
 ```
 ##### HTTP
 Unsupported, the HTTP API does not allow the packing of values.
 
 #### Request attributes from server
+You can request attributes from the server. The following example demonstrates how to request attributes from the server.
+
 ##### MQTT
 ```python
-import logging
+
 import time
 from tb_device_mqtt import TBDeviceMqttClient
 
-def on_attributes_change(client,result, exception:
+
+def on_attributes_change(client,result, exception):
     if exception is not None:
         print("Exception: " + str(exception))
     else:
         print(result)
 
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A1_TEST_TOKEN")
+        
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 client.connect()
 client.request_attributes(["configuration","targetFirmwareVersion"], callback=on_attributes_change)
 while True:
     time.sleep(1)
+
 ```
+
 ##### HTTP
 ```python
 from tb_device_http import TBHTTPClient
+
+
 client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
 
 client_keys = ['attr1', 'attr2']
 shared_keys = ['shared1', 'shared2']
 data = client.request_attributes(client_keys=client_keys, shared_keys=shared_keys)
+
 ```
 
 #### Respond to server RPC call
+You can respond to RPC calls from the server. The following example demonstrates how to respond to RPC calls from the server.
+Please install psutil using 'pip install psutil' command before running the example.
+
 ##### MQTT
 ```python
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    print("Please install psutil using 'pip install psutil' command")
+    exit(1)
 import time
 import logging
 from tb_device_mqtt import TBDeviceMqttClient
@@ -177,16 +215,20 @@ def on_server_side_rpc_request(client, request_id, request_body):
     elif request_body["method"] == "getMemoryUsage":
         client.send_rpc_reply(request_id, {"Memory": psutil.virtual_memory().percent})
 
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A1_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
 while True:
     time.sleep(1)
+
 ```
 
 ##### HTTP
+You can use HTTP API client in case you want to use HTTP API instead of MQTT API. 
 ```python
 from tb_device_http import TBHTTPClient
+
+
 client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
 
 def callback(data):
@@ -199,6 +241,7 @@ def callback(data):
 client.subscribe('rpc', callback)
 # Unsubscribe
 client.unsubscribe('rpc')
+
 ```
 
 ## Using Gateway APIs
@@ -209,7 +252,9 @@ Besides, gateway is able to represent multiple devices connected to it. For exam
 ```python
 import time
 from tb_gateway_mqtt import TBGatewayMqttClient
-gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
+
+
+gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
 gateway.connect()
 gateway.gw_connect_device("Test Device A1")
 
@@ -218,12 +263,16 @@ gateway.gw_send_attributes("Test Device A1", {"firmwareVersion": "2.3.1"})
 
 gateway.gw_disconnect_device("Test Device A1")
 gateway.disconnect()
+
 ```
 #### Request attributes
+
+You can request attributes from the server. The following example demonstrates how to request attributes from the server.
+
 ```python
-import logging
 import time
 from tb_gateway_mqtt import TBGatewayMqttClient
+
 
 def callback(result, exception):
     if exception is not None:
@@ -231,20 +280,31 @@ def callback(result, exception):
     else:
         print(result)
 
-gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
+        
+gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
 gateway.connect()
 gateway.gw_request_shared_attributes("Test Device A1", ["temperature"], callback)
 
 while True:
     time.sleep(1)
+
 ```
 #### Respond to RPC
+
+You can respond to RPC calls from the server. The following example demonstrates how to respond to RPC calls from the server.
+Please install psutil using 'pip install psutil' command before running the example.
+
 ```python
 import time
 
 from tb_gateway_mqtt import TBGatewayMqttClient
-import psutil
+try:
+    import psutil
+except ImportError:
+    print("Please install psutil using 'pip install psutil' command")
+    exit(1)
 
+    
 def rpc_request_response(client, request_id, request_body):
     # request body contains id, method and other parameters
     print(request_body)
@@ -259,7 +319,8 @@ def rpc_request_response(client, request_id, request_body):
     else:
         print('Unknown method: ' + method)
 
-gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
+        
+gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
 gateway.connect()
 # now rpc_request_response will process rpc requests from servers
 gateway.gw_set_server_side_rpc_request_handler(rpc_request_response)
@@ -267,6 +328,7 @@ gateway.gw_set_server_side_rpc_request_handler(rpc_request_response)
 gateway.gw_connect_device("Test Device A1")
 while True:
     time.sleep(1)
+
 ```
 ## Other Examples
 

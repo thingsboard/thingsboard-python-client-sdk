@@ -24,7 +24,7 @@ def callback(result, *args):
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
     client.connect()
     sub_id_1 = client.subscribe_to_attribute("uploadFrequency", callback)
     sub_id_2 = client.subscribe_to_all_attributes(callback)

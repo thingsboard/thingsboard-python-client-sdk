@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 def main():
-    gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
+    gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
     gateway.connect()
     gateway.gw_connect_device("Example Name")
     # device disconnecting will not delete device, gateway just stops receiving messages

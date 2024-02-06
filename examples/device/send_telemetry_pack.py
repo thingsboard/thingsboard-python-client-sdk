@@ -22,7 +22,7 @@ telemetry_with_ts = {"ts": int(round(time.time() * 1000)), "values": {"temperatu
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
     # we set maximum amount of messages sent to send them at the same time. it may stress memory but increases performance
     client.max_inflight_messages_set(100)
     client.connect()

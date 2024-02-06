@@ -26,7 +26,7 @@ attributes = {"sensorModel": "DHT-22", "attribute_2": "value"}
 
 
 def main():
-    client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
+    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
     client.connect()
     # Sending data in async way
     client.send_attributes(attributes)

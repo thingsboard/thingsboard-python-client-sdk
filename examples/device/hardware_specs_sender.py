@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import psutil
 import time
 import logging
+try:
+    import psutil
+except ImportError:
+    print("Please install psutil using 'pip install psutil' command")
+    exit(1)
 from tb_device_mqtt import TBDeviceMqttClient
 # this example illustrates situation, where client send cpu and memory usage every 5 seconds.
 # If client receives an update of uploadFrequency attribute, it changes frequency of other attributes publishing.
@@ -43,7 +47,7 @@ def on_server_side_rpc_request(client, request_id, request_body):
         client.send_rpc_reply(request_id, {"Memory": psutil.virtual_memory().percent})
 
 
-client = TBDeviceMqttClient("127.0.0.1", 1883, "A2_TEST_TOKEN")
+client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
 client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
 # to fetch the latest setting for upload frequency configured on the server

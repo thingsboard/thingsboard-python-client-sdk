@@ -26,7 +26,7 @@ DURATION = 30000  # In milliseconds (30 seconds)
 
 
 def main():
-    client = TBGatewayMqttClient(THINGSBOARD_HOST, 1883, GATEWAY_ACCESS_TOKEN)
+    client = TBGatewayMqttClient(THINGSBOARD_HOST, username=GATEWAY_ACCESS_TOKEN)
     client.connect()
 
     """

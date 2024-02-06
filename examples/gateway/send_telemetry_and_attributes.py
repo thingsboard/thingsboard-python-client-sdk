@@ -28,7 +28,7 @@ telemetry_array = [
 
 
 def main():
-    gateway = TBGatewayMqttClient("127.0.0.1", 1883, "TEST_GATEWAY_TOKEN")
+    gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
     # without device connection it is impossible to get any messages
     gateway.connect()
 
