@@ -294,8 +294,12 @@ class TBDeviceMqttClient:
         elif message.topic.startswith(RPC_RESPONSE_TOPIC):
             with self._lock:
                 request_id = int(message.topic[len(RPC_RESPONSE_TOPIC):len(message.topic)])
-                callback = self.__device_client_rpc_dict.pop(request_id)
-            callback(request_id, content, None)
+                if self.__device_client_rpc_dict.get(request_id):
+                    callback = self.__device_client_rpc_dict.pop(request_id)
+                else:
+                    callback = None
+            if callback is not None:
+                callback(request_id, content, None)
         elif message.topic == ATTRIBUTES_TOPIC:
             dict_results = []
             with self._lock:
@@ -320,10 +324,13 @@ class TBDeviceMqttClient:
             with self._lock:
                 req_id = int(message.topic[len(ATTRIBUTES_TOPIC + "/response/"):])
                 # pop callback and use it
-                callback = self._attr_request_dict.pop(req_id)
+                if self._attr_request_dict.get(req_id):
+                    callback = self._attr_request_dict.pop(req_id)
+                else:
+                    callback = None
             if isinstance(callback, tuple):
                 callback[0](content, None, callback[1])
-            else:
+            elif callback is not None:
                 callback(content, None)
 
         if message.topic.startswith("v1/devices/me/attributes"):
