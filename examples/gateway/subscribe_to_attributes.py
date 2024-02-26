@@ -32,7 +32,7 @@ def callback_for_specific_attr(result):
 
 
 def main():
-    gateway = TBGatewayMqttClient("tbqa.cloud", username="KSe9RVFIIdtXFeS6b1W8")
+    gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
     gateway.connect()
     # without device connection it is impossible to get any messages
     gateway.gw_connect_device("ImageTest")

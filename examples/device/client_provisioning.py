@@ -46,8 +46,7 @@ def main():
 
     THINGSBOARD_HOST = "mqtt.thingsboard.cloud"
 
-    credentials = TBDeviceMqttClient.provision(THINGSBOARD_HOST, "33ys471ev5p223sw7aog", "zccrh97fl56ul8b7np38",
-                                               device_name="hrTviVUA0c3LL7T4kBwo")
+    credentials = TBDeviceMqttClient.provision(THINGSBOARD_HOST, "PROVISION_DEVICE_KEY", "PROVISION_DEVICE_SECRET")
 
     if credentials is not None and credentials.get("status") == "SUCCESS":
         username = None
