@@ -16,14 +16,14 @@ import time
 import logging
 from tb_gateway_mqtt import TBGatewayMqttClient
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 attributes = {"atr1": 1, "atr2": True, "atr3": "value3"}
 telemetry_simple = {"ts": int(round(time.time() * 1000)), "values": {"key1": "11"}}
 telemetry_array = [
-    {"ts": 1, "values": {"key1": "11"}},
-    {"ts": 2, "values": {"key2": "22"}}
+    {"ts": int(round(time.time() * 1000)), "values": {"key1": "11"}},
+    {"ts": int(round(time.time() * 1000)), "values": {"key2": "22"}}
 ]
 
 

@@ -15,7 +15,6 @@
 
 import logging
 import time
-from simplejson import dumps
 from tb_device_mqtt import TBDeviceMqttClient
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
@@ -51,12 +50,14 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         super()._on_connect(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
-            self._gw_subscriptions[
-                int(self._client.subscribe(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])] = GATEWAY_ATTRIBUTES_TOPIC
-            self._gw_subscriptions[int(self._client.subscribe(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1)[
-                                           1])] = GATEWAY_ATTRIBUTES_RESPONSE_TOPIC
-            self._gw_subscriptions[int(self._client.subscribe(GATEWAY_RPC_TOPIC, qos=1)[1])] = GATEWAY_RPC_TOPIC
-            # self._gw_subscriptions[int(self._client.subscribe(GATEWAY_RPC_RESPONSE_TOPIC)[1])] = GATEWAY_RPC_RESPONSE_TOPIC
+            gateway_attributes_topic_sub_id = int(self._client.subscribe(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])
+            self._gw_subscriptions[gateway_attributes_topic_sub_id] = GATEWAY_ATTRIBUTES_TOPIC
+            gateway_attributes_resp_sub_id = int(self._client.subscribe(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1)[1])
+            self._gw_subscriptions[gateway_attributes_resp_sub_id] = GATEWAY_ATTRIBUTES_RESPONSE_TOPIC
+            gateway_rpc_topic_sub_id = int(self._client.subscribe(GATEWAY_RPC_TOPIC, qos=1)[1])
+            self._gw_subscriptions[gateway_rpc_topic_sub_id] = GATEWAY_RPC_TOPIC
+            # gateway_rpc_topic_response_sub_id = int(self._client.subscribe(GATEWAY_RPC_RESPONSE_TOPIC)[1])
+            # self._gw_subscriptions[gateway_rpc_topic_response_sub_id] = GATEWAY_RPC_RESPONSE_TOPIC
 
     def _on_subscribe(self, client, userdata, mid, reasoncodes, properties=None):
         subscription = self._gw_subscriptions.get(mid)
@@ -126,7 +127,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                "device": device,
                "client": type_is_client,
                "id": attr_request_number}
-        info = self._client.publish(GATEWAY_ATTRIBUTES_REQUEST_TOPIC, dumps(msg), 1)
+        info = self._publish_data(msg, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, 1, high_priority=True)
         self._add_timeout(attr_request_number, ts_in_millis + 30000)
         return info
 
@@ -137,30 +138,25 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         return self.__request_attributes(device_name, keys, callback, True)
 
     def gw_send_attributes(self, device, attributes, quality_of_service=1):
-        return self.publish_data({device: attributes}, GATEWAY_MAIN_TOPIC + "attributes", quality_of_service)
+        return self._publish_data({device: attributes}, GATEWAY_MAIN_TOPIC + "attributes", quality_of_service)
 
     def gw_send_telemetry(self, device, telemetry, quality_of_service=1):
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        return self.publish_data({device: telemetry}, GATEWAY_MAIN_TOPIC + "telemetry", quality_of_service, )
+        return self._publish_data({device: telemetry}, GATEWAY_MAIN_TOPIC + "telemetry", quality_of_service)
 
     def gw_connect_device(self, device_name, device_type="default"):
-        info = self._client.publish(topic=GATEWAY_MAIN_TOPIC + "connect",
-                                    payload=dumps({"device": device_name, "type": device_type}),
-                                    qos=self.quality_of_service)
+        info = self._publish_data({"device": device_name, "type": device_type}, GATEWAY_MAIN_TOPIC + "connect",
+                                  self.quality_of_service)
         self.__connected_devices.add(device_name)
-        # if self.gateway:
-        #     self.gateway.on_device_connected(device_name, self.__devices_server_side_rpc_request_handler)
         log.debug("Connected device %s", device_name)
         return info
 
     def gw_disconnect_device(self, device_name):
-        info = self._client.publish(topic=GATEWAY_MAIN_TOPIC + "disconnect", payload=dumps({"device": device_name}),
-                                    qos=self.quality_of_service)
+        info = self._publish_data({"device": device_name}, GATEWAY_MAIN_TOPIC + "disconnect",
+                                  self.quality_of_service)
         if device_name in self.__connected_devices:
             self.__connected_devices.remove(device_name)
-        # if self.gateway:
-        #     self.gateway.on_device_disconnected(self, device_name)
         log.debug("Disconnected device %s", device_name)
         return info
 
@@ -202,9 +198,8 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if quality_of_service not in (0, 1):
             log.error("Quality of service (qos) value must be 0 or 1")
             return None
-        info = self._client.publish(GATEWAY_RPC_TOPIC,
-                                    dumps({"device": device, "id": req_id, "data": resp}),
-                                    qos=quality_of_service)
+        info = self._publish_data({device: {"id": req_id, "data": resp}}, GATEWAY_RPC_RESPONSE_TOPIC,
+                                  quality_of_service)
         return info
 
     def gw_claim(self, device_name, secret_key, duration, claiming_request=None):
@@ -215,5 +210,5 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                     "durationMs": duration
                 }
             }
-        info = self._client.publish(GATEWAY_CLAIMING_TOPIC, dumps(claiming_request), qos=self.quality_of_service)
+        info = self._publish_data(claiming_request, GATEWAY_CLAIMING_TOPIC, self.quality_of_service)
         return info

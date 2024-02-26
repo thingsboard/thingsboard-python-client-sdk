@@ -14,7 +14,7 @@
 
 import logging
 from tb_gateway_mqtt import TBGatewayMqttClient
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 def main():

@@ -16,23 +16,23 @@ import logging.handlers
 import time
 
 from tb_gateway_mqtt import TBGatewayMqttClient
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 def callback(result):
-    logging.debug("Callback for attributes, %r", result)
+    logging.info("Callback for attributes, %r", result)
 
 
 def callback_for_everything(result):
-    logging.debug("Everything goes here, %r", result)
+    logging.info("Everything goes here, %r", result)
 
 
 def callback_for_specific_attr(result):
-    logging.debug("Specific attribute callback, %r", result)
+    logging.info("Specific attribute callback, %r", result)
 
 
 def main():
-    gateway = TBGatewayMqttClient("127.0.0.1", username="TEST_GATEWAY_TOKEN")
+    gateway = TBGatewayMqttClient("tbqa.cloud", username="KSe9RVFIIdtXFeS6b1W8")
     gateway.connect()
     # without device connection it is impossible to get any messages
     gateway.gw_connect_device("ImageTest")
@@ -44,8 +44,13 @@ def main():
     sub_id = gateway.gw_subscribe_to_all_device_attributes("ImageTest", callback)
     gateway.gw_unsubscribe(sub_id)
 
-    while True:
-        time.sleep(1)
+    try:
+        # Waiting for the callback
+        while not gateway.stopped:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        gateway.disconnect()
+        gateway.stop()
 
 
 if __name__ == '__main__':

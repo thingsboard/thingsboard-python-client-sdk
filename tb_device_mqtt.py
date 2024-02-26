@@ -11,21 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import uuid
+from collections import deque
 
 import paho.mqtt.client as paho
 from math import ceil
 import logging
 import time
 import queue
-from json import loads, dumps
 import ssl
-from threading import RLock
-from threading import Thread
+from threading import Lock, RLock, Thread, Condition
 
-from simplejson import JSONDecodeError
+from simplejson import loads, dumps, JSONDecodeError
 
 from sdk_utils import verify_checksum
-
 
 FW_TITLE_ATTR = "fw_title"
 FW_VERSION_ATTR = "fw_version"
@@ -64,6 +63,9 @@ class TBQoSException(Exception):
     pass
 
 
+DEFAULT_TIMEOUT = 30
+
+
 class ProvisionClient(paho.Client):
     PROVISION_REQUEST_TOPIC = "/provision/request"
     PROVISION_RESPONSE_TOPIC = "/provision/response"
@@ -73,6 +75,7 @@ class ProvisionClient(paho.Client):
         self._host = host
         self._port = port
         self._username = "provision"
+        self.__credentials = None
         self.on_connect = self.__on_connect
         self.on_message = self.__on_message
         self.__provision_request = provision_request
@@ -128,6 +131,27 @@ class TBPublishInfo:
     TB_ERR_ERRNO = 14
     TB_ERR_QUEUE_SIZE = 15
 
+    ERRORS_DESCRIPTION = {
+        -1: 'Previous error repeated.',
+        0: 'The operation completed successfully.',
+        1: 'Out of memory.',
+        2: 'A network protocol error occurred when communicating with the broker.',
+        3: 'Invalid function arguments provided.',
+        4: 'The client is not currently connected.',
+        5: 'The connection was refused.',
+        6: 'Entity not found (for example, trying to unsubscribe from a topic not currently subscribed to).',
+        7: 'The connection was lost.',
+        8: 'A TLS error occurred.',
+        9: 'Payload size is too large.',
+        10: 'This feature is not supported.',
+        11: 'Authorization failed.',
+        12: 'Access denied to the specified ACL.',
+        13: 'Unknown error.',
+        14: 'A system call returned an error.',
+        15: 'The queue size was exceeded.',
+        16: 'The keepalive time has been exceeded.'
+    }
+
     def __init__(self, message_info):
         self.message_info = message_info
 
@@ -143,25 +167,130 @@ class TBPublishInfo:
         return self.message_info.rc
 
 
+class RateLimit:
+    def __init__(self, rate_limit):
+        self.__start_time = time.time()
+        self.__config = rate_limit
+        self.__rate_limit_dict = {}
+        for rate in self.__config.split(";"):
+            if rate == "":
+                continue
+            rate = rate.split(":")
+            self.__rate_limit_dict[int(rate[1])] = {"queue": queue.Queue(int(rate[0])), "start": time.time()}
+        log.debug("Rate limit set to values: ")
+        for rate_limit_time in self.__rate_limit_dict:
+            log.debug("Time: %s, Limit: %s", rate_limit_time,
+                      self.__rate_limit_dict[rate_limit_time]["queue"].maxsize)
+
+    def add_counter(self):
+        for rate_limit_time in self.__rate_limit_dict:
+            self.__rate_limit_dict[rate_limit_time]["queue"].put(1)
+
+    def check_limit_reached(self):
+        for rate_limit_time in self.__rate_limit_dict:
+            rate_limit_point_queue = self.__rate_limit_dict[rate_limit_time]["queue"]
+            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time < time.time():
+                self.__rate_limit_dict[rate_limit_time]["start"] = time.time()
+                rate_limit_point_queue = queue.Queue(rate_limit_point_queue.maxsize)
+                self.__rate_limit_dict[rate_limit_time]["queue"] = rate_limit_point_queue
+            if rate_limit_point_queue.full():
+                log.debug("Rate limit exceeded for %s second", rate_limit_time)
+                log.debug("Queue size: %s", rate_limit_point_queue.qsize())
+                return True
+        return False
+
+    def get_minimal_limit(self):
+        minimal_limit = 1000000000
+        for rate_limit_time in self.__rate_limit_dict:
+            if self.__rate_limit_dict[rate_limit_time]["queue"].maxsize < minimal_limit:
+                minimal_limit = self.__rate_limit_dict[rate_limit_time]["queue"].maxsize
+        return minimal_limit
+
+
+class TBQueue:
+    def __init__(self, maxsize=None):
+        self.__maxsize = maxsize
+        self.__queue = deque(maxlen=self.__maxsize)
+        self.__lock = Lock()
+        self.__not_empty = Condition(self.__lock)
+        self.__not_full = Condition(self.__lock)
+
+    def put(self, item, block=True, timeout=None):
+        with self.__not_full:
+            self.__put(block, timeout)
+            self.__queue.append(item)
+            self.__not_empty.notify()
+
+    def put_left(self, item, block=True, timeout=None):
+        with self.__not_full:
+            self.__put(block, timeout)
+            self.__queue.appendleft(item)
+            self.__not_empty.notify()
+
+    def __put(self, block, timeout):
+        if not block:
+            if self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
+                raise Exception("Queue is full")
+        else:
+            start_time = time.time()
+            while self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
+                remaining = timeout - (time.time() - start_time)
+                if remaining <= 0.0:
+                    raise TimeoutError("Timeout while trying to put item to queue")
+                self.__not_full.wait(remaining)
+
+    def get(self, block=True, timeout=None):
+        with self.__not_empty:
+            if not block:
+                if not self.__queue:
+                    return None
+            else:
+                start_time = time.time()
+                while not self.__queue:
+                    remaining = timeout - (time.time() - start_time)
+                    if remaining <= 0.0:
+                        raise TimeoutError("Timeout while trying to get item from queue")
+                    self.__not_empty.wait(remaining)
+            item = self.__queue.pop()
+            self.__not_full.notify()
+            return item
+
+    def put_nowait(self, item):
+        return self.put(item, False)
+
+    def get_nowait(self):
+        return self.get(False)
+
+    def full(self):
+        return len(self.__queue) == self.__maxsize
+
+    def empty(self):
+        return not self.__queue
+
+    def qsize(self):
+        return len(self.__queue)
+
+    @property
+    def maxsize(self):
+        return self.__maxsize
+
+
 class TBDeviceMqttClient:
+    """ThingsBoard MQTT client. This class provides interface to send data to ThingsBoard and receive data from"""
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
-                 chunk_size=0):
-        self._client = paho.Client(protocol=4, client_id=client_id)
+                 chunk_size=0, rate_limit="8:1;2000:60;30000:3600;"):
+        self._client = paho.Client(protocol=5, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
         self.__port = port
         if username == "":
-            log.warning("token is not set, connection without tls wont be established")
+            log.warning("Token is not set, connection without TLS won't be established!")
         else:
             self._client.username_pw_set(username, password=password)
         self._lock = RLock()
 
         self._attr_request_dict = {}
         self.stopped = False
-        self.__timeout_queue = queue.Queue()
-        self.__timeout_thread = Thread(target=self.__timeout_check)
-        self.__timeout_thread.daemon = True
-        self.__timeout_thread.start()
         self.__is_connected = False
         self.__device_on_server_side_rpc_response = None
         self.__connect_callback = None
@@ -170,6 +299,21 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
+        self.__rate_limit = RateLimit(rate_limit)
+        self.__update_client_queue()
+        self.__sending_queue = TBQueue()
+        self.__sending_queue_warning_published = 0
+        self.__responses = {}
+        self.__sending_thread = Thread(target=self.__sending_thread_main, name="Sending thread", daemon=True)
+        self.__sending_thread.start()
+        self.__housekeeping_thread = Thread(target=self.__housekeeping_thread_main,
+                                            name="Housekeeping thread",
+                                            daemon=True)
+        self.__housekeeping_thread.start()
+        self.__timeout_queue = queue.Queue()
+        self.__timeout_thread = Thread(target=self.__timeout_check)
+        self.__timeout_thread.daemon = True
+        self.__timeout_thread.start()
         self._client.on_connect = self._on_connect
         # self._client.on_log = self._on_log
         self._client.on_publish = self._on_publish
@@ -199,12 +343,13 @@ class TBDeviceMqttClient:
         # log.debug("Data published to ThingsBoard!")
         pass
 
-    def _on_disconnect(self, client, userdata, result_code):
-        prev_level = log.level
-        log.setLevel("DEBUG")
-        log.debug("Disconnected client: %s, user data: %s, result code: %s", str(client), str(userdata),
-                  str(result_code))
-        log.setLevel(prev_level)
+    def _on_disconnect(self, client, userdata, result_code, properties=None):
+        self.__is_connected = False
+        log.warning("MQTT client was disconnected with reason code %s (%s) ",
+                    str(result_code), TBPublishInfo.ERRORS_DESCRIPTION.get(result_code, "Description not found."))
+        log.debug("Client: %s, user data: %s, result code: %s. Description: %s",
+                  str(client), str(userdata),
+                  str(result_code), TBPublishInfo.ERRORS_DESCRIPTION.get(result_code, "Description not found."))
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         if self.__connect_callback:
@@ -212,7 +357,7 @@ class TBDeviceMqttClient:
             self.__connect_callback(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
             self.__is_connected = True
-            log.info("connection SUCCESS")
+            log.info("MQTT client %r - Connected!", client)
             self._client.subscribe(ATTRIBUTES_TOPIC, qos=self.quality_of_service)
             self._client.subscribe(ATTRIBUTES_TOPIC + "/response/+", qos=self.quality_of_service)
             self._client.subscribe(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
@@ -232,14 +377,17 @@ class TBDeviceMqttClient:
 
     def __request_firmware_info(self):
         self.__request_id = self.__request_id + 1
-        self._client.publish(f"v1/devices/me/attributes/request/{self.__request_id}",
-                             dumps({"sharedKeys": REQUIRED_SHARED_KEYS}))
+        self._publish_data({"sharedKeys": REQUIRED_SHARED_KEYS},
+                           f"v1/devices/me/attributes/request/{self.__request_id}",
+                           1,
+                           high_priority=True)
 
     def is_connected(self):
         return self.__is_connected
 
     def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, ca_certs=None, cert_file=None,
                 key_file=None, keepalive=120):
+        """Connect to ThingsBoard. The callback will be called when the connection is established."""
         if tls:
             try:
                 self._client.tls_set(ca_certs=ca_certs,
@@ -257,6 +405,7 @@ class TBDeviceMqttClient:
         self.__connect_callback = callback
 
     def disconnect(self):
+        """Disconnect from ThingsBoard."""
         self._client.disconnect()
         log.debug(self._client)
         log.debug("Disconnecting from ThingsBoard")
@@ -371,10 +520,10 @@ class TBDeviceMqttClient:
         self.firmware_received = True
 
     def __get_firmware(self):
-        payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) else str(
-            self.__chunk_size).encode()
-        self._client.publish(f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
-                             payload=payload, qos=1)
+        payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) \
+            else str(self.__chunk_size).encode()
+        self._publish_data(payload, f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
+                           1, high_priority=True)
 
     def __on_firmware_received(self, version_to):
         with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
@@ -432,47 +581,104 @@ class TBDeviceMqttClient:
         self._client.reconnect_delay_set(min_delay, max_delay)
 
     def send_rpc_reply(self, req_id, resp, quality_of_service=None, wait_for_publish=False):
+        """Send RPC reply to ThingsBoard. The response will be sent to the RPC_RESPONSE_TOPIC with the request id."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
         if quality_of_service not in (0, 1):
             log.error("Quality of service (qos) value must be 0 or 1")
             return None
-        info = self._client.publish(RPC_RESPONSE_TOPIC + req_id, resp, qos=quality_of_service)
+        info = self._publish_data(resp, RPC_RESPONSE_TOPIC + req_id, quality_of_service, high_priority=True)
         if wait_for_publish:
-            info.wait_for_publish()
+            info.get()
 
     def send_rpc_call(self, method, params, callback):
+        """Send RPC call to ThingsBoard. The callback will be called when the response is received."""
         with self._lock:
             self.__device_client_rpc_number += 1
             self.__device_client_rpc_dict.update({self.__device_client_rpc_number: callback})
             rpc_request_id = self.__device_client_rpc_number
         payload = {"method": method, "params": params}
-        self._client.publish(RPC_REQUEST_TOPIC + str(rpc_request_id),
-                             dumps(payload),
-                             qos=self.quality_of_service)
+        self._publish_data(payload, RPC_REQUEST_TOPIC + str(rpc_request_id), self.quality_of_service, high_priority=True)
 
     def set_server_side_rpc_request_handler(self, handler):
+        """Set the callback that will be called when a server-side RPC is received."""
         self.__device_on_server_side_rpc_response = handler
 
-    def publish_data(self, data, topic, qos):
+    def __sending_thread_main(self):
+        while not self.stopped:
+            if not self.__is_connected:
+                time.sleep(0.1)
+                continue
+            if not self.__rate_limit.check_limit_reached():
+                if not self.__sending_queue.empty():
+                    item = self.__sending_queue.get(False)
+                    if item is not None:
+                        info = self._client.publish(item["topic"], item["data"], qos=item["qos"])
+                        if TBPublishInfo.TB_ERR_QUEUE_SIZE == info.rc:
+                            self.__sending_queue.put_left(item, True)
+                            continue
+                        self.__responses.update(
+                            {item['id']: {"info": info, "timeout_ts": int(time.time()) + DEFAULT_TIMEOUT}})
+                        self.__rate_limit.add_counter()
+            else:
+                time.sleep(0.1)
+
+    def __housekeeping_thread_main(self):
+        while not self.stopped:
+            if not self.__responses:
+                time.sleep(0.1)
+            else:
+                for id in list(self.__responses.keys()):
+                    if int(time.time()) > self.__responses[id]["timeout_ts"]:
+                        try:
+                            if id in self.__responses:
+                                self.__responses.pop(id)
+                        except KeyError:
+                            pass
+                        # log.debug("Timeout occurred while waiting for a reply from ThingsBoard!")
+                time.sleep(0.1)
+
+    def __update_client_queue(self):
+        self._client.max_queued_messages_set(self.__rate_limit.get_minimal_limit())
+        self._client.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
+
+    def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False):
         data = dumps(data)
         if qos is None:
             qos = self.quality_of_service
         if qos not in (0, 1):
             log.exception("Quality of service (qos) value must be 0 or 1")
             raise TBQoSException("Quality of service (qos) value must be 0 or 1")
-        return TBPublishInfo(self._client.publish(topic, data, qos))
+        id = uuid.uuid4()
+        if high_priority:
+            self.__sending_queue.put_left({"topic": topic, "data": data, "qos": qos, "id": id}, False)
+        else:
+            self.__sending_queue.put({"topic": topic, "data": data, "qos": qos, "id": id}, False)
+            sending_queue_size = self.__sending_queue.qsize()
+            if sending_queue_size > 1000000 and int(time.time()) - self.__sending_queue_warning_published > 5:
+                self.__sending_queue_warning_published = int(time.time())
+                log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
+                            "or decreasing the amount of messages sent!", sending_queue_size)
 
-    def send_telemetry(self, telemetry, quality_of_service=None):
+        if wait_for_publish:
+            while id not in list(self.__responses.keys()):
+                time.sleep(0.1)
+
+            return TBPublishInfo(self.__responses.pop(id)["info"])
+
+    def send_telemetry(self, telemetry, quality_of_service=None, wait_for_publish=True, high_priority=False):
+        """Send telemetry to ThingsBoard. The telemetry can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        return self.publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service)
+        return self._publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, wait_for_publish, high_priority)
 
-    def send_attributes(self, attributes, quality_of_service=None):
+    def send_attributes(self, attributes, quality_of_service=None, wait_for_publish=True, high_priority=False):
+        """Send attributes to ThingsBoard. The attributes can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
-        return self.publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service)
+        return self._publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, wait_for_publish, high_priority)
 
     def unsubscribe_from_attribute(self, subscription_id):
+        """Unsubscribe from attribute updates for subscription_id."""
         with self._lock:
             for attribute in self.__device_sub_dict:
                 if self.__device_sub_dict[attribute].get(subscription_id):
@@ -486,9 +692,12 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
 
     def subscribe_to_all_attributes(self, callback):
+        """Subscribe to all attribute updates. The callback will be called when an attribute update is received."""
         return self.subscribe_to_attribute("*", callback)
 
     def subscribe_to_attribute(self, key, callback):
+        """Subscribe to attribute updates for attribute with key.
+        The callback will be called when an attribute update is received."""
         with self._lock:
             self.__device_max_sub_id += 1
             if key not in self.__device_sub_dict:
@@ -499,6 +708,7 @@ class TBDeviceMqttClient:
             return self.__device_max_sub_id
 
     def request_attributes(self, client_keys=None, shared_keys=None, callback=None):
+        """Request attributes from ThingsBoard. The callback will be called when the response is received."""
         msg = {}
         if client_keys:
             tmp = ""
@@ -517,10 +727,10 @@ class TBDeviceMqttClient:
 
         attr_request_number = self._add_attr_request_callback(callback)
 
-        info = self._client.publish(topic=ATTRIBUTES_TOPIC_REQUEST + str(self.__attr_request_number),
-                                    payload=dumps(msg),
-                                    qos=self.quality_of_service)
-        self._add_timeout(attr_request_number, ts_in_millis + 30000)
+        info = self._publish_data(msg, ATTRIBUTES_TOPIC_REQUEST + str(attr_request_number), self.quality_of_service,
+                                  high_priority=True)
+
+        self._add_timeout(attr_request_number, ts_in_millis + DEFAULT_TIMEOUT * 1000)
         return info
 
     def _add_timeout(self, attr_request_number, timestamp):
@@ -562,11 +772,12 @@ class TBDeviceMqttClient:
                 time.sleep(0.2)
 
     def claim(self, secret_key, duration=30000):
+        """Claim the device in Thingsboard. The duration is in milliseconds."""
         claiming_request = {
             "secretKey": secret_key,
             "durationMs": duration
         }
-        info = TBPublishInfo(self._client.publish(CLAIMING_TOPIC, dumps(claiming_request), qos=self.quality_of_service))
+        info = self._publish_data(claiming_request, CLAIMING_TOPIC, self.quality_of_service, high_priority=True)
         return info
 
     @staticmethod
@@ -580,6 +791,7 @@ class TBDeviceMqttClient:
                   username=None,
                   password=None,
                   hash=None):
+        """Provision the device in ThingsBoard. Returns the credentials for the device."""
         provision_request = {
             "provisionDeviceKey": provision_device_key,
             "provisionDeviceSecret": provision_device_secret
