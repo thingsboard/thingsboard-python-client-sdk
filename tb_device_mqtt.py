@@ -648,7 +648,7 @@ class TBDeviceMqttClient:
         self._client.max_queued_messages_set(self.__rate_limit.get_minimal_limit())
         self._client.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
 
-    def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False):
+    def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False, timeout=DEFAULT_TIMEOUT):
         data = dumps(data)
         if qos is None:
             qos = self.quality_of_service
@@ -666,8 +666,12 @@ class TBDeviceMqttClient:
                 log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
                             "or decreasing the amount of messages sent!", sending_queue_size)
 
+        start_time = int(time.time())
         if wait_for_publish:
             while id not in list(self.__responses.keys()):
+                if int(time.time()) - start_time > timeout:
+                    log.error("Timeout while waiting for a publish to ThingsBoard!")
+                    return TBPublishInfo(paho.MQTTMessageInfo(None))
                 time.sleep(0.1)
 
             return TBPublishInfo(self.__responses.pop(id)["info"])
