@@ -63,7 +63,7 @@ class TBQoSException(Exception):
     pass
 
 
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 1
 
 
 class ProvisionClient(paho.Client):
@@ -300,7 +300,6 @@ class TBDeviceMqttClient:
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
         self.__rate_limit = RateLimit(rate_limit)
-        self.__update_client_queue()
         self.__sending_queue = TBQueue()
         self.__sending_queue_warning_published = 0
         self.__responses = {}
@@ -612,7 +611,7 @@ class TBDeviceMqttClient:
 
     def __sending_thread_main(self):
         while not self.stopped:
-            if not self.__is_connected:
+            if not self.is_connected():
                 time.sleep(0.1)
                 continue
             if not self.__rate_limit.check_limit_reached():
@@ -623,8 +622,7 @@ class TBDeviceMqttClient:
                         if TBPublishInfo.TB_ERR_QUEUE_SIZE == info.rc:
                             self.__sending_queue.put_left(item, True)
                             continue
-                        self.__responses.update(
-                            {item['id']: {"info": info, "timeout_ts": int(time.time()) + DEFAULT_TIMEOUT}})
+                        self.__responses[item['id']] = {"info": info, "timeout_ts": int(time.time()) + DEFAULT_TIMEOUT}
                         self.__rate_limit.add_counter()
             else:
                 time.sleep(0.1)
@@ -644,10 +642,6 @@ class TBDeviceMqttClient:
                         # log.debug("Timeout occurred while waiting for a reply from ThingsBoard!")
                 time.sleep(0.1)
 
-    def __update_client_queue(self):
-        self._client.max_queued_messages_set(self.__rate_limit.get_minimal_limit())
-        self._client.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
-
     def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False, timeout=DEFAULT_TIMEOUT):
         data = dumps(data)
         if qos is None:
@@ -665,6 +659,15 @@ class TBDeviceMqttClient:
                 self.__sending_queue_warning_published = int(time.time())
                 log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
                             "or decreasing the amount of messages sent!", sending_queue_size)
+
+        waiting_for_connection_message_time = 0
+        while not self.is_connected():
+            if self.stopped:
+                return TBPublishInfo(paho.MQTTMessageInfo(None))
+            if time.time() - waiting_for_connection_message_time > 10.0:
+                log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
+                waiting_for_connection_message_time = time.time()
+            time.sleep(0.1)
 
         start_time = int(time.time())
         if wait_for_publish:
