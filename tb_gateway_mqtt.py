@@ -198,7 +198,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if quality_of_service not in (0, 1):
             log.error("Quality of service (qos) value must be 0 or 1")
             return None
-        info = self._publish_data({device: {"id": req_id, "data": resp}}, GATEWAY_RPC_RESPONSE_TOPIC,
+        info = self._publish_data({"device": device, "id": req_id, "data": resp}, GATEWAY_RPC_TOPIC,
                                   quality_of_service)
         return info
 
