@@ -22,6 +22,7 @@ import queue
 import ssl
 from threading import Lock, RLock, Thread, Condition
 
+from paho.mqtt.reasoncodes import ReasonCodes
 from simplejson import loads, dumps, JSONDecodeError
 
 from sdk_utils import verify_checksum
@@ -362,10 +363,13 @@ class TBDeviceMqttClient:
             self._client.subscribe(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
             self._client.subscribe(RPC_RESPONSE_TOPIC + '+', qos=self.quality_of_service)
         else:
-            if result_code in RESULT_CODES:
-                log.error("connection FAIL with error %s %s", result_code, RESULT_CODES[result_code])
-            else:
-                log.error("connection FAIL with unknown error")
+            if isinstance(result_code, int):
+                if result_code in RESULT_CODES:
+                    log.error("connection FAIL with error %s %s", result_code, RESULT_CODES[result_code])
+                else:
+                    log.error("connection FAIL with unknown error")
+            elif isinstance(result_code, ReasonCodes):
+                log.error("connection FAIL with error %s %s", result_code, result_code.getName())
 
     def get_firmware_update(self):
         self._client.subscribe("v2/fw/response/+")
