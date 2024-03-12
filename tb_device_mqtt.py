@@ -173,7 +173,10 @@ class RateLimit:
         self.__start_time = time.time()
         self.__config = rate_limit
         self.__rate_limit_dict = {}
-        for rate in self.__config.split(";"):
+        rate_configs = rate_limit.split(";")
+        if "," in rate_limit:
+            rate_configs = rate_limit.split(",")
+        for rate in rate_configs:
             if rate == "":
                 continue
             rate = rate.split(":")
