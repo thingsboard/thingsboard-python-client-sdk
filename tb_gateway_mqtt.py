@@ -33,8 +33,9 @@ class TBGatewayAPI:
 
 
 class TBGatewayMqttClient(TBDeviceMqttClient):
-    def __init__(self, host, port=1883, username=None, password=None, gateway=None, quality_of_service=1, client_id=""):
-        super().__init__(host, port, username, password, quality_of_service, client_id)
+    def __init__(self, host, port=1883, username=None, password=None, gateway=None, quality_of_service=1, client_id="",
+                 rate_limit="8:1;400:60;24000:3600;"):
+        super().__init__(host, port, username, password, quality_of_service, client_id, rate_limit)
         self.quality_of_service = quality_of_service
         self.__max_sub_id = 0
         self.__sub_dict = {}
