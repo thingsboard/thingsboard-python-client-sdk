@@ -619,6 +619,8 @@ class TBDeviceMqttClient:
     def __sending_thread_main(self):
         while not self.stopped:
             if not self.is_connected():
+                if self._client._state == paho.mqtt_cs_connected:
+                    self._on_connect(self._client, None, None, 0)
                 time.sleep(0.1)
                 continue
             if not self.__rate_limit.check_limit_reached():
