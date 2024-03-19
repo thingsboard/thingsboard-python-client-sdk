@@ -17,7 +17,7 @@ from collections import deque
 import paho.mqtt.client as paho
 from math import ceil
 import logging
-import time
+from time import sleep, time
 import queue
 import ssl
 from threading import Lock, RLock, Thread, Condition
@@ -170,7 +170,7 @@ class TBPublishInfo:
 
 class RateLimit:
     def __init__(self, rate_limit):
-        self.__start_time = time.time()
+        self.__start_time = time()
         self.__config = rate_limit
         self.__rate_limit_dict = {}
         rate_configs = rate_limit.split(";")
@@ -180,7 +180,7 @@ class RateLimit:
             if rate == "":
                 continue
             rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"queue": queue.Queue(int(rate[0])), "start": time.time()}
+            self.__rate_limit_dict[int(rate[1])] = {"queue": queue.Queue(int(rate[0])), "start": time()}
         log.debug("Rate limit set to values: ")
         for rate_limit_time in self.__rate_limit_dict:
             log.debug("Time: %s, Limit: %s", rate_limit_time,
@@ -193,8 +193,8 @@ class RateLimit:
     def check_limit_reached(self):
         for rate_limit_time in self.__rate_limit_dict:
             rate_limit_point_queue = self.__rate_limit_dict[rate_limit_time]["queue"]
-            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time < time.time():
-                self.__rate_limit_dict[rate_limit_time]["start"] = time.time()
+            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time < time():
+                self.__rate_limit_dict[rate_limit_time]["start"] = time()
                 rate_limit_point_queue = queue.Queue(rate_limit_point_queue.maxsize)
                 self.__rate_limit_dict[rate_limit_time]["queue"] = rate_limit_point_queue
             if rate_limit_point_queue.full():
@@ -236,9 +236,9 @@ class TBQueue:
             if self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
                 raise Exception("Queue is full")
         else:
-            start_time = time.time()
+            start_time = time()
             while self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
-                remaining = timeout - (time.time() - start_time)
+                remaining = timeout - (time() - start_time)
                 if remaining <= 0.0:
                     raise TimeoutError("Timeout while trying to put item to queue")
                 self.__not_full.wait(remaining)
@@ -249,9 +249,9 @@ class TBQueue:
                 if not self.__queue:
                     return None
             else:
-                start_time = time.time()
+                start_time = time()
                 while not self.__queue:
-                    remaining = timeout - (time.time() - start_time)
+                    remaining = timeout - (time() - start_time)
                     if remaining <= 0.0:
                         raise TimeoutError("Timeout while trying to get item from queue")
                     self.__not_empty.wait(remaining)
@@ -356,7 +356,7 @@ class TBDeviceMqttClient:
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         if self.__connect_callback:
-            time.sleep(.2)
+            sleep(.2)
             self.__connect_callback(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
             self.__is_connected = True
@@ -503,7 +503,7 @@ class TBDeviceMqttClient:
 
                 self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADING"
                 self.send_telemetry(self.current_firmware_info)
-                time.sleep(1)
+                sleep(1)
 
                 self.__firmware_request_id = self.__firmware_request_id + 1
                 self.__target_firmware_length = self.firmware_info[FW_SIZE_ATTR]
@@ -514,7 +514,7 @@ class TBDeviceMqttClient:
     def __process_firmware(self):
         self.current_firmware_info[FW_STATE_ATTR] = "DOWNLOADED"
         self.send_telemetry(self.current_firmware_info)
-        time.sleep(1)
+        sleep(1)
 
         verification_result = verify_checksum(self.firmware_data, self.firmware_info.get(FW_CHECKSUM_ALG_ATTR),
                                               self.firmware_info.get(FW_CHECKSUM_ATTR))
@@ -523,7 +523,7 @@ class TBDeviceMqttClient:
             log.debug('Checksum verified!')
             self.current_firmware_info[FW_STATE_ATTR] = "VERIFIED"
             self.send_telemetry(self.current_firmware_info)
-            time.sleep(1)
+            sleep(1)
         else:
             log.debug('Checksum verification failed!')
             self.current_firmware_info[FW_STATE_ATTR] = "FAILED"
@@ -548,7 +548,7 @@ class TBDeviceMqttClient:
             if self.firmware_received:
                 self.current_firmware_info[FW_STATE_ATTR] = "UPDATING"
                 self.send_telemetry(self.current_firmware_info)
-                time.sleep(1)
+                sleep(1)
 
                 self.__on_firmware_received(self.firmware_info.get(FW_VERSION_ATTR))
 
@@ -560,7 +560,7 @@ class TBDeviceMqttClient:
                 self.send_telemetry(self.current_firmware_info)
                 self.firmware_received = False
 
-            time.sleep(0.2)
+            sleep(0.2)
 
     @staticmethod
     def _decode(message):
@@ -618,35 +618,39 @@ class TBDeviceMqttClient:
 
     def __sending_thread_main(self):
         while not self.stopped:
-            if not self.is_connected():
-                continue
-            if not self.__rate_limit.check_limit_reached():
-                if not self.__sending_queue.empty():
-                    item = self.__sending_queue.get(False)
-                    if item is not None:
-                        info = self._client.publish(item["topic"], item["data"], qos=item["qos"])
-                        if TBPublishInfo.TB_ERR_QUEUE_SIZE == info.rc:
-                            self.__sending_queue.put_left(item, True)
-                            continue
-                        self.__responses[item['id']] = {"info": info, "timeout_ts": int(time.time()) + DEFAULT_TIMEOUT}
-                        self.__rate_limit.add_counter()
-            else:
-                time.sleep(0.1)
+            try:
+                if not self.is_connected():
+                    continue
+                if not self.__rate_limit.check_limit_reached():
+                    if not self.__sending_queue.empty():
+                        item = self.__sending_queue.get(False)
+                        if item is not None:
+                            info = self._client.publish(item["topic"], item["data"], qos=item["qos"])
+                            if TBPublishInfo.TB_ERR_QUEUE_SIZE == info.rc:
+                                self.__sending_queue.put_left(item, True)
+                                continue
+                            self.__responses[item['id']] = {"info": info, "timeout_ts": int(time()) + DEFAULT_TIMEOUT}
+                            self.__rate_limit.add_counter()
+                else:
+                    sleep(0.1)
+            except Exception as e:
+                log.exception(e)
+                sleep(1)
 
     def __housekeeping_thread_main(self):
         while not self.stopped:
             if not self.__responses:
-                time.sleep(0.1)
+                sleep(0.1)
             else:
                 for id in list(self.__responses.keys()):
-                    if int(time.time()) > self.__responses[id]["timeout_ts"]:
+                    if int(time()) > self.__responses[id]["timeout_ts"]:
                         try:
                             if id in self.__responses:
                                 self.__responses.pop(id)
                         except KeyError:
                             pass
                         # log.debug("Timeout occurred while waiting for a reply from ThingsBoard!")
-                time.sleep(0.1)
+                sleep(0.1)
 
     def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False, timeout=DEFAULT_TIMEOUT):
         data = dumps(data)
@@ -661,8 +665,8 @@ class TBDeviceMqttClient:
         else:
             self.__sending_queue.put({"topic": topic, "data": data, "qos": qos, "id": id}, False)
             sending_queue_size = self.__sending_queue.qsize()
-            if sending_queue_size > 1000000 and int(time.time()) - self.__sending_queue_warning_published > 5:
-                self.__sending_queue_warning_published = int(time.time())
+            if sending_queue_size > 1000000 and int(time()) - self.__sending_queue_warning_published > 5:
+                self.__sending_queue_warning_published = int(time())
                 log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
                             "or decreasing the amount of messages sent!", sending_queue_size)
 
@@ -670,18 +674,18 @@ class TBDeviceMqttClient:
         while not self.is_connected():
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
-            if time.time() - waiting_for_connection_message_time > 10.0:
+            if time() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
-                waiting_for_connection_message_time = time.time()
-            time.sleep(0.1)
+                waiting_for_connection_message_time = time()
+            sleep(0.1)
 
-        start_time = int(time.time())
+        start_time = int(time())
         if wait_for_publish:
             while id not in list(self.__responses.keys()):
-                if int(time.time()) - start_time > timeout:
+                if int(time()) - start_time > timeout:
                     log.error("Timeout while waiting for a publish to ThingsBoard!")
                     return TBPublishInfo(paho.MQTTMessageInfo(None))
-                time.sleep(0.1)
+                sleep(0.1)
 
             return TBPublishInfo(self.__responses.pop(id)["info"])
 
@@ -743,7 +747,7 @@ class TBDeviceMqttClient:
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
 
-        ts_in_millis = int(time.time() * 1000)
+        ts_in_millis = int(time() * 1000)
 
         attr_request_number = self._add_attr_request_callback(callback)
 
@@ -769,10 +773,10 @@ class TBDeviceMqttClient:
                 item = self.__timeout_queue.get_nowait()
                 if item is not None:
                     while not self.stopped:
-                        current_ts_in_millis = int(time.time() * 1000)
+                        current_ts_in_millis = int(time() * 1000)
                         if current_ts_in_millis > item["ts"]:
                             break
-                        time.sleep(0.2)
+                        sleep(0.2)
 
                     with self._lock:
                         callback = None
@@ -789,7 +793,7 @@ class TBDeviceMqttClient:
                         else:
                             callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
             else:
-                time.sleep(0.2)
+                sleep(0.2)
 
     def claim(self, secret_key, duration=30000):
         """Claim the device in Thingsboard. The duration is in milliseconds."""
