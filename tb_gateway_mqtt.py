@@ -14,7 +14,10 @@
 #
 
 import logging
-import time
+try:
+    from time import monotonic as time
+except ImportError:
+    from time import time
 from tb_device_mqtt import TBDeviceMqttClient
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
@@ -122,7 +125,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             log.error("There are no keys to request")
             return False
 
-        ts_in_millis = int(round(time.time() * 1000))
+        ts_in_millis = int(round(time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
         msg = {"keys": keys,
                "device": device,
