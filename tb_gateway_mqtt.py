@@ -14,10 +14,7 @@
 #
 
 import logging
-try:
-    from time import monotonic as time
-except ImportError:
-    from time import time
+import time
 from tb_device_mqtt import TBDeviceMqttClient
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
@@ -37,7 +34,7 @@ class TBGatewayAPI:
 
 class TBGatewayMqttClient(TBDeviceMqttClient):
     def __init__(self, host, port=1883, username=None, password=None, gateway=None, quality_of_service=1, client_id="",
-                 rate_limit="8:1;400:60;24000:3600;"):
+                 rate_limit="DEFAULT_RATE_LIMIT"):
         super().__init__(host, port, username, password, quality_of_service, client_id, rate_limit)
         self.quality_of_service = quality_of_service
         self.__max_sub_id = 0
@@ -54,12 +51,30 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         super()._on_connect(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
-            gateway_attributes_topic_sub_id = int(self._client.subscribe(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])
-            self._gw_subscriptions[gateway_attributes_topic_sub_id] = GATEWAY_ATTRIBUTES_TOPIC
-            gateway_attributes_resp_sub_id = int(self._client.subscribe(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1)[1])
-            self._gw_subscriptions[gateway_attributes_resp_sub_id] = GATEWAY_ATTRIBUTES_RESPONSE_TOPIC
-            gateway_rpc_topic_sub_id = int(self._client.subscribe(GATEWAY_RPC_TOPIC, qos=1)[1])
-            self._gw_subscriptions[gateway_rpc_topic_sub_id] = GATEWAY_RPC_TOPIC
+            gateway_attributes_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1,
+                                                                           wait_for_result=True)[1])
+            if gateway_attributes_topic_sub_id == 128:
+                log.error("Service subscription to topic %s - failed.", GATEWAY_ATTRIBUTES_TOPIC)
+                if gateway_attributes_topic_sub_id in self._gw_subscriptions:
+                    del self._gw_subscriptions[gateway_attributes_topic_sub_id]
+            else:
+                self._gw_subscriptions[gateway_attributes_topic_sub_id] = GATEWAY_ATTRIBUTES_TOPIC
+            gateway_attributes_resp_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1,
+                                                                          wait_for_result=True)[1])
+            if gateway_attributes_resp_sub_id == 128:
+                log.error("Service subscription to topic %s - failed.", GATEWAY_ATTRIBUTES_RESPONSE_TOPIC)
+                if gateway_attributes_resp_sub_id in self._gw_subscriptions:
+                    del self._gw_subscriptions[gateway_attributes_resp_sub_id]
+            else:
+                self._gw_subscriptions[gateway_attributes_resp_sub_id] = GATEWAY_ATTRIBUTES_RESPONSE_TOPIC
+            gateway_rpc_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_RPC_TOPIC, qos=1,
+                                                                    wait_for_result=True)[1])
+            if gateway_rpc_topic_sub_id == 128:
+                log.error("Service subscription to topic %s - failed.", GATEWAY_RPC_TOPIC)
+                if gateway_rpc_topic_sub_id in self._gw_subscriptions:
+                    del self._gw_subscriptions[gateway_rpc_topic_sub_id]
+            else:
+                self._gw_subscriptions[gateway_rpc_topic_sub_id] = GATEWAY_RPC_TOPIC
             # gateway_rpc_topic_response_sub_id = int(self._client.subscribe(GATEWAY_RPC_RESPONSE_TOPIC)[1])
             # self._gw_subscriptions[gateway_rpc_topic_response_sub_id] = GATEWAY_RPC_RESPONSE_TOPIC
 
@@ -125,7 +140,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             log.error("There are no keys to request")
             return False
 
-        ts_in_millis = int(round(time() * 1000))
+        ts_in_millis = int(round(time.time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
         msg = {"keys": keys,
                "device": device,
