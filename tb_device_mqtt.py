@@ -183,6 +183,9 @@ class TBPublishInfo:
 class RateLimit:
     def __init__(self, rate_limit):
         self.__start_time = time()
+        self.__no_limit = False
+        if ''.join(c for c in rate_limit if c not in [' ', ',', ';']) in ("", "0:0"):
+            self.__no_limit = True
         self.__config = rate_limit
         self.__rate_limit_dict = {}
         self.__lock = RLock()
@@ -200,14 +203,16 @@ class RateLimit:
                       self.__rate_limit_dict[rate_limit_time]["queue"].maxsize)
 
     def add_counter(self):
+        if self.__no_limit:
+            return
         with self.__lock:
             for rate_limit_time in self.__rate_limit_dict:
                 self.__rate_limit_dict[rate_limit_time]["queue"].put(1)
 
     def check_limit_reached(self):
+        if self.__no_limit:
+            return False
         with self.__lock:
-            if self.__config == "0:0":
-                return False
             for rate_limit_time in self.__rate_limit_dict:
                 rate_limit_point_queue = self.__rate_limit_dict[rate_limit_time]["queue"]
                 if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time < time():
@@ -222,6 +227,8 @@ class RateLimit:
 
     def get_minimal_limit(self):
         minimal_limit = 1000000000
+        if self.__no_limit:
+            return 1000000000
         for rate_limit_time in self.__rate_limit_dict:
             if self.__rate_limit_dict[rate_limit_time]["queue"].maxsize < minimal_limit:
                 minimal_limit = self.__rate_limit_dict[rate_limit_time]["queue"].maxsize
@@ -440,8 +447,8 @@ class TBDeviceMqttClient:
                 self._client.tls_insecure_set(False)
             except ValueError:
                 pass
-        self._client.connect(self.__host, self.__port, keepalive=keepalive)
         self.reconnect_delay_set(min_reconnect_delay, timeout)
+        self._client.connect(self.__host, self.__port, keepalive=keepalive)
         self._client.loop_start()
         self.__connect_callback = callback
 
@@ -658,7 +665,8 @@ class TBDeviceMqttClient:
                 if not self.is_connected():
                     continue
                 if (not self.__rate_limit.check_limit_reached()
-                        and self.__rate_limit.get_minimal_limit() > len(self._client._out_packet)):
+                        and (self.__rate_limit.get_minimal_limit() == 0
+                             or self.__rate_limit.get_minimal_limit() > len(self._client._out_packet))):
                     if not self.__sending_queue.empty():
                         item = self.__sending_queue.get(False)
                         if item is not None:
