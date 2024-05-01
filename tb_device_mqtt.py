@@ -351,7 +351,7 @@ class TBDeviceMqttClient:
                                             name="Housekeeping thread",
                                             daemon=True)
         self.__housekeeping_thread.start()
-        self.__timeout_queue = queue.Queue()
+        self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
         self.__timeout_thread.start()
@@ -843,11 +843,12 @@ class TBDeviceMqttClient:
         info = self._publish_data(msg, ATTRIBUTES_TOPIC_REQUEST + str(attr_request_number), self.quality_of_service,
                                   high_priority=True)
 
-        self._add_timeout(attr_request_number, ts_in_millis + DEFAULT_TIMEOUT * 1000)
+        self._add_timeout(attr_request_number, ts_in_millis, timeout=20)
         return info
 
-    def _add_timeout(self, attr_request_number, timestamp):
-        self.__timeout_queue.put({"ts": timestamp, "attribute_request_id": attr_request_number})
+    def _add_timeout(self, attr_request_number, timestamp, timeout=DEFAULT_TIMEOUT):
+        timestamp += timeout * 1000
+        self.__attrs_request_timeout[attr_request_number] = timestamp
 
     def _add_attr_request_callback(self, callback):
         with self._lock:
@@ -858,31 +859,26 @@ class TBDeviceMqttClient:
 
     def __timeout_check(self):
         while not self.stopped:
-            if not self.__timeout_queue.empty():
-                item = self.__timeout_queue.get_nowait()
-                if item is not None:
-                    while not self.stopped:
-                        current_ts_in_millis = int(time() * 1000)
-                        if current_ts_in_millis > item["ts"]:
-                            break
-                        sleep(0.2)
+            current_ts_in_millis = int(time() * 1000)
+            for (attr_request_number, ts) in tuple(self.__attrs_request_timeout.items()):
+                if current_ts_in_millis < ts:
+                    continue
 
-                    with self._lock:
-                        callback = None
-                        if item.get("attribute_request_id"):
-                            if self._attr_request_dict.get(item["attribute_request_id"]):
-                                callback = self._attr_request_dict.pop(item["attribute_request_id"])
-                        elif item.get("rpc_request_id"):
-                            if self.__device_client_rpc_dict.get(item["rpc_request_id"]):
-                                callback = self.__device_client_rpc_dict.pop(item["rpc_request_id"])
-                    if callback is not None:
-                        if isinstance(callback, tuple):
-                            callback[0](None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"),
-                                        callback[1])
-                        else:
-                            callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
-            else:
-                sleep(0.2)
+                with self._lock:
+                    callback = None
+                    if self._attr_request_dict.get(attr_request_number):
+                        callback = self._attr_request_dict.pop(attr_request_number)
+
+                if callback is not None:
+                    if isinstance(callback, tuple):
+                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"),
+                                    callback[1])
+                    else:
+                        callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
+
+                self.__attrs_request_timeout.pop(attr_request_number)
+
+            sleep(0.2)
 
     def claim(self, secret_key, duration=30000):
         """Claim the device in Thingsboard. The duration is in milliseconds."""
