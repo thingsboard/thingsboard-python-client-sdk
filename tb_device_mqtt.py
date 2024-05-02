@@ -663,6 +663,7 @@ class TBDeviceMqttClient:
         while not self.stopped:
             try:
                 if not self.is_connected():
+                    sleep(.1)
                     continue
                 if (not self.__rate_limit.check_limit_reached()
                         and (self.__rate_limit.get_minimal_limit() == 0
@@ -681,6 +682,8 @@ class TBDeviceMqttClient:
                                 result = self._client.subscribe(item["topic"], qos=item["qos"])
                                 self.__responses[item['id']] = {"info": result, "timeout_ts": int(time()) + DEFAULT_TIMEOUT}
                                 self.__rate_limit.add_counter()
+                    else:
+                        sleep(.1)
                 else:
                     sleep(0.1)
             except Exception as e:
