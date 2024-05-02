@@ -847,8 +847,8 @@ class TBDeviceMqttClient:
         return info
 
     def _add_timeout(self, attr_request_number, timestamp, timeout=DEFAULT_TIMEOUT):
-        timestamp += timeout * 1000
-        self.__attrs_request_timeout[attr_request_number] = timestamp
+        timestamp += timeout
+        self.__attrs_request_timeout[attr_request_number] = int(timestamp)
 
     def _add_attr_request_callback(self, callback):
         with self._lock:
@@ -859,7 +859,7 @@ class TBDeviceMqttClient:
 
     def __timeout_check(self):
         while not self.stopped:
-            current_ts_in_millis = int(time() * 1000)
+            current_ts_in_millis = int(time())
             for (attr_request_number, ts) in tuple(self.__attrs_request_timeout.items()):
                 if current_ts_in_millis < ts:
                     continue
