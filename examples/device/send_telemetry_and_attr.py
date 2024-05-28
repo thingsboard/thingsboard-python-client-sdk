@@ -59,7 +59,7 @@ def on_connect(client, userdata, flags, result_code, *extra_params, tb_client):
 
 
 def main():
-    client = TBDeviceMqttClient("demo.thingsboard.io", username="KZP2HfvOGieLvdAghCNz")
+    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
     client.connect(callback=on_connect)
 
     while not client.stopped:
