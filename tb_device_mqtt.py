@@ -454,11 +454,12 @@ class TBDeviceMqttClient:
 
     def disconnect(self):
         """Disconnect from ThingsBoard."""
-        self._client.disconnect()
+        result = self._client.disconnect()
         log.debug(self._client)
         log.debug("Disconnecting from ThingsBoard")
         self.__is_connected = False
         self._client.loop_stop()
+        return result
 
     def stop(self):
         self.stopped = True
@@ -665,9 +666,7 @@ class TBDeviceMqttClient:
                 if not self.is_connected():
                     sleep(.1)
                     continue
-                if (not self.__rate_limit.check_limit_reached()
-                        and (self.__rate_limit.get_minimal_limit() == 0
-                             or self.__rate_limit.get_minimal_limit() > len(self._client._out_packet))):
+                if not self.__rate_limit.check_limit_reached():
                     if not self.__sending_queue.empty():
                         item = self.__sending_queue.get(False)
                         if item is not None:
@@ -735,7 +734,7 @@ class TBDeviceMqttClient:
         start_time = int(time())
         if wait_for_result:
             while req_id not in list(self.__responses.keys()):
-                if 0 < timeout < int(time()) - start_time:
+                if 0 < timeout < int(time()) - start_time or self.stopped:
                     log.error("Timeout while waiting for a subscribe to ThingsBoard!")
                     return -1, 128
                 sleep(0.1)
