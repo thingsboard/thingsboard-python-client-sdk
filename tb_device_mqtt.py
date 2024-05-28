@@ -777,7 +777,7 @@ class TBDeviceMqttClient:
                 if 0 < timeout < int(time()) - start_time:
                     log.error("Timeout while waiting for a publish to ThingsBoard!")
                     return TBPublishInfo(paho.MQTTMessageInfo(None))
-                sleep(0.1)
+                sleep(0.01)
 
             return TBPublishInfo(self.__responses.pop(req_id)["info"])
 
