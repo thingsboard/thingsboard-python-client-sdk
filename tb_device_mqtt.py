@@ -682,9 +682,9 @@ class TBDeviceMqttClient:
                                 self.__responses[item['id']] = {"info": result, "timeout_ts": int(time()) + DEFAULT_TIMEOUT}
                                 self.__rate_limit.add_counter()
                     else:
-                        sleep(.1)
+                        sleep(.01)
                 else:
-                    sleep(0.1)
+                    sleep(0.001)
             except Exception as e:
                 log.exception("Error during data sending:", exc_info=e)
                 sleep(1)
@@ -708,7 +708,7 @@ class TBDeviceMqttClient:
                             pass
                             # log.debug("Error during housekeeping sent messages:", exc_info=e)
                         # log.debug("Timeout occurred while waiting for a reply from ThingsBoard!")
-                sleep(0.1)
+                sleep(0.01)
 
     def _subscribe_to_topic(self, topic, callback=None, qos=None, wait_for_result=False, timeout=DEFAULT_TIMEOUT):
         if qos is None:
@@ -729,7 +729,7 @@ class TBDeviceMqttClient:
             if time() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before subscribing for data on ThingsBoard!")
                 waiting_for_connection_message_time = time()
-            sleep(0.1)
+            sleep(0.01)
 
         start_time = int(time())
         if wait_for_result:
@@ -737,7 +737,7 @@ class TBDeviceMqttClient:
                 if 0 < timeout < int(time()) - start_time or self.stopped:
                     log.error("Timeout while waiting for a subscribe to ThingsBoard!")
                     return -1, 128
-                sleep(0.1)
+                sleep(0.01)
 
             return self.__responses.pop(req_id)["info"]
 
@@ -768,7 +768,7 @@ class TBDeviceMqttClient:
             if time() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
                 waiting_for_connection_message_time = time()
-            sleep(0.1)
+            sleep(0.01)
 
         start_time = int(time())
         if wait_for_publish:
