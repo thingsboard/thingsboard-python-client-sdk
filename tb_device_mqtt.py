@@ -24,7 +24,6 @@ try:
     from time import monotonic as time
 except ImportError:
     from time import time
-import queue
 import ssl
 from threading import Lock, RLock, Thread, Condition
 from enum import Enum
@@ -123,6 +122,7 @@ class ProvisionClient(paho.Client):
 class TBSendMethod(Enum):
     SUBSCRIBE = 0
     PUBLISH = 1
+    UNSUBSCRIBE = 2
 
 
 class TBPublishInfo:
@@ -165,7 +165,7 @@ class TBPublishInfo:
         16: 'The keepalive time has been exceeded.'
     }
 
-    def __init__(self, message_info):
+    def __init__(self, message_info: paho.MQTTMessageInfo):
         self.message_info = message_info
 
     # pylint: disable=invalid-name
@@ -196,43 +196,44 @@ class RateLimit:
             if rate == "":
                 continue
             rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"queue": queue.Queue(int(rate[0])), "start": time()}
+            self.__rate_limit_dict[int(rate[1])] = {"counter": 0, "start": time(), "limit": int(rate[0])}
         log.debug("Rate limit set to values: ")
-        for rate_limit_time in self.__rate_limit_dict:
-            log.debug("Time: %s, Limit: %s", rate_limit_time,
-                      self.__rate_limit_dict[rate_limit_time]["queue"].maxsize)
+        self.__minimal_timeout = DEFAULT_TIMEOUT * 10
+        self.__minimal_limit = 1000000000
+        if not self.__no_limit:
+            for rate_limit_time in self.__rate_limit_dict:
+                log.debug("Time: %s, Limit: %s", rate_limit_time,
+                          self.__rate_limit_dict[rate_limit_time]["limit"])
+                if self.__rate_limit_dict[rate_limit_time]["limit"] < self.__minimal_limit:
+                    self.__minimal_limit = self.__rate_limit_dict[rate_limit_time]["limit"]
+                if rate_limit_time < self.__minimal_limit:
+                    self.__minimal_timeout = rate_limit_time + 1
 
     def add_counter(self):
         if self.__no_limit:
             return
         with self.__lock:
             for rate_limit_time in self.__rate_limit_dict:
-                self.__rate_limit_dict[rate_limit_time]["queue"].put(1)
+                self.__rate_limit_dict[rate_limit_time]["counter"] += 1
 
     def check_limit_reached(self):
         if self.__no_limit:
             return False
-        with self.__lock:
-            for rate_limit_time in self.__rate_limit_dict:
-                rate_limit_point_queue = self.__rate_limit_dict[rate_limit_time]["queue"]
-                if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time < time():
-                    self.__rate_limit_dict[rate_limit_time]["start"] = time()
-                    rate_limit_point_queue = queue.Queue(rate_limit_point_queue.maxsize)
-                    self.__rate_limit_dict[rate_limit_time]["queue"] = rate_limit_point_queue
-                if rate_limit_point_queue.full():
-                    log.debug("Rate limit exceeded for %s second", rate_limit_time)
-                    log.debug("Queue size: %s", rate_limit_point_queue.qsize())
-                    return True
-            return False
+        for rate_limit_time, rate_limit_info in self.__rate_limit_dict.items():
+            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= time():
+                self.__rate_limit_dict[rate_limit_time]["start"] = time()
+                self.__rate_limit_dict[rate_limit_time]["counter"] = 0
+            if rate_limit_info['counter'] >= rate_limit_info['limit']:
+                log.debug("Rate limit exceeded for %s second", rate_limit_time)
+                log.debug("Rate limit counter: %s", rate_limit_info['counter'])
+                return True
+        return False
 
     def get_minimal_limit(self):
-        minimal_limit = 1000000000
-        if self.__no_limit:
-            return 1000000000
-        for rate_limit_time in self.__rate_limit_dict:
-            if self.__rate_limit_dict[rate_limit_time]["queue"].maxsize < minimal_limit:
-                minimal_limit = self.__rate_limit_dict[rate_limit_time]["queue"].maxsize
-        return minimal_limit
+        return self.__minimal_limit
+
+    def get_minimal_timeout(self):
+        return self.__minimal_timeout
 
 
 class TBQueue:
@@ -328,7 +329,6 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
-        # rate_limit = rate_limit if rate_limit != "DEFAULT_RATE_LIMIT" else "8:1;2000:60;30000:3600;"
         if rate_limit == "DEFAULT_RATE_LIMIT":
             if "thingsboard.cloud" in self.__host:
                 rate_limit = "8:1,450:60,30000:3600,"
@@ -342,15 +342,6 @@ class TBDeviceMqttClient:
             rate_limit = rate_limit
         self.__rate_limit = RateLimit(rate_limit)
         self.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
-        self.__sending_queue = TBQueue()
-        self.__sending_queue_warning_published = 0
-        self.__responses = {}
-        self.__sending_thread = Thread(target=self.__sending_thread_main, name="Sending thread", daemon=True)
-        self.__sending_thread.start()
-        self.__housekeeping_thread = Thread(target=self.__housekeeping_thread_main,
-                                            name="Housekeeping thread",
-                                            daemon=True)
-        self.__housekeeping_thread.start()
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -427,8 +418,7 @@ class TBDeviceMqttClient:
         self.__request_id = self.__request_id + 1
         self._publish_data({"sharedKeys": REQUIRED_SHARED_KEYS},
                            f"v1/devices/me/attributes/request/{self.__request_id}",
-                           1,
-                           high_priority=True)
+                           1)
 
     def is_connected(self):
         return self.__is_connected
@@ -577,7 +567,7 @@ class TBDeviceMqttClient:
         payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) \
             else str(self.__chunk_size).encode()
         self._publish_data(payload, f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
-                           1, high_priority=True)
+                           1)
 
     def __on_firmware_received(self, version_to):
         with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
@@ -640,7 +630,7 @@ class TBDeviceMqttClient:
         if quality_of_service not in (0, 1):
             log.error("Quality of service (qos) value must be 0 or 1")
             return None
-        info = self._publish_data(resp, RPC_RESPONSE_TOPIC + req_id, quality_of_service, high_priority=True)
+        info = self._publish_data(resp, RPC_RESPONSE_TOPIC + req_id, quality_of_service)
         if wait_for_publish:
             info.get()
 
@@ -653,74 +643,33 @@ class TBDeviceMqttClient:
         payload = {"method": method, "params": params}
         self._publish_data(payload,
                            RPC_REQUEST_TOPIC + str(rpc_request_id),
-                           self.quality_of_service,
-                           high_priority=True)
+                           self.quality_of_service)
 
     def set_server_side_rpc_request_handler(self, handler):
         """Set the callback that will be called when a server-side RPC is received."""
         self.__device_on_server_side_rpc_response = handler
+        
+    def _send_request(self, type, kwargs, timeout=DEFAULT_TIMEOUT):
+        start_time = time()
+        timeout = max(self.__rate_limit.get_minimal_timeout(), timeout)
+        while self.__rate_limit.check_limit_reached():
+            if time() >= timeout + start_time:
+                log.error("Timeout while waiting for rate limit to be released!")
+                return TBPublishInfo(paho.MQTTMessageInfo(None))
+            sleep(0.001)
+        if type == TBSendMethod.PUBLISH:
+            self.__rate_limit.add_counter()
+            return TBPublishInfo(self._client.publish(**kwargs))
+        elif type == TBSendMethod.SUBSCRIBE:
+            self.__rate_limit.add_counter()
+            return TBPublishInfo(self._client.subscribe(**kwargs))
+        elif type == TBSendMethod.UNSUBSCRIBE:
+            self.__rate_limit.add_counter()
+            return TBPublishInfo(self._client.unsubscribe(**kwargs))
 
-    def __sending_thread_main(self):
-        while not self.stopped:
-            try:
-                if not self.is_connected():
-                    sleep(.1)
-                    continue
-                if not self.__rate_limit.check_limit_reached():
-                    if not self.__sending_queue.empty():
-                        item = self.__sending_queue.get(False)
-                        if item is not None:
-                            if item["method"] == TBSendMethod.PUBLISH:
-                                info = self._client.publish(item["topic"], item["data"], qos=item["qos"])
-                                if TBPublishInfo.TB_ERR_QUEUE_SIZE == info.rc:
-                                    self.__sending_queue.put_left(item, True)
-                                    continue
-                                self.__responses[item['id']] = {"info": info, "timeout_ts": int(time()) + DEFAULT_TIMEOUT}
-                                self.__rate_limit.add_counter()
-                            elif item["method"] == TBSendMethod.SUBSCRIBE:
-                                result = self._client.subscribe(item["topic"], qos=item["qos"])
-                                self.__responses[item['id']] = {"info": result, "timeout_ts": int(time()) + DEFAULT_TIMEOUT}
-                                self.__rate_limit.add_counter()
-                    else:
-                        sleep(.01)
-                else:
-                    sleep(0.001)
-            except Exception as e:
-                log.exception("Error during data sending:", exc_info=e)
-                sleep(1)
-
-    def __housekeeping_thread_main(self):
-        while not self.stopped:
-            if not self.__responses:
-                sleep(0.1)
-            else:
-                for req_id in list(self.__responses.keys()):
-                    if int(time()) > self.__responses[req_id]["timeout_ts"]:
-                        try:
-                            if (req_id in self.__responses
-                                    and ((self.__responses[req_id]["method"] == TBSendMethod.PUBLISH
-                                          and self.__responses[req_id]["info"].is_published())
-                                         or (self.__responses[req_id]["method"] == TBSendMethod.SUBSCRIBE))):
-                                self.__responses.pop(req_id)
-                        except (KeyError, AttributeError):
-                            pass
-                        except (Exception, RuntimeError, ValueError) as e:
-                            pass
-                            # log.debug("Error during housekeeping sent messages:", exc_info=e)
-                        # log.debug("Timeout occurred while waiting for a reply from ThingsBoard!")
-                sleep(0.01)
-
-    def _subscribe_to_topic(self, topic, callback=None, qos=None, wait_for_result=False, timeout=DEFAULT_TIMEOUT):
+    def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
         if qos is None:
             qos = self.quality_of_service
-        req_id = uuid.uuid4()
-        self.__sending_queue.put_left({"topic": topic, "qos": qos, "callback": callback, "id": req_id,
-                                       "method": TBSendMethod.SUBSCRIBE}, True)
-        sending_queue_size = self.__sending_queue.qsize()
-        if sending_queue_size > 1000000 and int(time()) - self.__sending_queue_warning_published > 5:
-            self.__sending_queue_warning_published = int(time())
-            log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
-                        "or decreasing the amount of messages sent!", sending_queue_size)
 
         waiting_for_connection_message_time = 0
         while not self.is_connected():
@@ -731,35 +680,15 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = time()
             sleep(0.01)
 
-        start_time = int(time())
-        if wait_for_result:
-            while req_id not in list(self.__responses.keys()):
-                if 0 < timeout < int(time()) - start_time or self.stopped:
-                    log.error("Timeout while waiting for a subscribe to ThingsBoard!")
-                    return -1, 128
-                sleep(0.01)
+        return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout)
 
-            return self.__responses.pop(req_id)["info"]
-
-    def _publish_data(self, data, topic, qos, wait_for_publish=True, high_priority=False, timeout=DEFAULT_TIMEOUT):
+    def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT):
         data = dumps(data)
         if qos is None:
             qos = self.quality_of_service
         if qos not in (0, 1):
             log.exception("Quality of service (qos) value must be 0 or 1")
             raise TBQoSException("Quality of service (qos) value must be 0 or 1")
-        req_id = uuid.uuid4()
-        if high_priority:
-            self.__sending_queue.put_left({"topic": topic, "data": data, "qos": qos, "id": req_id,
-                                           "method": TBSendMethod.PUBLISH}, False)
-        else:
-            self.__sending_queue.put({"topic": topic, "data": data, "qos": qos, "id": req_id,
-                                      "method": TBSendMethod.PUBLISH}, False)
-            sending_queue_size = self.__sending_queue.qsize()
-            if sending_queue_size > 1000000 and int(time()) - self.__sending_queue_warning_published > 5:
-                self.__sending_queue_warning_published = int(time())
-                log.warning("Sending queue is bigger than 1000000 messages (%r), consider increasing the rate limit, "
-                            "or decreasing the amount of messages sent!", sending_queue_size)
 
         waiting_for_connection_message_time = 0
         while not self.is_connected():
@@ -770,27 +699,19 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = time()
             sleep(0.01)
 
-        start_time = int(time())
-        if wait_for_publish:
-            while req_id not in list(self.__responses.keys()):
-                if 0 < timeout < int(time()) - start_time:
-                    log.error("Timeout while waiting for a publish to ThingsBoard!")
-                    return TBPublishInfo(paho.MQTTMessageInfo(None))
-                sleep(0.01)
+        return self._send_request(TBSendMethod.PUBLISH, {"topic": topic, "payload": data, "qos": qos}, timeout)
 
-            return TBPublishInfo(self.__responses.pop(req_id)["info"])
-
-    def send_telemetry(self, telemetry, quality_of_service=None, wait_for_publish=True, high_priority=False):
+    def send_telemetry(self, telemetry, quality_of_service=None, wait_for_publish=True):
         """Send telemetry to ThingsBoard. The telemetry can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        return self._publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, wait_for_publish, high_priority)
+        return self._publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, wait_for_publish)
 
-    def send_attributes(self, attributes, quality_of_service=None, wait_for_publish=True, high_priority=False):
+    def send_attributes(self, attributes, quality_of_service=None, wait_for_publish=True):
         """Send attributes to ThingsBoard. The attributes can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
-        return self._publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, wait_for_publish, high_priority)
+        return self._publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, wait_for_publish)
 
     def unsubscribe_from_attribute(self, subscription_id):
         """Unsubscribe from attribute updates for subscription_id."""
@@ -842,8 +763,7 @@ class TBDeviceMqttClient:
 
         attr_request_number = self._add_attr_request_callback(callback)
 
-        info = self._publish_data(msg, ATTRIBUTES_TOPIC_REQUEST + str(attr_request_number), self.quality_of_service,
-                                  high_priority=True)
+        info = self._publish_data(msg, ATTRIBUTES_TOPIC_REQUEST + str(attr_request_number), self.quality_of_service)
 
         self._add_timeout(attr_request_number, ts_in_millis, timeout=20)
         return info
@@ -888,7 +808,7 @@ class TBDeviceMqttClient:
             "secretKey": secret_key,
             "durationMs": duration
         }
-        info = self._publish_data(claiming_request, CLAIMING_TOPIC, self.quality_of_service, high_priority=True)
+        info = self._publish_data(claiming_request, CLAIMING_TOPIC, self.quality_of_service)
         return info
 
     @staticmethod
