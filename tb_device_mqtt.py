@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import uuid
 from collections import deque
 from inspect import signature
 from time import sleep
@@ -235,6 +234,22 @@ class RateLimit:
     def get_minimal_timeout(self):
         return self.__minimal_timeout
 
+    @staticmethod
+    def get_rate_limit_by_host(host, rate_limit):
+        if rate_limit == "DEFAULT_RATE_LIMIT":
+            if "thingsboard.cloud" in host:
+                rate_limit = "8:1,450:60,30000:3600,"
+            elif "tb" in host and "cloud" in host:
+                rate_limit = "8:1,450:60,30000:3600,"
+            elif "demo.thingsboard.io" in host:
+                rate_limit = "8:1,450:60,30000:3600,"
+            else:
+                rate_limit = "0:0,"
+        else:
+            rate_limit = rate_limit
+
+        return rate_limit
+
 
 class TBQueue:
     def __init__(self, maxsize=None):
@@ -329,17 +344,7 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
-        if rate_limit == "DEFAULT_RATE_LIMIT":
-            if "thingsboard.cloud" in self.__host:
-                rate_limit = "8:1,450:60,30000:3600,"
-            elif "tb" in self.__host and "cloud" in self.__host:
-                rate_limit = "8:1,450:60,30000:3600,"
-            elif "demo.thingsboard.io" in self.__host:
-                rate_limit = "8:1,450:60,30000:3600,"
-            else:
-                rate_limit = "0:0,"
-        else:
-            rate_limit = rate_limit
+        rate_limit = RateLimit.get_rate_limit_by_host(self.__host, rate_limit)
         self.__rate_limit = RateLimit(rate_limit)
         self.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
         self.__attrs_request_timeout = {}
@@ -662,7 +667,7 @@ class TBDeviceMqttClient:
             return TBPublishInfo(self._client.publish(**kwargs))
         elif type == TBSendMethod.SUBSCRIBE:
             self.__rate_limit.add_counter()
-            return TBPublishInfo(self._client.subscribe(**kwargs))
+            return self._client.subscribe(**kwargs)
         elif type == TBSendMethod.UNSUBSCRIBE:
             self.__rate_limit.add_counter()
             return TBPublishInfo(self._client.unsubscribe(**kwargs))
@@ -674,7 +679,7 @@ class TBDeviceMqttClient:
         waiting_for_connection_message_time = 0
         while not self.is_connected():
             if self.stopped:
-                return -1, 128
+                return TBPublishInfo(paho.MQTTMessageInfo(None))
             if time() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before subscribing for data on ThingsBoard!")
                 waiting_for_connection_message_time = time()

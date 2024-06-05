@@ -14,8 +14,16 @@
 #
 
 import logging
-import time
-from tb_device_mqtt import TBDeviceMqttClient
+from time import sleep
+
+import paho.mqtt.client as paho
+
+try:
+    from time import monotonic as time
+except ImportError:
+    from time import time
+
+from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBSendMethod
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
@@ -37,9 +45,11 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                  rate_limit="DEFAULT_RATE_LIMIT"):
         super().__init__(host, port, username, password, quality_of_service, client_id, rate_limit=rate_limit)
         self.quality_of_service = quality_of_service
+        self._rate_limit = RateLimit.get_rate_limit_by_host(host, rate_limit)
         self.__max_sub_id = 0
         self.__sub_dict = {}
         self.__connected_devices = set("*")
+        self._devices_rate_limit = {}
         self.devices_server_side_rpc_request_handler = None
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
@@ -51,44 +61,38 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         super()._on_connect(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
-            gateway_attributes_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1,
-                                                                           wait_for_result=True)[1])
-            if gateway_attributes_topic_sub_id == 128:
-                log.error("Service subscription to topic %s - failed.", GATEWAY_ATTRIBUTES_TOPIC)
-                if gateway_attributes_topic_sub_id in self._gw_subscriptions:
-                    del self._gw_subscriptions[gateway_attributes_topic_sub_id]
-            else:
-                self._gw_subscriptions[gateway_attributes_topic_sub_id] = GATEWAY_ATTRIBUTES_TOPIC
-            gateway_attributes_resp_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1,
-                                                                          wait_for_result=True)[1])
-            if gateway_attributes_resp_sub_id == 128:
-                log.error("Service subscription to topic %s - failed.", GATEWAY_ATTRIBUTES_RESPONSE_TOPIC)
-                if gateway_attributes_resp_sub_id in self._gw_subscriptions:
-                    del self._gw_subscriptions[gateway_attributes_resp_sub_id]
-            else:
-                self._gw_subscriptions[gateway_attributes_resp_sub_id] = GATEWAY_ATTRIBUTES_RESPONSE_TOPIC
-            gateway_rpc_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_RPC_TOPIC, qos=1,
-                                                                    wait_for_result=True)[1])
-            if gateway_rpc_topic_sub_id == 128:
-                log.error("Service subscription to topic %s - failed.", GATEWAY_RPC_TOPIC)
-                if gateway_rpc_topic_sub_id in self._gw_subscriptions:
-                    del self._gw_subscriptions[gateway_rpc_topic_sub_id]
-            else:
-                self._gw_subscriptions[gateway_rpc_topic_sub_id] = GATEWAY_RPC_TOPIC
-            # gateway_rpc_topic_response_sub_id = int(self._client.subscribe(GATEWAY_RPC_RESPONSE_TOPIC)[1])
-            # self._gw_subscriptions[gateway_rpc_topic_response_sub_id] = GATEWAY_RPC_RESPONSE_TOPIC
+            d = self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1)
+            gateway_attributes_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])
+            self._add_or_delete_subscription(GATEWAY_ATTRIBUTES_TOPIC, gateway_attributes_topic_sub_id)
+
+            gateway_attributes_resp_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1)[1])
+            self._add_or_delete_subscription(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, gateway_attributes_resp_sub_id)
+
+            gateway_rpc_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_RPC_TOPIC, qos=1)[1])
+            self._add_or_delete_subscription(GATEWAY_RPC_TOPIC, gateway_rpc_topic_sub_id)
 
     def _on_subscribe(self, client, userdata, mid, reasoncodes, properties=None):
         subscription = self._gw_subscriptions.get(mid)
         if subscription is not None:
             if mid == 128:
-                log.error("Service subscription to topic %s - failed.", subscription)
-                del self._gw_subscriptions[mid]
+                self._delete_subscription(subscription, mid)
             else:
                 log.debug("Service subscription to topic %s - successfully completed.", subscription)
                 del self._gw_subscriptions[mid]
 
-    def _on_unsubscribe(self, *args):
+    def _delete_subscription(self, topic, subscription_id):
+        log.error("Service subscription to topic %s - failed.", topic)
+        if subscription_id in self._gw_subscriptions:
+            del self._gw_subscriptions[subscription_id]
+
+    def _add_or_delete_subscription(self, topic, subscription_id):
+        if subscription_id == 128:
+            self._delete_subscription(topic, subscription_id)
+        else:
+            self._gw_subscriptions[subscription_id] = topic
+
+    @staticmethod
+    def _on_unsubscribe(*args):
         log.debug(args)
 
     def get_subscriptions_in_progress(self):
@@ -140,15 +144,25 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             log.error("There are no keys to request")
             return False
 
-        ts_in_millis = int(round(time.time() * 1000))
+        ts_in_millis = int(round(time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
         msg = {"keys": keys,
                "device": device,
                "client": type_is_client,
                "id": attr_request_number}
-        info = self._publish_data(msg, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, 1, high_priority=True)
+        info = self._send_device_request(TBSendMethod.PUBLISH, device, topic=GATEWAY_ATTRIBUTES_REQUEST_TOPIC, data=msg,
+                                         qos=1)
         self._add_timeout(attr_request_number, ts_in_millis + 30000)
         return info
+
+    def _send_device_request(self, _type, device_name, **kwargs):
+        if _type == TBSendMethod.PUBLISH:
+            is_reached = self.check_device_rate_limit(device_name)
+            if is_reached:
+                return is_reached
+
+            info = self._publish_data(**kwargs)
+            return info
 
     def gw_request_shared_attributes(self, device_name, keys, callback):
         return self.__request_attributes(device_name, keys, callback, False)
@@ -157,25 +171,39 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         return self.__request_attributes(device_name, keys, callback, True)
 
     def gw_send_attributes(self, device, attributes, quality_of_service=1):
-        return self._publish_data({device: attributes}, GATEWAY_MAIN_TOPIC + "attributes", quality_of_service)
+        return self._send_device_request(TBSendMethod.PUBLISH,
+                                         device,
+                                         topic=GATEWAY_MAIN_TOPIC + "attributes",
+                                         data={device: attributes},
+                                         qos=quality_of_service)
 
     def gw_send_telemetry(self, device, telemetry, quality_of_service=1):
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        return self._publish_data({device: telemetry}, GATEWAY_MAIN_TOPIC + "telemetry", quality_of_service)
+
+        return self._send_device_request(TBSendMethod.PUBLISH,
+                                         device,
+                                         topic=GATEWAY_MAIN_TOPIC + "telemetry",
+                                         data={device: telemetry},
+                                         qos=quality_of_service)
 
     def gw_connect_device(self, device_name, device_type="default"):
-        info = self._publish_data({"device": device_name, "type": device_type}, GATEWAY_MAIN_TOPIC + "connect",
-                                  self.quality_of_service)
+        info = self._send_device_request(TBSendMethod.PUBLISH, device_name, topic=GATEWAY_MAIN_TOPIC + "connect",
+                                         data={"device": device_name, "type": device_type},
+                                         qos=self.quality_of_service)
+
         self.__connected_devices.add(device_name)
+
         log.debug("Connected device %s", device_name)
         return info
 
     def gw_disconnect_device(self, device_name):
-        info = self._publish_data({"device": device_name}, GATEWAY_MAIN_TOPIC + "disconnect",
-                                  self.quality_of_service)
+        info = self._send_device_request(TBSendMethod.PUBLISH, device_name, topic=GATEWAY_MAIN_TOPIC + "disconnect",
+                                         data={"device": device_name}, qos=self.quality_of_service)
+
         if device_name in self.__connected_devices:
             self.__connected_devices.remove(device_name)
+
         log.debug("Disconnected device %s", device_name)
         return info
 
@@ -217,8 +245,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if quality_of_service not in (0, 1):
             log.error("Quality of service (qos) value must be 0 or 1")
             return None
-        info = self._publish_data({"device": device, "id": req_id, "data": resp}, GATEWAY_RPC_TOPIC,
-                                  quality_of_service)
+
+        info = self._send_device_request(TBSendMethod.PUBLISH, device, topic=GATEWAY_RPC_TOPIC,
+                                         data={"device": device, "id": req_id, "data": resp},
+                                         qos=quality_of_service)
         return info
 
     def gw_claim(self, device_name, secret_key, duration, claiming_request=None):
@@ -229,5 +259,30 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                     "durationMs": duration
                 }
             }
-        info = self._publish_data(claiming_request, GATEWAY_CLAIMING_TOPIC, self.quality_of_service)
+
+        info = self._send_device_request(TBSendMethod.PUBLISH, device_name, topic=GATEWAY_CLAIMING_TOPIC,
+                                         data=claiming_request, qos=self.quality_of_service)
         return info
+
+    def _add_device_rate_limit(self, device_name):
+        rate_limit = RateLimit(self._rate_limit)
+        self._devices_rate_limit[device_name] = {'rate_limit': rate_limit}
+
+    def check_device_rate_limit(self, device_name):
+        if self._devices_rate_limit.get(device_name) is None:
+            self._add_device_rate_limit(device_name)
+
+        is_reached = self._check_device_rate_limit(device_name)
+        if is_reached:
+            return is_reached
+
+        self._devices_rate_limit[device_name]['rate_limit'].add_counter()
+
+    def _check_device_rate_limit(self, device_name):
+        start_time = time()
+        timeout = self._devices_rate_limit[device_name]['rate_limit'].get_minimal_timeout()
+        while self._devices_rate_limit[device_name]['rate_limit'].check_limit_reached():
+            if time() >= timeout + start_time:
+                log.error("Timeout while waiting for rate limit to be released!")
+                return TBPublishInfo(paho.MQTTMessageInfo(None))
+            sleep(0.001)
