@@ -790,9 +790,12 @@ class TBDeviceMqttClient:
     def _get_data_points_from_message(data):
         if isinstance(data, dict):
             if data.get("ts") is not None and data.get("values") is not None:
-                return len(data.get("values"))
-
-        return len(data)
+                datapoints_in_message_amount = len(data.get("values"))
+            else:
+                datapoints_in_message_amount = len(data.keys())
+        else:
+            datapoints_in_message_amount = len(data)
+        return datapoints_in_message_amount
 
     @staticmethod
     def provision(host,

@@ -291,13 +291,21 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
         self._devices_rate_limit[device_name]['rate_limit'].increase_rate_limit_counter()
         total_datapoints = 0
-        for data_object in message[device_name]:
-            total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(data_object,
-                                                                      self._devices_rate_limit[device_name]['dp_rate_limit'])  # noqa
+        if message.get('device') == device_name:
+            total_datapoints += len(message)
+        else:
+            if isinstance(message.get(device_name), list):
+                for data_object in message[device_name]:
+                    total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(data_object,
+                                                                              self._devices_rate_limit[device_name]['dp_rate_limit'])  # noqa
+            else:
+                total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(message[device_name],
+                                                                          self._devices_rate_limit[device_name]['dp_rate_limit'])
         self._check_device_rate_limit(device_name, amount=total_datapoints)
 
     def _check_device_rate_limit(self, device_name, amount=1):
-        if self._devices_rate_limit.get(device_name)['dp_rate_limit'].get_minimal_limit() < amount:
+        if (not self._devices_rate_limit.get(device_name)['dp_rate_limit']._RateLimit__no_limit
+                and self._devices_rate_limit.get(device_name)['dp_rate_limit'].get_minimal_limit() < amount):
             log.error("Rate limit is too low for device %s, cannot send message with %i datapoints", device_name,
                       amount)
             raise ValueError("Rate limit is too low for device %s" % device_name)
