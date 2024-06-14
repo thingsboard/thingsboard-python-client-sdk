@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import logging
-from collections import deque
 from inspect import signature
 from time import sleep
 
@@ -24,7 +24,7 @@ try:
 except ImportError:
     from time import time
 import ssl
-from threading import Lock, RLock, Thread, Condition
+from threading import RLock, Thread
 from enum import Enum
 
 from paho.mqtt.reasoncodes import ReasonCodes
@@ -195,7 +195,7 @@ class RateLimit:
             if rate == "":
                 continue
             rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"counter": 0, "start": time(), "limit": int(rate[0])}
+            self.__rate_limit_dict[int(rate[1])] = {"counter": 0, "start": int(time()), "limit": int(rate[0])}
         log.debug("Rate limit set to values: ")
         self.__minimal_timeout = DEFAULT_TIMEOUT * 10
         self.__minimal_limit = 1000000000
@@ -208,23 +208,22 @@ class RateLimit:
                 if rate_limit_time < self.__minimal_limit:
                     self.__minimal_timeout = rate_limit_time + 1
 
-    def add_counter(self):
+    def increase_rate_limit_counter(self, amount=1):
         if self.__no_limit:
             return
         with self.__lock:
             for rate_limit_time in self.__rate_limit_dict:
-                self.__rate_limit_dict[rate_limit_time]["counter"] += 1
+                self.__rate_limit_dict[rate_limit_time]["counter"] += amount
 
-    def check_limit_reached(self):
+    def check_limit_reached(self, amount=1):
         if self.__no_limit:
             return False
         for rate_limit_time, rate_limit_info in self.__rate_limit_dict.items():
-            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= time():
-                self.__rate_limit_dict[rate_limit_time]["start"] = time()
+            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= int(time()):
+                self.__rate_limit_dict[rate_limit_time]["start"] = int(time())
+                log.debug("Rate limit reset for %s second for config %s", rate_limit_time, rate_limit_info)
                 self.__rate_limit_dict[rate_limit_time]["counter"] = 0
-            if rate_limit_info['counter'] >= rate_limit_info['limit']:
-                log.debug("Rate limit exceeded for %s second", rate_limit_time)
-                log.debug("Rate limit counter: %s", rate_limit_info['counter'])
+            if rate_limit_info['counter'] + amount >= rate_limit_info['limit']:
                 return True
         return False
 
@@ -235,7 +234,7 @@ class RateLimit:
         return self.__minimal_timeout
 
     @staticmethod
-    def get_rate_limit_by_host(host, rate_limit):
+    def get_rate_limits_by_host(host, rate_limit, dp_rate_limit):
         if rate_limit == "DEFAULT_RATE_LIMIT":
             if "thingsboard.cloud" in host:
                 rate_limit = "8:1,450:60,30000:3600,"
@@ -248,82 +247,25 @@ class RateLimit:
         else:
             rate_limit = rate_limit
 
-        return rate_limit
-
-
-class TBQueue:
-    def __init__(self, maxsize=None):
-        self.__maxsize = maxsize
-        self.__queue = deque(maxlen=self.__maxsize)
-        self.__lock = Lock()
-        self.__not_empty = Condition(self.__lock)
-        self.__not_full = Condition(self.__lock)
-
-    def put(self, item, block=True, timeout=None):
-        with self.__not_full:
-            self.__put(block, timeout)
-            self.__queue.append(item)
-            self.__not_empty.notify()
-
-    def put_left(self, item, block=True, timeout=None):
-        with self.__not_full:
-            self.__put(block, timeout)
-            self.__queue.appendleft(item)
-            self.__not_empty.notify()
-
-    def __put(self, block, timeout):
-        if not block:
-            if self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
-                raise Exception("Queue is full")
-        else:
-            start_time = time()
-            while self.__maxsize is not None and len(self.__queue) >= self.__maxsize:
-                remaining = timeout - (time() - start_time)
-                if remaining <= 0.0:
-                    raise TimeoutError("Timeout while trying to put item to queue")
-                self.__not_full.wait(remaining)
-
-    def get(self, block=True, timeout=None):
-        item = None
-        with self.__not_empty:
-            if not block:
-                if not self.__queue:
-                    return None
+        if dp_rate_limit == "DEFAULT_RATE_LIMIT":
+            if "thingsboard.cloud" in host:
+                dp_rate_limit = "15:1,450:60,30000:3600,"
+            elif "tb" in host and "cloud" in host:
+                dp_rate_limit = "15:1,450:60,30000:3600,"
+            elif "demo.thingsboard.io" in host:
+                dp_rate_limit = "15:1,450:60,30000:3600,"
             else:
-                start_time = time()
-                while not self.__queue:
-                    remaining = timeout - (time() - start_time)
-                    if remaining <= 0.0:
-                        raise TimeoutError("Timeout while trying to get item from queue")
-                    self.__not_empty.wait(remaining)
-            item = self.__queue.popleft()
-            self.__not_full.notify()
-        return item
+                dp_rate_limit = "0:0,"
+        else:
+            dp_rate_limit = dp_rate_limit
 
-    def put_nowait(self, item):
-        return self.put(item, False)
-
-    def get_nowait(self):
-        return self.get(False)
-
-    def full(self):
-        return len(self.__queue) == self.__maxsize
-
-    def empty(self):
-        return not self.__queue or self.qsize() == 0
-
-    def qsize(self):
-        return len(self.__queue)
-
-    @property
-    def maxsize(self):
-        return self.__maxsize
+        return rate_limit, dp_rate_limit
 
 
 class TBDeviceMqttClient:
     """ThingsBoard MQTT client. This class provides interface to send data to ThingsBoard and receive data from"""
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
-                 chunk_size=0, rate_limit="DEFAULT_RATE_LIMIT"):
+                 chunk_size=0, rate_limit="DEFAULT_RATE_LIMIT", dp_rate_limit="DEFAULT_RATE_LIMIT"):
         self._client = paho.Client(protocol=5, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
@@ -344,9 +286,9 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
-        rate_limit = RateLimit.get_rate_limit_by_host(self.__host, rate_limit)
+        rate_limit, dp_rate_limit = RateLimit.get_rate_limits_by_host(self.__host, rate_limit, dp_rate_limit)
         self.__rate_limit = RateLimit(rate_limit)
-        self.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
+        self.__dp_rate_limit = RateLimit(dp_rate_limit)
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -653,23 +595,38 @@ class TBDeviceMqttClient:
     def set_server_side_rpc_request_handler(self, handler):
         """Set the callback that will be called when a server-side RPC is received."""
         self.__device_on_server_side_rpc_response = handler
-        
-    def _send_request(self, type, kwargs, timeout=DEFAULT_TIMEOUT):
-        start_time = time()
-        timeout = max(self.__rate_limit.get_minimal_timeout(), timeout)
-        while self.__rate_limit.check_limit_reached():
-            if time() >= timeout + start_time:
+
+    def _wait_for_rate_limit_released(self, timeout, amount=1):
+        start_time = int(time())
+        timeout = max(self.__rate_limit.get_minimal_timeout(), self.__dp_rate_limit.get_minimal_timeout(), timeout)
+        while self.__rate_limit.check_limit_reached() or self.__dp_rate_limit.check_limit_reached(amount=amount):
+            if int(time()) >= timeout + start_time:
                 log.error("Timeout while waiting for rate limit to be released!")
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
-            sleep(0.001)
+            sleep(.001)
+
+    def _send_request(self, type, kwargs, timeout=DEFAULT_TIMEOUT):
+        self.__rate_limit.increase_rate_limit_counter()
+        is_reached = self._wait_for_rate_limit_released(timeout)
+        if is_reached:
+            return is_reached
+
         if type == TBSendMethod.PUBLISH:
-            self.__rate_limit.add_counter()
+            data = kwargs.get("payload")
+            if isinstance(data, str):
+                data = loads(data)
+
+            datapoints = self._count_datapoints_in_message_and_increase_rate_limit(data, self.__dp_rate_limit)
+            if self.__dp_rate_limit.get_minimal_limit() < datapoints:
+                log.error("Rate limit is too low, cannot send message with %i datapoints", datapoints)
+                raise ValueError("Rate limit is too low")
+
+            kwargs["payload"] = dumps(data)
+            self._wait_for_rate_limit_released(timeout, amount=datapoints)
             return TBPublishInfo(self._client.publish(**kwargs))
         elif type == TBSendMethod.SUBSCRIBE:
-            self.__rate_limit.add_counter()
             return self._client.subscribe(**kwargs)
         elif type == TBSendMethod.UNSUBSCRIBE:
-            self.__rate_limit.add_counter()
             return TBPublishInfo(self._client.unsubscribe(**kwargs))
 
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
@@ -688,7 +645,6 @@ class TBDeviceMqttClient:
         return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout)
 
     def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT):
-        data = dumps(data)
         if qos is None:
             qos = self.quality_of_service
         if qos not in (0, 1):
@@ -815,6 +771,28 @@ class TBDeviceMqttClient:
         }
         info = self._publish_data(claiming_request, CLAIMING_TOPIC, self.quality_of_service)
         return info
+
+    @staticmethod
+    def _count_datapoints_in_message_and_increase_rate_limit(data, rate_limit):
+        if isinstance(data, dict):
+            datapoints = TBDeviceMqttClient._get_data_points_from_message(data)
+        else:
+            datapoints = 0
+            for item in data:
+                datapoints += TBDeviceMqttClient._get_data_points_from_message(item)
+
+        log.debug("Data points in message: %s", datapoints)
+        rate_limit.increase_rate_limit_counter(datapoints)
+
+        return datapoints
+
+    @staticmethod
+    def _get_data_points_from_message(data):
+        if isinstance(data, dict):
+            if data.get("ts") is not None and data.get("values") is not None:
+                return len(data.get("values"))
+
+        return len(data)
 
     @staticmethod
     def provision(host,

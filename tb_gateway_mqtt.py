@@ -42,10 +42,11 @@ class TBGatewayAPI:
 
 class TBGatewayMqttClient(TBDeviceMqttClient):
     def __init__(self, host, port=1883, username=None, password=None, gateway=None, quality_of_service=1, client_id="",
-                 rate_limit="DEFAULT_RATE_LIMIT"):
-        super().__init__(host, port, username, password, quality_of_service, client_id, rate_limit=rate_limit)
+                 rate_limit="DEFAULT_RATE_LIMIT", dp_rate_limit="DEFAULT_RATE_LIMIT"):
+        super().__init__(host, port, username, password, quality_of_service, client_id,
+                         rate_limit=rate_limit, dp_rate_limit=dp_rate_limit)
         self.quality_of_service = quality_of_service
-        self._rate_limit = RateLimit.get_rate_limit_by_host(host, rate_limit)
+        self._rate_limit, self._dp_rate_limit = RateLimit.get_rate_limits_by_host(host, rate_limit, dp_rate_limit)
         self.__max_sub_id = 0
         self.__sub_dict = {}
         self.__connected_devices = set("*")
@@ -61,7 +62,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         super()._on_connect(client, userdata, flags, result_code, *extra_params)
         if result_code == 0:
-            d = self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1)
             gateway_attributes_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])
             self._add_or_delete_subscription(GATEWAY_ATTRIBUTES_TOPIC, gateway_attributes_topic_sub_id)
 
@@ -157,7 +157,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     def _send_device_request(self, _type, device_name, **kwargs):
         if _type == TBSendMethod.PUBLISH:
-            is_reached = self.check_device_rate_limit(device_name)
+            is_reached = self.check_device_rate_limit(device_name, kwargs['data'])
             if is_reached:
                 return is_reached
 
@@ -217,13 +217,25 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if device not in self.__connected_devices:
             log.error("Device %s is not connected", device)
             return False
+
         with self._lock:
+            # if device == '*':
+            #     for device_name in self._devices_rate_limit.keys():
+            #         is_reached = self.check_device_rate_limit(device_name)
+            #         if is_reached:
+            #             return is_reached
+            # else:
+            #     is_reached = self.check_device_rate_limit(device)
+            #     if is_reached:
+            #         return is_reached
+
             self.__max_sub_id += 1
             key = device + "|" + attribute
             if key not in self.__sub_dict:
                 self.__sub_dict.update({key: {device: callback}})
             else:
                 self.__sub_dict[key].update({device: callback})
+
             log.info("Subscribed to %s with id %i for device %s", key, self.__max_sub_id, device)
             return self.__max_sub_id
 
@@ -266,9 +278,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     def _add_device_rate_limit(self, device_name):
         rate_limit = RateLimit(self._rate_limit)
-        self._devices_rate_limit[device_name] = {'rate_limit': rate_limit}
+        dp_rate_limit = RateLimit(self._dp_rate_limit)
+        self._devices_rate_limit[device_name] = {'rate_limit': rate_limit, 'dp_rate_limit': dp_rate_limit}
 
-    def check_device_rate_limit(self, device_name):
+    def check_device_rate_limit(self, device_name, message):
         if self._devices_rate_limit.get(device_name) is None:
             self._add_device_rate_limit(device_name)
 
@@ -276,13 +289,24 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if is_reached:
             return is_reached
 
-        self._devices_rate_limit[device_name]['rate_limit'].add_counter()
+        self._devices_rate_limit[device_name]['rate_limit'].increase_rate_limit_counter()
+        total_datapoints = 0
+        for data_object in message[device_name]:
+            total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(data_object,
+                                                                      self._devices_rate_limit[device_name]['dp_rate_limit'])  # noqa
+        self._check_device_rate_limit(device_name, amount=total_datapoints)
 
-    def _check_device_rate_limit(self, device_name):
-        start_time = time()
-        timeout = self._devices_rate_limit[device_name]['rate_limit'].get_minimal_timeout()
-        while self._devices_rate_limit[device_name]['rate_limit'].check_limit_reached():
-            if time() >= timeout + start_time:
+    def _check_device_rate_limit(self, device_name, amount=1):
+        if self._devices_rate_limit.get(device_name)['dp_rate_limit'].get_minimal_limit() < amount:
+            log.error("Rate limit is too low for device %s, cannot send message with %i datapoints", device_name,
+                      amount)
+            raise ValueError("Rate limit is too low for device %s" % device_name)
+        start_time = int(time() * 1000)
+        timeout = max(self._devices_rate_limit[device_name]['rate_limit'].get_minimal_timeout(),
+                      self._devices_rate_limit[device_name]['dp_rate_limit'].get_minimal_timeout()) * 1000
+        while (self._devices_rate_limit[device_name]['rate_limit'].check_limit_reached() or
+               self._devices_rate_limit[device_name]['dp_rate_limit'].check_limit_reached(amount)):
+            if int(time()) >= timeout + start_time:
                 log.error("Timeout while waiting for rate limit to be released!")
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             sleep(0.001)
