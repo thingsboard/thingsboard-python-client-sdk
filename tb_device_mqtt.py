@@ -237,11 +237,11 @@ class RateLimit:
     def get_rate_limits_by_host(host, rate_limit, dp_rate_limit):
         if rate_limit == "DEFAULT_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                rate_limit = "8:1,450:60,30000:3600,"
+                rate_limit = "100:1,4000:60,70000:3600,"
             elif "tb" in host and "cloud" in host:
-                rate_limit = "8:1,450:60,30000:3600,"
+                rate_limit = "10:1,300:60,7000:3600,"
             elif "demo.thingsboard.io" in host:
-                rate_limit = "8:1,450:60,30000:3600,"
+                rate_limit = "10:1,300:60,"
             else:
                 rate_limit = "0:0,"
         else:
@@ -249,11 +249,11 @@ class RateLimit:
 
         if dp_rate_limit == "DEFAULT_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                dp_rate_limit = "15:1,450:60,30000:3600,"
+                dp_rate_limit = "190:1,5900:60,13900:3600,"
             elif "tb" in host and "cloud" in host:
-                dp_rate_limit = "15:1,450:60,30000:3600,"
+                dp_rate_limit = "15:1,500:60,13900:3600,"
             elif "demo.thingsboard.io" in host:
-                dp_rate_limit = "15:1,450:60,30000:3600,"
+                dp_rate_limit = "15:1,500:60,"
             else:
                 dp_rate_limit = "0:0,"
         else:
