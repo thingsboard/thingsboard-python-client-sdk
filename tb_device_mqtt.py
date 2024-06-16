@@ -164,19 +164,32 @@ class TBPublishInfo:
         16: 'The keepalive time has been exceeded.'
     }
 
-    def __init__(self, message_info: paho.MQTTMessageInfo):
+    def __init__(self, message_info):
         self.message_info = message_info
 
     # pylint: disable=invalid-name
     def rc(self):
-        return self.message_info.rc
+        if isinstance(self.message_info, list):
+            for info in self.message_info:
+                if info.rc != 0:
+                    return info.rc
+            return self.TB_ERR_SUCCESS
+        else:
+            return self.message_info.rc
 
     def mid(self):
-        return self.message_info.mid
+        if isinstance(self.message_info, list):
+            return [info.mid for info in self.message_info]
+        else:
+            return self.message_info.mid
 
     def get(self):
-        self.message_info.wait_for_publish(timeout=1)
-        return self.message_info.rc
+        if isinstance(self.message_info, list):
+            for info in self.message_info:
+                info.wait_for_publish(timeout=1)
+        else:
+            self.message_info.wait_for_publish(timeout=1)
+        return self.rc()
 
 
 class RateLimit:
@@ -223,7 +236,7 @@ class RateLimit:
                 self.__rate_limit_dict[rate_limit_time]["start"] = int(time())
                 log.debug("Rate limit reset for %s second for config %s", rate_limit_time, rate_limit_info)
                 self.__rate_limit_dict[rate_limit_time]["counter"] = 0
-            if rate_limit_info['counter'] + amount >= rate_limit_info['limit']:
+            if rate_limit_info['counter'] + amount > rate_limit_info['limit']:
                 return rate_limit_time
         return False
 
@@ -628,22 +641,84 @@ class TBDeviceMqttClient:
             return is_reached
 
         if type == TBSendMethod.PUBLISH:
-            data = kwargs.get("payload")
+            data_for_analysis = data = kwargs.get("payload")
             if isinstance(data, str):
-                data = loads(data)
+                data_for_analysis = loads(data)
 
-            datapoints = self._count_datapoints_in_message_and_increase_rate_limit(data, self.__dp_rate_limit)
+            datapoints = self._count_datapoints_in_message_and_increase_rate_limit(data_for_analysis,
+                                                                                   self.__dp_rate_limit)
+            payload = data
             if self.__dp_rate_limit.get_minimal_limit() < datapoints:
-                log.error("Rate limit is too low, cannot send message with %i datapoints", datapoints)
-                raise ValueError("Rate limit is too low")
-
-            kwargs["payload"] = dumps(data)
-            self._wait_for_rate_limit_released(timeout, amount=datapoints)
-            return TBPublishInfo(self._client.publish(**kwargs))
+                log.debug("Rate limit is too low, cannot send message with %i datapoints, "
+                          "splitting to messages with %i datapoints",
+                          datapoints, self.__dp_rate_limit.get_minimal_limit())
+                split_messages = self._split_message(data, self.__dp_rate_limit.get_minimal_limit())
+                if len(split_messages) == 0:
+                    log.error("Cannot split message to smaller parts!")
+                results = []
+                for part in split_messages:
+                    self._wait_for_rate_limit_released(timeout, amount=len(part))
+                    kwargs["payload"] = dumps(part)
+                    results.append(self._client.publish(**kwargs))
+                return TBPublishInfo(results)
+            else:
+                self._wait_for_rate_limit_released(timeout, amount=datapoints)
+                kwargs["payload"] = dumps(payload)
+                return TBPublishInfo(self._client.publish(**kwargs))
         elif type == TBSendMethod.SUBSCRIBE:
             return self._client.subscribe(**kwargs)
         elif type == TBSendMethod.UNSUBSCRIBE:
-            return TBPublishInfo(self._client.unsubscribe(**kwargs))
+            return self._client.unsubscribe(**kwargs)
+
+    def _split_message(self, message_pack, max_size):
+        split_messages = []
+        if not isinstance(message_pack, list):
+            message_pack = [message_pack]
+        final_message_item = {}
+        add_last_item = False
+        for message in message_pack:
+            if isinstance(message, dict):
+                if message.get("ts") is not None:
+                    ts = message.get("ts")
+                    values = message.get("values")
+                else:
+                    ts = None
+                    values = message
+                values_data_keys = tuple(values.keys())
+                if len(values_data_keys) == 1:
+                    if ts is not None and final_message_item.get("ts") is not None:
+                        final_message_item['ts'] = ts
+                    if len(final_message_item) < max_size:
+                        if ts is not None:
+                            final_message_item['values'].update(values)
+                        else:
+                            final_message_item.update(values)
+                            continue
+                    else:
+                        split_messages.append(final_message_item)
+                        final_message_item = {**values}  # Copy is required,
+                        # because we need to keep the original dict for next iteration
+                        add_last_item = True
+                        continue
+                message_item_values_with_allowed_size = {}
+                for current_data_key_index in range(len(values_data_keys)):
+                    data_key = values_data_keys[current_data_key_index]
+                    if len(message_item_values_with_allowed_size.keys()) < max_size:
+                        message_item_values_with_allowed_size[data_key] = values[data_key]
+                    if (len(message_item_values_with_allowed_size.keys()) >= max_size
+                            or current_data_key_index == len(values_data_keys) - 1):
+                        if ts is not None:
+                            final_message_item = {"ts": ts, "values": message_item_values_with_allowed_size}
+                        else:
+                            final_message_item = message_item_values_with_allowed_size
+                        split_messages.append(final_message_item)
+                        message_item_values_with_allowed_size = {}
+            else:
+                log.error("Message is not a dictionary!")
+                log.debug("Message: %s", message)
+        if add_last_item:
+            split_messages.append(final_message_item)
+        return split_messages
 
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
         if qos is None:
