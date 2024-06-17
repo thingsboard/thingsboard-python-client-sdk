@@ -14,16 +14,13 @@
 #
 
 import logging
-from time import sleep
-
-import paho.mqtt.client as paho
 
 try:
     from time import monotonic as time
 except ImportError:
     from time import time
 
-from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBSendMethod
+from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBSendMethod
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
@@ -157,11 +154,11 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     def _send_device_request(self, _type, device_name, **kwargs):
         if _type == TBSendMethod.PUBLISH:
-            is_reached = self.check_device_rate_limit(device_name, kwargs['data'])
-            if is_reached:
-                return is_reached
-
-            info = self._publish_data(**kwargs)
+            if self._devices_rate_limit.get(device_name) is None:
+                self._add_device_rate_limit(device_name)
+            info = self._publish_data(**kwargs, device=device_name,
+                                      msg_rate_limit=self._devices_rate_limit[device_name]['rate_limit'],
+                                      dp_rate_limit=self._devices_rate_limit[device_name]['dp_rate_limit'])
             return info
 
     def gw_request_shared_attributes(self, device_name, keys, callback):
@@ -280,41 +277,3 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         rate_limit = RateLimit(self._rate_limit)
         dp_rate_limit = RateLimit(self._dp_rate_limit)
         self._devices_rate_limit[device_name] = {'rate_limit': rate_limit, 'dp_rate_limit': dp_rate_limit}
-
-    def check_device_rate_limit(self, device_name, message):
-        if self._devices_rate_limit.get(device_name) is None:
-            self._add_device_rate_limit(device_name)
-
-        is_reached = self._check_device_rate_limit(device_name)
-        if is_reached:
-            return is_reached
-
-        self._devices_rate_limit[device_name]['rate_limit'].increase_rate_limit_counter()
-        total_datapoints = 0
-        if message.get('device') == device_name:
-            total_datapoints += len(message)
-        else:
-            if isinstance(message.get(device_name), list):
-                for data_object in message[device_name]:
-                    total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(data_object,
-                                                                              self._devices_rate_limit[device_name]['dp_rate_limit'])  # noqa
-            else:
-                total_datapoints += self._count_datapoints_in_message_and_increase_rate_limit(message[device_name],
-                                                                          self._devices_rate_limit[device_name]['dp_rate_limit'])
-        self._check_device_rate_limit(device_name, amount=total_datapoints)
-
-    def _check_device_rate_limit(self, device_name, amount=1):
-        if (not self._devices_rate_limit.get(device_name)['dp_rate_limit']._RateLimit__no_limit
-                and self._devices_rate_limit.get(device_name)['dp_rate_limit'].get_minimal_limit() < amount):
-            log.error("Rate limit is too low for device %s, cannot send message with %i datapoints", device_name,
-                      amount)
-            raise ValueError("Rate limit is too low for device %s" % device_name)
-        start_time = int(time() * 1000)
-        timeout = max(self._devices_rate_limit[device_name]['rate_limit'].get_minimal_timeout(),
-                      self._devices_rate_limit[device_name]['dp_rate_limit'].get_minimal_timeout()) * 1000
-        while (self._devices_rate_limit[device_name]['rate_limit'].check_limit_reached() or
-               self._devices_rate_limit[device_name]['dp_rate_limit'].check_limit_reached(amount)):
-            if int(time()) >= timeout + start_time:
-                log.error("Timeout while waiting for rate limit to be released!")
-                return TBPublishInfo(paho.MQTTMessageInfo(None))
-            sleep(0.001)
