@@ -895,7 +895,7 @@ class TBDeviceMqttClient:
                 for data_object in data[device]:
                     datapoints += TBDeviceMqttClient._count_datapoints_in_message(data_object)  # noqa
             else:
-                datapoints += TBDeviceMqttClient._count_datapoints_in_message(data[device])  # noqa
+                datapoints += TBDeviceMqttClient._count_datapoints_in_message(data.get(device, data.get('device')))
         else:
             if isinstance(data, dict):
                 datapoints += TBDeviceMqttClient._get_data_points_from_message(data)
