@@ -925,17 +925,17 @@ class TBDeviceMqttClient:
         add_last_item = False
         for message in message_pack:
             if isinstance(message, dict):
+                ts = None
                 if message.get("ts") is not None and message.get("values") is not None:
                     ts = message.get("ts")
                     values = message.get("values")
                 else:
-                    ts = None
                     values = message
                 values_data_keys = tuple(values.keys())
                 if len(values_data_keys) == 1:
-                    if (ts is not None and final_message_item['data'].get("ts") is not None
-                            and final_message_item['data'].get("values") is not None):
+                    if ts is not None:
                         final_message_item['data']['ts'] = ts
+                        final_message_item['data']['values'] = values
                     if final_message_item['datapoints'] < max_size:
                         if ts is not None:
                             final_message_item['data']['values'].update(values)
