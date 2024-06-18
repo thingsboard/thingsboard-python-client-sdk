@@ -231,12 +231,9 @@ class RateLimit:
     def check_limit_reached(self, amount=1):
         if self.__no_limit:
             return False
-        if amount > 1:
-            log.debug("Checking rate limit for amount %s", amount)
         for rate_limit_time, rate_limit_info in self.__rate_limit_dict.items():
             if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= int(time()):
                 self.__rate_limit_dict[rate_limit_time]["start"] = int(time())
-                log.debug("Rate limit reset for %s second for config %s", rate_limit_time, rate_limit_info)
                 self.__rate_limit_dict[rate_limit_time]["counter"] = 0
             if rate_limit_info['counter'] + amount > rate_limit_info['limit']:
                 return rate_limit_time
@@ -304,7 +301,7 @@ class TBDeviceMqttClient:
         rate_limit, dp_rate_limit = RateLimit.get_rate_limits_by_host(self.__host, rate_limit, dp_rate_limit)
         self.__rate_limit = RateLimit(rate_limit)
         self.__dp_rate_limit = RateLimit(dp_rate_limit)
-        self._client.max_queued_messages_set(self.__rate_limit.get_minimal_limit())
+        self._client.max_inflight_messages_set(1)
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -618,6 +615,7 @@ class TBDeviceMqttClient:
         timeout_updated = False
         disconnected = False
         limit_reached_check = True
+        log_posted = False
         while limit_reached_check:
             limit_reached_check = (message_rate_limit.check_limit_reached()
                                    or dp_rate_limit.check_limit_reached(amount=amount)
@@ -629,11 +627,28 @@ class TBDeviceMqttClient:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not disconnected and not self.is_connected():
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
+                log.debug(self._client._out_messages)
                 disconnected = True
                 timeout = max(timeout, 180) + 5
             if int(time()) >= timeout + start_time:
                 log.error("Timeout while waiting for rate limit to be released!")
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
+            if not log_posted and limit_reached_check:
+                if isinstance(limit_reached_check, int):
+                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...", limit_reached_check)
+                else:
+                    log.debug("Waiting for rate limit to be released...")
+                log_posted = True
+            sleep(.001)
+
+    def wait_until_current_queued_messages_processed(self):
+        # Here we should wait until all messages are processed by paho client, but we should not wait forever and be sure that we are not confict with lock in paho client
+        # We should notify why we are waiting in logs each 5 seconds
+        previous_notification_time = 0
+        while self._client._out_messages and not self.stopped:
+            if int(time()) - previous_notification_time > 5:
+                log.debug("Waiting for all messages to be processed by paho client...")
+                previous_notification_time = int(time())
             sleep(.001)
 
     def _send_request(self, type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
@@ -674,6 +689,7 @@ class TBDeviceMqttClient:
                                                        dp_rate_limit=dp_rate_limit,
                                                        amount=dp_rate_limit.get_minimal_limit())
                     kwargs["payload"] = dumps(part['message'])
+                    self.wait_until_current_queued_messages_processed()
                     results.append(self._client.publish(**kwargs))
                 return TBPublishInfo(results)
             else:
@@ -689,65 +705,12 @@ class TBDeviceMqttClient:
         elif type == TBSendMethod.UNSUBSCRIBE:
             return self._client.unsubscribe(**kwargs)
 
-    def _split_message(self, message_pack, max_size):
-        split_messages = []
-        if not isinstance(message_pack, list):
-            message_pack = [message_pack]
-        final_message_item = {'data': {}, 'datapoints': 0}
-        add_last_item = False
-        for message in message_pack:
-            if isinstance(message, dict):
-                if message.get("ts") is not None:
-                    ts = message.get("ts")
-                    values = message.get("values")
-                else:
-                    ts = None
-                    values = message
-                values_data_keys = tuple(values.keys())
-                if len(values_data_keys) == 1:
-                    if ts is not None and final_message_item['data'].get("ts") is not None:
-                        final_message_item['data']['ts'] = ts
-                    if len(final_message_item['datapoints']) < max_size:
-                        if ts is not None:
-                            final_message_item['data']['values'].update(values)
-                            final_message_item['datapoints'] += 1
-                        else:
-                            final_message_item['data'].update(values)
-                            final_message_item['datapoints'] += 1
-                            continue
-                    else:
-                        split_messages.append(final_message_item)
-                        final_message_item = {'data': {**values}, 'datapoints': 0}  # Copy is required,
-                        # because we need to keep the original dict for next iteration
-                        add_last_item = True
-                        continue
-                message_item_values_with_allowed_size = {}
-                for current_data_key_index in range(len(values_data_keys)):
-                    data_key = values_data_keys[current_data_key_index]
-                    if len(message_item_values_with_allowed_size.keys()) < max_size:
-                        message_item_values_with_allowed_size[data_key] = values[data_key]
-                    if (len(message_item_values_with_allowed_size.keys()) >= max_size
-                            or current_data_key_index == len(values_data_keys) - 1):
-                        if ts is not None:
-                            final_message_item['data'] = {"ts": ts, "values": message_item_values_with_allowed_size}
-                        else:
-                            final_message_item['data'] = message_item_values_with_allowed_size
-                        final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                        split_messages.append({**final_message_item})
-                        message_item_values_with_allowed_size = {}
-            else:
-                log.error("Message is not a dictionary!")
-                log.debug("Message: %s", message)
-        if add_last_item:
-            split_messages.append(final_message_item)
-        return split_messages
-
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
         if qos is None:
             qos = self.quality_of_service
 
         waiting_for_connection_message_time = 0
-        while not self.is_connected():
+        while not self.is_connected() and not self.stopped:
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if time() - waiting_for_connection_message_time > 10.0:
@@ -902,9 +865,6 @@ class TBDeviceMqttClient:
             else:
                 for item in data:
                     datapoints += TBDeviceMqttClient._get_data_points_from_message(item)
-
-        log.debug("Data points in message: %s", datapoints)
-
         return datapoints
 
     @staticmethod
@@ -953,3 +913,60 @@ class TBDeviceMqttClient:
         provisioning_client = ProvisionClient(host=host, port=port, provision_request=provision_request)
         provisioning_client.provision()
         return provisioning_client.get_credentials()
+
+    @staticmethod
+    def _split_message(message_pack, max_size):
+        if message_pack is None:
+            return []
+        split_messages = []
+        if not isinstance(message_pack, list):
+            message_pack = [message_pack]
+        final_message_item = {'data': {}, 'datapoints': 0}
+        add_last_item = False
+        for message in message_pack:
+            if isinstance(message, dict):
+                if message.get("ts") is not None and message.get("values") is not None:
+                    ts = message.get("ts")
+                    values = message.get("values")
+                else:
+                    ts = None
+                    values = message
+                values_data_keys = tuple(values.keys())
+                if len(values_data_keys) == 1:
+                    if (ts is not None and final_message_item['data'].get("ts") is not None
+                            and final_message_item['data'].get("values") is not None):
+                        final_message_item['data']['ts'] = ts
+                    if final_message_item['datapoints'] < max_size:
+                        if ts is not None:
+                            final_message_item['data']['values'].update(values)
+                            final_message_item['datapoints'] += 1
+                        else:
+                            final_message_item['data'].update(values)
+                            final_message_item['datapoints'] += 1
+                            continue
+                    else:
+                        split_messages.append(final_message_item)
+                        final_message_item = {'data': {**values}, 'datapoints': 0}  # Copy is required,
+                        # because we need to keep the original dict for next iteration
+                        add_last_item = True
+                        continue
+                message_item_values_with_allowed_size = {}
+                for current_data_key_index in range(len(values_data_keys)):
+                    data_key = values_data_keys[current_data_key_index]
+                    if len(message_item_values_with_allowed_size.keys()) < max_size:
+                        message_item_values_with_allowed_size[data_key] = values[data_key]
+                    if (len(message_item_values_with_allowed_size.keys()) >= max_size
+                            or current_data_key_index == len(values_data_keys) - 1):
+                        if ts is not None:
+                            final_message_item['data'] = {"ts": ts, "values": message_item_values_with_allowed_size}
+                        else:
+                            final_message_item['data'] = message_item_values_with_allowed_size
+                        final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
+                        split_messages.append({**final_message_item})
+                        message_item_values_with_allowed_size = {}
+            else:
+                log.error("Message is not a dictionary!")
+                log.debug("Message: %s", message)
+        if add_last_item:
+            split_messages.append(final_message_item)
+        return split_messages
