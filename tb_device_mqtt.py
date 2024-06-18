@@ -245,6 +245,9 @@ class RateLimit:
     def get_minimal_timeout(self):
         return self.__minimal_timeout
 
+    def has_limit(self):
+        return not self.__no_limit
+
     @staticmethod
     def get_rate_limits_by_host(host, rate_limit, dp_rate_limit):
         if rate_limit == "DEFAULT_RATE_LIMIT":
@@ -301,7 +304,7 @@ class TBDeviceMqttClient:
         rate_limit, dp_rate_limit = RateLimit.get_rate_limits_by_host(self.__host, rate_limit, dp_rate_limit)
         self.__rate_limit = RateLimit(rate_limit)
         self.__dp_rate_limit = RateLimit(dp_rate_limit)
-        self._client.max_inflight_messages_set(1)
+        self._client.max_inflight_messages_set(self.__rate_limit.get_minimal_limit())
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -611,7 +614,7 @@ class TBDeviceMqttClient:
 
     def _wait_for_rate_limit_released(self, timeout, message_rate_limit, dp_rate_limit, amount=1):
         start_time = int(time())
-        timeout = max(message_rate_limit.get_minimal_timeout(), dp_rate_limit.get_minimal_timeout(), timeout) + 5
+        timeout = max(message_rate_limit.get_minimal_timeout(), dp_rate_limit.get_minimal_timeout(), timeout) + 10
         timeout_updated = False
         disconnected = False
         limit_reached_check = True
@@ -621,15 +624,14 @@ class TBDeviceMqttClient:
                                    or dp_rate_limit.check_limit_reached(amount=amount)
                                    or not self.is_connected())
             if not timeout_updated and limit_reached_check:
-                timeout = max(timeout, limit_reached_check) + 5
+                timeout = max(timeout, limit_reached_check) + 10
                 timeout_updated = True
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not disconnected and not self.is_connected():
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
-                log.debug(self._client._out_messages)
                 disconnected = True
-                timeout = max(timeout, 180) + 5
+                timeout = max(timeout, 180) + 10
             if int(time()) >= timeout + start_time:
                 log.error("Timeout while waiting for rate limit to be released!")
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
@@ -642,8 +644,6 @@ class TBDeviceMqttClient:
             sleep(.001)
 
     def wait_until_current_queued_messages_processed(self):
-        # Here we should wait until all messages are processed by paho client, but we should not wait forever and be sure that we are not confict with lock in paho client
-        # We should notify why we are waiting in logs each 5 seconds
         previous_notification_time = 0
         while self._client._out_messages and not self.stopped:
             if int(time()) - previous_notification_time > 5:
@@ -657,53 +657,62 @@ class TBDeviceMqttClient:
             msg_rate_limit = self.__rate_limit
         if dp_rate_limit is None:
             dp_rate_limit = self.__dp_rate_limit
-        msg_rate_limit.increase_rate_limit_counter()
-        is_reached = self._wait_for_rate_limit_released(timeout, msg_rate_limit, dp_rate_limit)
-        if is_reached:
-            return is_reached
+        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+            msg_rate_limit.increase_rate_limit_counter()
+            is_reached = self._wait_for_rate_limit_released(timeout, msg_rate_limit, dp_rate_limit)
+            if is_reached:
+                return is_reached
 
         if type == TBSendMethod.PUBLISH:
-            data_for_analysis = data = kwargs.get("payload")
-            if isinstance(data, str):
-                data_for_analysis = loads(data)
-            datapoints = self._count_datapoints_in_message(data_for_analysis, device=device)
-            payload = data
-            if self.__dp_rate_limit.get_minimal_limit() < datapoints:
-                log.debug("Rate limit is too low, cannot send message with %i datapoints, "
-                          "splitting to messages with %i datapoints",
-                          datapoints, dp_rate_limit.get_minimal_limit())
-                if device is None:
-                    split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit())
-                else:
-                    device_data = data.get(device)
-                    device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit())
-                    split_messages = [{'message': {device: [split_message['data']]}, 'dp': split_message['datapoints']}
-                                      for split_message in device_split_messages]
-                if len(split_messages) == 0:
-                    log.error("Cannot split message to smaller parts!")
-                results = []
-                for part in split_messages:
-                    dp_rate_limit.increase_rate_limit_counter(part['dp'])
-                    self._wait_for_rate_limit_released(timeout,
-                                                       message_rate_limit=msg_rate_limit,
-                                                       dp_rate_limit=dp_rate_limit,
-                                                       amount=dp_rate_limit.get_minimal_limit())
-                    kwargs["payload"] = dumps(part['message'])
-                    self.wait_until_current_queued_messages_processed()
-                    results.append(self._client.publish(**kwargs))
-                return TBPublishInfo(results)
+            if self.__rate_limit.has_limit():
+                return self.__send_publish_with_limitations(kwargs, timeout, device, msg_rate_limit, dp_rate_limit)
             else:
-                dp_rate_limit.increase_rate_limit_counter(datapoints)
-                self._wait_for_rate_limit_released(timeout,
-                                                   message_rate_limit=msg_rate_limit,
-                                                   dp_rate_limit=dp_rate_limit,
-                                                   amount=datapoints)
-                kwargs["payload"] = dumps(payload)
+                if "payload" in kwargs and not isinstance(kwargs["payload"], str):
+                    kwargs["payload"] = dumps(kwargs["payload"])
                 return TBPublishInfo(self._client.publish(**kwargs))
         elif type == TBSendMethod.SUBSCRIBE:
             return self._client.subscribe(**kwargs)
         elif type == TBSendMethod.UNSUBSCRIBE:
             return self._client.unsubscribe(**kwargs)
+
+    def __send_publish_with_limitations(self, kwargs, timeout, device=None, msg_rate_limit=None, dp_rate_limit=None):
+        data_for_analysis = data = kwargs.get("payload")
+        if isinstance(data, str):
+            data_for_analysis = loads(data)
+        datapoints = self._count_datapoints_in_message(data_for_analysis, device=device)
+        payload = data
+        if self.__dp_rate_limit.get_minimal_limit() < datapoints:
+            log.debug("Rate limit is too low, cannot send message with %i datapoints, "
+                      "splitting to messages with %i datapoints",
+                      datapoints, dp_rate_limit.get_minimal_limit())
+            if device is None:
+                split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit())
+            else:
+                device_data = data.get(device)
+                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit())
+                split_messages = [{'message': {device: [split_message['data']]}, 'dp': split_message['datapoints']}
+                                  for split_message in device_split_messages]
+            if len(split_messages) == 0:
+                log.error("Cannot split message to smaller parts!")
+            results = []
+            for part in split_messages:
+                dp_rate_limit.increase_rate_limit_counter(part['dp'])
+                self._wait_for_rate_limit_released(timeout,
+                                                   message_rate_limit=msg_rate_limit,
+                                                   dp_rate_limit=dp_rate_limit,
+                                                   amount=dp_rate_limit.get_minimal_limit())
+                kwargs["payload"] = dumps(part['message'])
+                self.wait_until_current_queued_messages_processed()
+                results.append(self._client.publish(**kwargs))
+            return TBPublishInfo(results)
+        else:
+            dp_rate_limit.increase_rate_limit_counter(datapoints)
+            self._wait_for_rate_limit_released(timeout,
+                                               message_rate_limit=msg_rate_limit,
+                                               dp_rate_limit=dp_rate_limit,
+                                               amount=datapoints)
+            kwargs["payload"] = dumps(payload)
+            return TBPublishInfo(self._client.publish(**kwargs))
 
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
         if qos is None:
@@ -962,7 +971,8 @@ class TBDeviceMqttClient:
                         else:
                             final_message_item['data'] = message_item_values_with_allowed_size
                         final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                        split_messages.append({**final_message_item})
+                        split_messages.append({**final_message_item})  # Copy is required,
+                        # because we need to keep the original dict for next iteration
                         message_item_values_with_allowed_size = {}
             else:
                 log.error("Message is not a dictionary!")
