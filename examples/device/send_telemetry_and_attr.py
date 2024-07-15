@@ -32,7 +32,6 @@ def on_connect(client, userdata, flags, result_code, *extra_params, tb_client):
         log.info("Connected to ThingsBoard!")
     else:
         log.error("Failed to connect to ThingsBoard with result code: %d", result_code)
-    tb_client.disconnect()
 
 
 def main():
@@ -47,27 +46,15 @@ def main():
     client.send_telemetry(telemetry)
     client.send_telemetry(telemetry_as_array, quality_of_service=1)
     client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
-    client.send_telemetry(telemetry_with_ts)
     client.send_telemetry(telemetry_with_ts_as_array)
 
     # Waiting for data to be delivered
     result = client.send_attributes(attributes)
-    result.get()
     log.info("Attribute update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
     result = client.send_attributes(attributes)
-    result.get()
     log.info("Telemetry update sent: " + str(result.rc() == TBPublishInfo.TB_ERR_SUCCESS))
 
-    while not client.stopped:
-        sleep(1)
+    client.disconnect()
 
 
 if __name__ == '__main__':

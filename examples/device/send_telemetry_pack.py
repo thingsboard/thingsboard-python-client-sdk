@@ -29,7 +29,8 @@ def main():
     result = True
 
     for i in range(0, 100):
-        results.append(client.send_telemetry({"ts": int(round(time.time() * 1000)), "values": {"temperature": 42.1, "humidity": 70}}))
+        results.append(client.send_telemetry(
+            {"ts": int(round(time.time() * 1000)), "values": {"temperature": 42.1, "humidity": 70}}))
 
     for tmp_result in results:
         result &= tmp_result.get() == TBPublishInfo.TB_ERR_SUCCESS

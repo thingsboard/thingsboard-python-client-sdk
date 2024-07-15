@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 def callback(result, *args):
-    logging.info("Received data: %r",result)
+    logging.info("Received data: %r", result)
 
 
 def main():

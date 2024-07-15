@@ -48,9 +48,8 @@ def main():
     client.gw_connect_device(DEVICE_NAME)
 
     info = client.gw_claim(device_name=DEVICE_NAME, secret_key=SECRET_KEY, duration=DURATION)
-    info.wait_for_publish()
 
-    if info.rc == 0:
+    if info.rc() == 0:
         print("Claiming request was sent.")
     client.stop()
 

@@ -39,12 +39,15 @@ def on_upload_frequency_change(value, error):
 
 
 # dependently of request method we send different data back
-def on_server_side_rpc_request(client, request_id, request_body):
+def on_server_side_rpc_request(request_id, request_body):
     print(client, request_id, request_body)
     if request_body["method"] == "getCPULoad":
         client.send_rpc_reply(request_id, {"CPU percent": psutil.cpu_percent()})
     elif request_body["method"] == "getMemoryUsage":
         client.send_rpc_reply(request_id, {"Memory": psutil.virtual_memory().percent})
+    else:
+        print("Unknown method: " + request_body["method"])
+        client.send_rpc_reply(request_id, "Unknown method: " + request_body["method"])
 
 
 client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
