@@ -310,13 +310,13 @@ class TBDeviceMqttClient:
         self.__timeout_thread.daemon = True
         self.__timeout_thread.start()
         self._client.on_connect = self._on_connect
-        # self._client.on_log = self._on_log
         self._client.on_publish = self._on_publish
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
         self.current_firmware_info = {
             "current_" + FW_TITLE_ATTR: "Initial",
-            "current_" + FW_VERSION_ATTR: "v0"
+            "current_" + FW_VERSION_ATTR: "v0",
+            FW_STATE_ATTR: "IDLE"
         }
         self.__request_id = 0
         self.__firmware_request_id = 0
@@ -324,15 +324,6 @@ class TBDeviceMqttClient:
         self.firmware_received = False
         self.__updating_thread = Thread(target=self.__update_thread, name="Updating thread")
         self.__updating_thread.daemon = True
-        # TODO: enable configuration available here:
-        # https://pypi.org/project/paho-mqtt/#option-functions
-
-    # def _on_log(self, client, userdata, level, buf):
-    #     #     if isinstance(buf, Exception):
-    #     #         log.exception(buf)
-    #     #     else:
-    #     #         log.debug("%s - %s - %s - %s", client, userdata, level, buf)
-    #     pass
 
     def _on_publish(self, client, userdata, result):
         # log.debug("Data published to ThingsBoard!")
