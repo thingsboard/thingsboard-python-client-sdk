@@ -681,13 +681,13 @@ class TBDeviceMqttClient:
             else:
                 device_data = data.get(device)
                 device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit())
-                split_messages = [{'message': {device: [split_message['data']]}, 'dp': split_message['datapoints']}
+                split_messages = [{'message': {device: [split_message['data']]}, 'datapoints': split_message['datapoints']}
                                   for split_message in device_split_messages]
             if len(split_messages) == 0:
                 log.error("Cannot split message to smaller parts!")
             results = []
             for part in split_messages:
-                dp_rate_limit.increase_rate_limit_counter(part['dp'])
+                dp_rate_limit.increase_rate_limit_counter(part['datapoints'])
                 self._wait_for_rate_limit_released(timeout,
                                                    message_rate_limit=msg_rate_limit,
                                                    dp_rate_limit=dp_rate_limit,
@@ -888,7 +888,8 @@ class TBDeviceMqttClient:
                   client_id=None,
                   username=None,
                   password=None,
-                  hash=None):
+                  hash=None,
+                  gateway=None):
         """Provision the device in ThingsBoard. Returns the credentials for the device."""
         provision_request = {
             "provisionDeviceKey": provision_device_key,
@@ -909,6 +910,9 @@ class TBDeviceMqttClient:
 
         if device_name is not None:
             provision_request["deviceName"] = device_name
+
+        if gateway is not None:
+            provision_request["gateway"] = gateway
 
         provisioning_client = ProvisionClient(host=host, port=port, provision_request=provision_request)
         provisioning_client.provision()
