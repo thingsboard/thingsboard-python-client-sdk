@@ -677,7 +677,9 @@ class TBDeviceMqttClient:
                       "splitting to messages with %i datapoints",
                       datapoints, dp_rate_limit.get_minimal_limit())
             if device is None or data.get(device) is None:
-                split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit())
+                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit())
+                split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']}
+                                  for split_message in device_split_messages]
             else:
                 device_data = data.get(device)
                 device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit())
