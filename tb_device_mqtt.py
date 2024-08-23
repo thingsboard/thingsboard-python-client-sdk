@@ -676,7 +676,7 @@ class TBDeviceMqttClient:
             log.debug("Rate limit is too low, cannot send message with %i datapoints, "
                       "splitting to messages with %i datapoints",
                       datapoints, dp_rate_limit.get_minimal_limit())
-            if device is None:
+            if device is None or data.get(device) is None:
                 split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit())
             else:
                 device_data = data.get(device)
@@ -684,7 +684,7 @@ class TBDeviceMqttClient:
                 split_messages = [{'message': {device: [split_message['data']]}, 'datapoints': split_message['datapoints']}
                                   for split_message in device_split_messages]
             if len(split_messages) == 0:
-                log.error("Cannot split message to smaller parts!")
+                log.debug("Cannot split message to smaller parts!")
             results = []
             for part in split_messages:
                 dp_rate_limit.increase_rate_limit_counter(part['datapoints'])
@@ -923,6 +923,8 @@ class TBDeviceMqttClient:
         if message_pack is None:
             return []
         split_messages = []
+        if isinstance(message_pack, dict) and message_pack.get('device') is not None and len(message_pack.keys()) in [1,2]:
+            return [{'data': message_pack, 'datapoints': TBDeviceMqttClient._count_datapoints_in_message(message_pack), 'message': message_pack}]
         if not isinstance(message_pack, list):
             message_pack = [message_pack]
         final_message_item = {'data': {}, 'datapoints': 0}
