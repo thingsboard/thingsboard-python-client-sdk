@@ -23,6 +23,7 @@ except ImportError:
 from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBSendMethod
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
+GATEWAY_TELEMETRY_TOPIC = "v1/gateway/telemetry"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 GATEWAY_MAIN_TOPIC = "v1/gateway/"
@@ -39,11 +40,22 @@ class TBGatewayAPI:
 
 class TBGatewayMqttClient(TBDeviceMqttClient):
     def __init__(self, host, port=1883, username=None, password=None, gateway=None, quality_of_service=1, client_id="",
-                 rate_limit="DEFAULT_RATE_LIMIT", dp_rate_limit="DEFAULT_RATE_LIMIT"):
+                 messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
+                 telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
+                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT",
+                 device_messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
+                 device_telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
+                 device_telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT"):
         super().__init__(host, port, username, password, quality_of_service, client_id,
-                         rate_limit=rate_limit, dp_rate_limit=dp_rate_limit)
+                         messages_rate_limit=messages_rate_limit, telemetry_rate_limit=telemetry_rate_limit,
+                         telemetry_dp_rate_limit=telemetry_dp_rate_limit)
+
+        self.__device_telemetry_rate_limit, self.__device_telemetry_dp_rate_limit = RateLimit.get_rate_limits_by_host(
+            host, device_telemetry_rate_limit, device_telemetry_dp_rate_limit)
+        self.__device_messages_rate_limit = RateLimit.get_rate_limit_by_host(host, device_messages_rate_limit)
+
+        self.service_configuration_callback = self.__on_service_configuration
         self.quality_of_service = quality_of_service
-        self._rate_limit, self._dp_rate_limit = RateLimit.get_rate_limits_by_host(host, rate_limit, dp_rate_limit)
         self.__max_sub_id = 0
         self.__sub_dict = {}
         self.__connected_devices = set("*")
@@ -156,9 +168,14 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if _type == TBSendMethod.PUBLISH:
             if self._devices_rate_limit.get(device_name) is None:
                 self._add_device_rate_limit(device_name)
+            device_msg_rate_limit = self._devices_rate_limit[device_name]['msg_rate_limit']
+            device_dp_rate_limit = self._devices_rate_limit[device_name]['dp_rate_limit']
+            if kwargs.get('topic') == GATEWAY_TELEMETRY_TOPIC:
+                device_msg_rate_limit = self._devices_rate_limit[device_name]['telemetry_msg_rate_limit']
+                device_dp_rate_limit = self._devices_rate_limit[device_name]['telemetry_dp_rate_limit']
             info = self._publish_data(**kwargs, device=device_name,
-                                      msg_rate_limit=self._devices_rate_limit[device_name]['rate_limit'],
-                                      dp_rate_limit=self._devices_rate_limit[device_name]['dp_rate_limit'])
+                                      msg_rate_limit=device_msg_rate_limit,
+                                      dp_rate_limit=device_dp_rate_limit)
             return info
 
     def gw_request_shared_attributes(self, device_name, keys, callback):
@@ -170,7 +187,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
     def gw_send_attributes(self, device, attributes, quality_of_service=1):
         return self._send_device_request(TBSendMethod.PUBLISH,
                                          device,
-                                         topic=GATEWAY_MAIN_TOPIC + "attributes",
+                                         topic=GATEWAY_ATTRIBUTES_TOPIC,
                                          data={device: attributes},
                                          qos=quality_of_service)
 
@@ -180,7 +197,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
         return self._send_device_request(TBSendMethod.PUBLISH,
                                          device,
-                                         topic=GATEWAY_MAIN_TOPIC + "telemetry",
+                                         topic=GATEWAY_TELEMETRY_TOPIC,
                                          data={device: telemetry},
                                          qos=quality_of_service)
 
@@ -274,6 +291,45 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         return info
 
     def _add_device_rate_limit(self, device_name):
-        rate_limit = RateLimit(self._rate_limit)
-        dp_rate_limit = RateLimit(self._dp_rate_limit)
-        self._devices_rate_limit[device_name] = {'rate_limit': rate_limit, 'dp_rate_limit': dp_rate_limit}
+        telemetry_rate_limit = RateLimit(self.__device_telemetry_rate_limit)
+        telemetry_dp_rate_limit = RateLimit(self.__device_telemetry_dp_rate_limit)
+        msg_dp_rate_limit = self.EMPTY_RATE_LIMIT
+        msg_rate_limit = RateLimit(self.__device_messages_rate_limit)
+        self._devices_rate_limit[device_name] = {
+            'msg_rate_limit': msg_rate_limit,
+            'dp_rate_limit': msg_dp_rate_limit,
+            'telemetry_msg_rate_limit': telemetry_rate_limit,
+            'telemetry_dp_rate_limit': telemetry_dp_rate_limit
+        }
+
+    def _change_devices_rate_limit(self, rate_limit_key, rate_limit_value, percentage=80):
+        for device in self._devices_rate_limit.values():
+            device[rate_limit_key].set_limit(rate_limit_value, percentage=percentage)
+
+    def __on_service_configuration(self, _, service_config, *args, **kwargs):
+        if service_config.get("gatewayDeviceMessagesRateLimits"):
+            # change global rate limit for future devices
+            self.__device_messages_rate_limit = service_config.get('gatewayDeviceMessagesRateLimits')
+
+            # change rate limit for already connected devices
+            self._change_devices_rate_limit('msg_rate_limit', service_config.get('gatewayDeviceMessagesRateLimits'))
+        if service_config.get('gatewayDeviceTelemetryMessagesRateLimits'):
+            # change global rate limit for future devices
+            self.__device_telemetry_rate_limit = service_config.get('gatewayDeviceTelemetryMessagesRateLimits')
+
+            # change rate limit for already connected devices
+            self._change_devices_rate_limit('telemetry_msg_rate_limit',
+                                            service_config.get('gatewayDeviceTelemetryMessagesRateLimits'))
+        if service_config.get('gatewayDeviceTelemetryDataPointsRateLimits'):
+            # change global rate limit for future devices
+            self.__device_telemetry_dp_rate_limit = service_config.get('gatewayDeviceTelemetryDataPointsRateLimits')
+
+            # change rate limit for already connected devices
+            self._change_devices_rate_limit('telemetry_dp_rate_limit',
+                                            service_config.get('gatewayDeviceTelemetryDataPointsRateLimits'))
+        if service_config.get('maxInflightMessages'):
+            self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
+        if service_config.get('maxPayloadSize'):
+            self.max_payload_size = int(service_config.get('maxPayloadSize'))
+        if service_config.get('payloadType'):
+            pass
