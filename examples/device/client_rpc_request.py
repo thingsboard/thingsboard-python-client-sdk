@@ -23,7 +23,7 @@ def callback(request_id, resp_body, exception=None):
         logging.error("Exception: " + str(exception))
     else:
         logging.info("request id: {request_id}, response body: {resp_body}".format(request_id=request_id,
-                                                                            resp_body=resp_body))
+                                                                                   resp_body=resp_body))
 
 
 def main():
