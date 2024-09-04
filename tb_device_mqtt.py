@@ -339,7 +339,7 @@ class TBDeviceMqttClient:
         self.__device_client_rpc_dict = {}
         self.__attr_request_number = 0
         self.max_payload_size = max_payload_size
-        self.service_configuration_callback = self.__on_service_configuration
+        self.service_configuration_callback = self.on_service_configuration
         telemetry_rate_limit, telemetry_dp_rate_limit = RateLimit.get_rate_limits_by_host(self.__host,
                                                                                           telemetry_rate_limit,
                                                                                           telemetry_dp_rate_limit)
@@ -645,16 +645,18 @@ class TBDeviceMqttClient:
                            self.quality_of_service)
 
     def request_service_configuration(self, callback):
-        self.send_rpc_call("getServiceConfiguration", {}, callback)
+        self.send_rpc_call("getSessionLimits", {}, callback)
 
-    def __on_service_configuration(self, _, service_config, *args, **kwargs):
-        if service_config.get("deviceMsgRateLimit"):
-            self._messages_rate_limit.set_limit(service_config.get("deviceMsgRateLimit"), percentage=80)
-        if service_config.get('deviceTelemetryMsgRateLimit'):
-            self.__telemetry_rate_limit.set_limit(service_config.get('deviceTelemetryMsgRateLimit'), percentage=80)
-        if service_config.get('deviceTelemetryDataPointsRateLimit'):
-            self.__telemetry_dp_rate_limit.set_limit(service_config.get('deviceTelemetryDataPointsRateLimit'),
-                                                     percentage=80)
+    def on_service_configuration(self, _, service_config, *args, **kwargs):
+        if service_config.get("rateLimits"):
+            rate_limits_config = service_config.get("rateLimits")
+
+            if rate_limits_config.get('messages'):
+                self._messages_rate_limit.set_limit(rate_limits_config.get('messages'), percentage=80)
+            if rate_limits_config.get('telemetryMessages'):
+                self.__telemetry_rate_limit.set_limit(rate_limits_config.get('telemetryMessages'), percentage=80)
+            if rate_limits_config.get('telemetryDataPoints'):
+                self.__telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
         if service_config.get('maxInflightMessages'):
             self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
         if service_config.get('maxPayloadSize'):
