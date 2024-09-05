@@ -45,7 +45,16 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                  telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT",
                  device_messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
                  device_telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
-                 device_telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT"):
+                 device_telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", **kwargs):
+        # Added for compatibility with the old versions
+        if kwargs.get('rate_limit') or kwargs.get('dp_rate_limit'):
+            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit)
+            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit)
+            device_messages_rate_limit = device_messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', device_messages_rate_limit)
+            device_telemetry_rate_limit = device_telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', device_telemetry_rate_limit)
+            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit)
+            device_telemetry_dp_rate_limit = device_telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', device_telemetry_dp_rate_limit)
+
         super().__init__(host, port, username, password, quality_of_service, client_id,
                          messages_rate_limit=messages_rate_limit, telemetry_rate_limit=telemetry_rate_limit,
                          telemetry_dp_rate_limit=telemetry_dp_rate_limit)

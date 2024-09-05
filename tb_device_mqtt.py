@@ -317,7 +317,12 @@ class TBDeviceMqttClient:
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
                  chunk_size=0, messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
                  telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
-                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196):
+                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, **kwargs):
+        # Added for compatibility with old versions
+        if kwargs.get('rate_limit') is not None or kwargs.get('dp_rate_limit') is not None:
+            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit)
+            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit)
+            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit)
         self._client = paho.Client(protocol=5, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
@@ -648,6 +653,10 @@ class TBDeviceMqttClient:
         self.send_rpc_call("getSessionLimits", {}, callback)
 
     def on_service_configuration(self, _, service_config, *args, **kwargs):
+        if not isinstance(service_config, dict) or 'rateLimits' not in service_config:
+            log.warning("Cannot retrieve service configuration, session will use default configuration.")
+            log.debug("Received the following response: %r", service_config)
+            return
         if service_config.get("rateLimits"):
             rate_limits_config = service_config.get("rateLimits")
 
