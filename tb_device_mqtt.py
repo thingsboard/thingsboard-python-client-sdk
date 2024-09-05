@@ -670,8 +670,6 @@ class TBDeviceMqttClient:
             self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(service_config.get('maxPayloadSize'))
-        if service_config.get('payloadType'):
-            pass
 
     def set_server_side_rpc_request_handler(self, handler):
         """Set the callback that will be called when a server-side RPC is received."""
