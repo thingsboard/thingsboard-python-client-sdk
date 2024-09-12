@@ -201,7 +201,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          qos=quality_of_service)
 
     def gw_send_telemetry(self, device, telemetry, quality_of_service=1):
-        if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
+        if not isinstance(telemetry, list):
             telemetry = [telemetry]
 
         return self._send_device_request(TBSendMethod.PUBLISH,
