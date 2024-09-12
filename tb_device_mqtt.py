@@ -1101,7 +1101,7 @@ class TBDeviceMqttClient:
                 values['connectorName']: {'receivedTs': values['receivedTs'], 'publishedTs': int(timestamp() * 1000)}}
 
             kwargs['payload'] = payload
-            kwargs['topic'] = 'v1/gateway/latency'
+            kwargs['topic'] = 'v1/gateway/metrics'
             return kwargs
         except Exception as e:
             log.error(e)
