@@ -15,7 +15,6 @@
 import logging
 from inspect import signature
 from time import sleep
-from time import time as timestamp
 
 import paho.mqtt.client as paho
 from math import ceil
@@ -738,8 +737,6 @@ class TBDeviceMqttClient:
             if msg_rate_limit.has_limit():
                 return self.__send_publish_with_limitations(kwargs, timeout, device, msg_rate_limit, dp_rate_limit)
             else:
-                if self.__is_test_latency_message(kwargs['payload']):
-                    kwargs = self.__convert_test_latency_message(kwargs)
 
                 if "payload" in kwargs and not isinstance(kwargs["payload"], str):
                     kwargs["payload"] = dumps(kwargs["payload"])
@@ -793,8 +790,6 @@ class TBDeviceMqttClient:
                                                    message_rate_limit=msg_rate_limit,
                                                    dp_rate_limit=dp_rate_limit,
                                                    amount=dp_rate_limit.get_minimal_limit())
-                if self.__is_test_latency_message(kwargs['payload']):
-                    kwargs = self.__convert_test_latency_message(kwargs)
                 kwargs["payload"] = dumps(part['message'])
                 self.wait_until_current_queued_messages_processed()
                 results.append(self._client.publish(**kwargs))
@@ -806,8 +801,6 @@ class TBDeviceMqttClient:
                                                    message_rate_limit=msg_rate_limit,
                                                    dp_rate_limit=dp_rate_limit,
                                                    amount=datapoints)
-            if self.__is_test_latency_message(kwargs['payload']):
-                kwargs = self.__convert_test_latency_message(kwargs)
             kwargs["payload"] = dumps(payload)
             return TBPublishInfo(self._client.publish(**kwargs))
 
@@ -1085,24 +1078,3 @@ class TBDeviceMqttClient:
         if add_last_item:
             split_messages.append(final_message_item)
         return split_messages
-
-    @staticmethod
-    def __is_test_latency_message(payload):
-        if isinstance(payload, list) and payload[0].get('values', {}).get('isTestLatencyMessageType', False):
-            return True
-
-        return False
-
-    @staticmethod
-    def __convert_test_latency_message(kwargs):
-        try:
-            values = kwargs['payload'][0]['values']
-            payload = {
-                values['connectorName']: {'receivedTs': values['receivedTs'], 'publishedTs': int(timestamp() * 1000)}}
-
-            kwargs['payload'] = payload
-            kwargs['topic'] = 'v1/gateway/metrics'
-            return kwargs
-        except Exception as e:
-            log.error(e)
-            return kwargs
