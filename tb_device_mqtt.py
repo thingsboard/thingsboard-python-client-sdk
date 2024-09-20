@@ -248,7 +248,6 @@ class RateLimit:
         return not self.__no_limit
 
     def set_limit(self, rate_limit, percentage=0):
-        self.__rate_limit_dict = {}
         rate_configs = rate_limit.split(";")
         if "," in rate_limit:
             rate_configs = rate_limit.split(",")
@@ -256,8 +255,8 @@ class RateLimit:
             if rate == "":
                 continue
             rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"counter": self.__rate_limit_dict[int(rate[1])]['counter'],
-                                                    "start": self.__rate_limit_dict[int(rate[1])]['start'],
+            self.__rate_limit_dict[int(rate[1])] = {"counter": self.__rate_limit_dict.get(int(rate[1]), {}).get('counter', 0),
+                                                    "start": self.__rate_limit_dict.get(int(rate[1]), {}).get('start', int(time())),
                                                     "limit": int(rate[0]) * percentage / 100}
 
     @staticmethod
@@ -653,12 +652,12 @@ class TBDeviceMqttClient:
         self.send_rpc_call("getSessionLimits", {}, callback)
 
     def on_service_configuration(self, _, service_config, *args, **kwargs):
-        if not isinstance(service_config, dict) or 'rateLimits' not in service_config:
+        if not isinstance(service_config, dict) or 'rateLimit' not in service_config:
             log.warning("Cannot retrieve service configuration, session will use default configuration.")
             log.debug("Received the following response: %r", service_config)
             return
-        if service_config.get("rateLimits"):
-            rate_limits_config = service_config.get("rateLimits")
+        if service_config.get("rateLimit"):
+            rate_limits_config = service_config.get("rateLimit")
 
             if rate_limits_config.get('messages'):
                 self._messages_rate_limit.set_limit(rate_limits_config.get('messages'), percentage=80)
@@ -670,6 +669,8 @@ class TBDeviceMqttClient:
             self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(service_config.get('maxPayloadSize'))
+        log.info("Service configuration was successfully retrieved and applied.")
+        log.info("Current limits: %r", service_config)
 
     def set_server_side_rpc_request_handler(self, handler):
         """Set the callback that will be called when a server-side RPC is received."""
@@ -922,7 +923,7 @@ class TBDeviceMqttClient:
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
 
-        ts_in_millis = int(time() * 1000)
+        ts_in_millis = int(time())
 
         attr_request_number = self._add_attr_request_callback(callback)
 
@@ -944,7 +945,7 @@ class TBDeviceMqttClient:
 
     def __timeout_check(self):
         while not self.stopped:
-            current_ts_in_millis = int(time() * 1000)
+            current_ts_in_millis = int(time())
             for (attr_request_number, ts) in tuple(self.__attrs_request_timeout.items()):
                 if current_ts_in_millis < ts:
                     continue
