@@ -20,9 +20,9 @@ import paho.mqtt.client as paho
 from math import ceil
 
 try:
-    from time import monotonic as time
+    from time import monotonic as time, time as timestamp
 except ImportError:
-    from time import time
+    from time import time, time as timestamp
 import ssl
 from threading import RLock, Thread
 from enum import Enum
@@ -735,17 +735,40 @@ class TBDeviceMqttClient:
 
         if _type == TBSendMethod.PUBLISH:
             if msg_rate_limit.has_limit():
+                self.__add_metadata_to_data_dict_from_device(kwargs["payload"])
                 return self.__send_publish_with_limitations(kwargs, timeout, device, msg_rate_limit, dp_rate_limit)
             else:
-
-                if "payload" in kwargs and not isinstance(kwargs["payload"], str):
-                    kwargs["payload"] = dumps(kwargs["payload"])
-
+                if "payload" in kwargs:
+                    not_converted_to_str = True
+                    if isinstance(kwargs["payload"], dict):
+                        self.__add_metadata_to_data_dict_from_device(kwargs["payload"])
+                        kwargs["payload"] = dumps(kwargs["payload"])
+                        not_converted_to_str = False
+                    elif isinstance(kwargs["payload"], str):
+                        if 'metadata' in kwargs["payload"]:
+                            payload = loads(kwargs["payload"])
+                            self.__add_metadata_to_data_dict_from_device(payload)
+                            not_converted_to_str = False
+                    if not_converted_to_str and not isinstance(kwargs["payload"], str):
+                        kwargs["payload"] = dumps(kwargs["payload"])
                 return TBPublishInfo(self._client.publish(**kwargs))
         elif _type == TBSendMethod.SUBSCRIBE:
             return self._client.subscribe(**kwargs)
         elif _type == TBSendMethod.UNSUBSCRIBE:
             return self._client.unsubscribe(**kwargs)
+
+    def __add_metadata_to_data_dict_from_device(self, data):
+        if isinstance(data, dict) and "metadata" in data:
+            data["metadata"]["publishedTs"] = int(timestamp() * 1000)
+        elif isinstance(data, list):
+            current_time = int(timestamp() * 1000)
+            for data_item in data:
+                if isinstance(data_item, dict):
+                    if 'ts' in data_item and 'metadata' in data_item:
+                        data_item["metadata"]["publishedTs"] = current_time
+        elif isinstance(data, dict):
+            for key, value in data.items():
+                self.__add_metadata_to_data_dict_from_device(value)
 
     def __get_rate_limits_by_topic(self, topic, device=None, msg_rate_limit=None, dp_rate_limit=None):
         if device is not None:
@@ -921,7 +944,7 @@ class TBDeviceMqttClient:
 
     def __timeout_check(self):
         while not self.stopped:
-            current_ts_in_millis = int(time())
+            current_ts_in_millis = int(time() * 1000)
             for (attr_request_number, ts) in tuple(self.__attrs_request_timeout.items()):
                 if current_ts_in_millis < ts:
                     continue
