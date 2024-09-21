@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+from copy import deepcopy
 from inspect import signature
 from time import sleep
 
@@ -20,7 +21,7 @@ import paho.mqtt.client as paho
 from math import ceil
 
 try:
-    from time import monotonic as time, time as timestamp
+    from time import monotonic, time as timestamp
 except ImportError:
     from time import time, time as timestamp
 import ssl
@@ -28,7 +29,7 @@ from threading import RLock, Thread
 from enum import Enum
 
 from paho.mqtt.reasoncodes import ReasonCodes
-from simplejson import loads, dumps, JSONDecodeError
+from orjson import dumps, loads, JSONDecodeError
 
 from sdk_utils import verify_checksum
 
@@ -194,7 +195,7 @@ class TBPublishInfo:
 
 class RateLimit:
     def __init__(self, rate_limit):
-        self.__start_time = time()
+        self.__start_time = monotonic()
         self.__no_limit = False
         if ''.join(c for c in rate_limit if c not in [' ', ',', ';']) in ("", "0:0"):
             self.__no_limit = True
@@ -207,18 +208,19 @@ class RateLimit:
             if rate == "":
                 continue
             rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"counter": 0, "start": int(time()), "limit": int(rate[0])}
+            self.__rate_limit_dict[int(rate[1])] = {"counter": 0, "start": int(monotonic()), "limit": int(rate[0])}
         log.debug("Rate limit set to values: ")
         self.__minimal_timeout = DEFAULT_TIMEOUT * 10
         self.__minimal_limit = 1000000000
-        if not self.__no_limit:
-            for rate_limit_time in self.__rate_limit_dict:
-                log.debug("Time: %s, Limit: %s", rate_limit_time,
-                          self.__rate_limit_dict[rate_limit_time]["limit"])
-                if self.__rate_limit_dict[rate_limit_time]["limit"] < self.__minimal_limit:
-                    self.__minimal_limit = self.__rate_limit_dict[rate_limit_time]["limit"]
-                if rate_limit_time < self.__minimal_limit:
-                    self.__minimal_timeout = rate_limit_time + 1
+        with self.__lock:
+            if not self.__no_limit:
+                for rate_limit_time in self.__rate_limit_dict:
+                    log.debug("Time: %s, Limit: %s", rate_limit_time,
+                              self.__rate_limit_dict[rate_limit_time]["limit"])
+                    if self.__rate_limit_dict[rate_limit_time]["limit"] < self.__minimal_limit:
+                        self.__minimal_limit = self.__rate_limit_dict[rate_limit_time]["limit"]
+                    if rate_limit_time < self.__minimal_limit:
+                        self.__minimal_timeout = rate_limit_time + 1
 
     def increase_rate_limit_counter(self, amount=1):
         if self.__no_limit:
@@ -230,13 +232,15 @@ class RateLimit:
     def check_limit_reached(self, amount=1):
         if self.__no_limit:
             return False
-        for rate_limit_time, rate_limit_info in self.__rate_limit_dict.items():
-            if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= int(time()):
-                self.__rate_limit_dict[rate_limit_time]["start"] = int(time())
-                self.__rate_limit_dict[rate_limit_time]["counter"] = 0
-            if rate_limit_info['counter'] + amount > rate_limit_info['limit']:
-                return rate_limit_time
-        return False
+        with self.__lock:
+            current_time = int(monotonic())
+            for rate_limit_time, rate_limit_info in self.__rate_limit_dict.items():
+                if self.__rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= current_time:
+                    self.__rate_limit_dict[rate_limit_time]["start"] = current_time
+                    self.__rate_limit_dict[rate_limit_time]["counter"] = 0
+                if rate_limit_info['counter'] + amount > rate_limit_info['limit']:
+                    return rate_limit_time
+            return False
 
     def get_minimal_limit(self):
         return self.__minimal_limit
@@ -248,16 +252,19 @@ class RateLimit:
         return not self.__no_limit
 
     def set_limit(self, rate_limit, percentage=0):
-        rate_configs = rate_limit.split(";")
-        if "," in rate_limit:
-            rate_configs = rate_limit.split(",")
-        for rate in rate_configs:
-            if rate == "":
-                continue
-            rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"counter": self.__rate_limit_dict.get(int(rate[1]), {}).get('counter', 0),
-                                                    "start": self.__rate_limit_dict.get(int(rate[1]), {}).get('start', int(time())),
-                                                    "limit": int(rate[0]) * percentage / 100}
+        with self.__lock:
+            old_rate_limit_dict = deepcopy(self.__rate_limit_dict)
+            self.__rate_limit_dict = {}
+            rate_configs = rate_limit.split(";")
+            if "," in rate_limit:
+                rate_configs = rate_limit.split(",")
+            for rate in rate_configs:
+                if rate == "":
+                    continue
+                rate = rate.split(":")
+                self.__rate_limit_dict[int(rate[1])] = {"counter": old_rate_limit_dict.get(int(rate[1]), {}).get('counter', 0),
+                                                        "start": self.__rate_limit_dict.get(int(rate[1]), {}).get('start', int(monotonic())),
+                                                        "limit": int(int(rate[0]) * percentage / 100)}
 
     @staticmethod
     def get_rate_limits_by_host(host, rate_limit, dp_rate_limit):
@@ -270,20 +277,20 @@ class RateLimit:
     def get_rate_limit_by_host(host, rate_limit):
         if rate_limit == "DEFAULT_TELEMETRY_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                rate_limit = "100:1,4000:60,70000:3600,"
+                rate_limit = "5:1,60:60,"
             elif "tb" in host and "cloud" in host:
-                rate_limit = "10:1,300:60,7000:3600,"
+                rate_limit = "5:1,60:60,"
             elif "demo.thingsboard.io" in host:
-                rate_limit = "10:1,300:60,"
+                rate_limit = "5:1,60:60,"
             else:
                 rate_limit = "0:0,"
         elif rate_limit == "DEFAULT_MESSAGES_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                rate_limit = "100:1,4000:60,70000:3600,"
+                rate_limit = "5:1,60:60,"
             elif "tb" in host and "cloud" in host:
-                rate_limit = "10:1,300:60,7000:3600,"
+                rate_limit = "5:1,60:60,"
             elif "demo.thingsboard.io" in host:
-                rate_limit = "10:1,300:60,"
+                rate_limit = "5:1,60:60,"
             else:
                 rate_limit = "0:0,"
         else:
@@ -295,11 +302,11 @@ class RateLimit:
     def get_dp_rate_limit_by_host(host, dp_rate_limit):
         if dp_rate_limit == "DEFAULT_TELEMETRY_DP_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                dp_rate_limit = "190:1,5900:60,13900:3600,"
+                dp_rate_limit = "5:1,60:60,"
             elif "tb" in host and "cloud" in host:
-                dp_rate_limit = "15:1,500:60,13900:3600,"
+                dp_rate_limit = "5:1,60:60,"
             elif "demo.thingsboard.io" in host:
-                dp_rate_limit = "15:1,500:60,"
+                dp_rate_limit = "5:1,60:60,"
             else:
                 dp_rate_limit = "0:0,"
         else:
@@ -372,13 +379,23 @@ class TBDeviceMqttClient:
         self.firmware_received = False
         self.__updating_thread = Thread(target=self.__update_thread, name="Updating thread")
         self.__updating_thread.daemon = True
+        self.rate_limits_received = False
 
     def _on_publish(self, client, userdata, result):
         # log.debug("Data published to ThingsBoard!")
         pass
 
-    def _on_disconnect(self, client, userdata, result_code, properties=None):
+    def _on_disconnect(self, client: paho.Client, userdata, result_code, properties=None):
         self.__is_connected = False
+        client._out_packet.clear()
+        client._out_messages.clear()
+        client._in_messages.clear()
+        self.__attr_request_number = 0
+        self.__device_max_sub_id = 0
+        self.__device_client_rpc_number = 0
+        self.__device_sub_dict = {}
+        self.__device_client_rpc_dict = {}
+        self.__attrs_request_timeout = {}
         log.warning("MQTT client was disconnected with reason code %s (%s) ",
                     str(result_code), TBPublishInfo.ERRORS_DESCRIPTION.get(result_code, "Description not found."))
         log.debug("Client: %s, user data: %s, result code: %s. Description: %s",
@@ -578,7 +595,7 @@ class TBDeviceMqttClient:
         log.info('Firmware is updated!\n Current firmware version is: %s' % version_to)
 
     def __update_thread(self):
-        while True:
+        while not self.stopped:
             if self.firmware_received:
                 self.current_firmware_info[FW_STATE_ATTR] = "UPDATING"
                 self.send_telemetry(self.current_firmware_info)
@@ -651,7 +668,12 @@ class TBDeviceMqttClient:
     def request_service_configuration(self, callback):
         self.send_rpc_call("getSessionLimits", {}, callback)
 
-    def on_service_configuration(self, _, service_config, *args, **kwargs):
+    def on_service_configuration(self, _, response, *args, **kwargs):
+        if "error" in response:
+            log.warning("Timeout while waiting for service configuration!, session will use default configuration.")
+            self.rate_limits_received = True
+            return
+        service_config = response
         if not isinstance(service_config, dict) or 'rateLimit' not in service_config:
             log.warning("Cannot retrieve service configuration, session will use default configuration.")
             log.debug("Received the following response: %r", service_config)
@@ -666,18 +688,19 @@ class TBDeviceMqttClient:
             if rate_limits_config.get('telemetryDataPoints'):
                 self.__telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
         if service_config.get('maxInflightMessages'):
-            self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
+            self.max_inflight_messages_set(5)#int(service_config.get('maxInflightMessages')))
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(service_config.get('maxPayloadSize'))
         log.info("Service configuration was successfully retrieved and applied.")
         log.info("Current limits: %r", service_config)
+        self.rate_limits_received = True
 
     def set_server_side_rpc_request_handler(self, handler):
         """Set the callback that will be called when a server-side RPC is received."""
         self.__device_on_server_side_rpc_response = handler
 
     def _wait_for_rate_limit_released(self, timeout, message_rate_limit, dp_rate_limit=None, amount=1):
-        start_time = int(time())
+        start_time = int(monotonic())
         dp_rate_limit_timeout = dp_rate_limit.get_minimal_timeout() if dp_rate_limit is not None else 0
         timeout = max(message_rate_limit.get_minimal_timeout(), dp_rate_limit_timeout, timeout) + 10
         timeout_updated = False
@@ -689,7 +712,7 @@ class TBDeviceMqttClient:
                                    or (dp_rate_limit is not None and dp_rate_limit.check_limit_reached(amount=amount))
                                    or not self.is_connected())
             if not timeout_updated and limit_reached_check:
-                timeout = max(timeout, limit_reached_check) + 10
+                timeout += 10
                 timeout_updated = True
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
@@ -697,7 +720,7 @@ class TBDeviceMqttClient:
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
                 disconnected = True
                 timeout = max(timeout, 180) + 10
-            if int(time()) >= timeout + start_time:
+            if int(monotonic()) >= timeout + start_time:
                 log.error("Timeout while waiting for rate limit to be released!")
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
@@ -710,11 +733,16 @@ class TBDeviceMqttClient:
 
     def wait_until_current_queued_messages_processed(self):
         previous_notification_time = 0
-        while self._client._out_messages and not self.stopped:
-            if int(time()) - previous_notification_time > 5:
-                log.debug("Waiting for all messages to be processed by paho client...")
-                previous_notification_time = int(time())
-            sleep(.001)
+        current_out_messages = len(self._client._out_messages) * 2
+        inflight_messages = self._client._inflight_messages or 5
+        if current_out_messages > 0:
+            while current_out_messages >= inflight_messages and not self.stopped:
+                current_out_messages = len(self._client._out_messages)
+                if int(monotonic()) - previous_notification_time > 5 and current_out_messages > inflight_messages:
+                    log.debug("Waiting for messages to be processed by paho client, current queue size - %r, max inflight messages: %r",
+                                current_out_messages, inflight_messages)
+                    previous_notification_time = int(monotonic())
+                sleep(.001)
 
     def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
@@ -803,8 +831,7 @@ class TBDeviceMqttClient:
                 device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(),
                                                             self.max_payload_size)
                 split_messages = [
-                    {'message': {device: [split_message['data']]}, 'datapoints': split_message['datapoints'],
-                     'metadata': split_message.get('metadata')} for split_message in device_split_messages]
+                    {'message': {device: [split_message['data']]}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
 
             if len(split_messages) == 0:
                 log.debug("Cannot split message to smaller parts!")
@@ -818,6 +845,7 @@ class TBDeviceMqttClient:
                                                    amount=dp_rate_limit.get_minimal_limit())
                 kwargs["payload"] = dumps(part['message'])
                 self.wait_until_current_queued_messages_processed()
+                log.warning(kwargs)
                 results.append(self._client.publish(**kwargs))
             return TBPublishInfo(results)
         else:
@@ -828,6 +856,7 @@ class TBDeviceMqttClient:
                                                    dp_rate_limit=dp_rate_limit,
                                                    amount=datapoints)
             kwargs["payload"] = dumps(payload)
+            self.wait_until_current_queued_messages_processed()
             return TBPublishInfo(self._client.publish(**kwargs))
 
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
@@ -838,9 +867,9 @@ class TBDeviceMqttClient:
         while not self.is_connected() and not self.stopped:
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
-            if time() - waiting_for_connection_message_time > 10.0:
+            if monotonic() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before subscribing for data on ThingsBoard!")
-                waiting_for_connection_message_time = time()
+                waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
         return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout, msg_rate_limit=self._messages_rate_limit)
@@ -853,13 +882,13 @@ class TBDeviceMqttClient:
             log.exception("Quality of service (qos) value must be 0 or 1")
             raise TBQoSException("Quality of service (qos) value must be 0 or 1")
 
-        waiting_for_connection_message_time = 0
+        waiting_for_connection_message_time = 0.0
         while not self.is_connected():
             if self.stopped:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
-            if time() - waiting_for_connection_message_time > 10.0:
+            if monotonic() - waiting_for_connection_message_time > 10.0:
                 log.warning("Waiting for connection to be established before sending data to ThingsBoard!")
-                waiting_for_connection_message_time = time()
+                waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
         return self._send_request(TBSendMethod.PUBLISH, {"topic": topic, "payload": data, "qos": qos}, timeout,
@@ -923,18 +952,14 @@ class TBDeviceMqttClient:
             tmp = tmp[:len(tmp) - 1]
             msg.update({"sharedKeys": tmp})
 
-        ts_in_millis = int(time())
+        start_processing_attribute_request = int(monotonic())
 
         attr_request_number = self._add_attr_request_callback(callback)
 
         info = self._publish_data(msg, ATTRIBUTES_TOPIC_REQUEST + str(attr_request_number), self.quality_of_service)
 
-        self._add_timeout(attr_request_number, ts_in_millis, timeout=20)
+        self.__attrs_request_timeout[attr_request_number] = start_processing_attribute_request + 20
         return info
-
-    def _add_timeout(self, attr_request_number, timestamp, timeout=DEFAULT_TIMEOUT):
-        timestamp += timeout
-        self.__attrs_request_timeout[attr_request_number] = int(timestamp)
 
     def _add_attr_request_callback(self, callback):
         with self._lock:
@@ -945,9 +970,9 @@ class TBDeviceMqttClient:
 
     def __timeout_check(self):
         while not self.stopped:
-            current_ts_in_millis = int(time())
+            current_time = int(monotonic())
             for (attr_request_number, ts) in tuple(self.__attrs_request_timeout.items()):
-                if current_ts_in_millis < ts:
+                if current_time < ts:
                     continue
 
                 with self._lock:
@@ -957,14 +982,14 @@ class TBDeviceMqttClient:
 
                 if callback is not None:
                     if isinstance(callback, tuple):
-                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"),
+                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"),
                                     callback[1])
                     else:
-                        callback(None, TBTimeoutException("Timeout while waiting for a reply from ThingsBoard!"))
+                        callback(None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"))
 
                 self.__attrs_request_timeout.pop(attr_request_number)
 
-            sleep(0.2)
+            sleep(0.1)
 
     def claim(self, secret_key, duration=30000):
         """Claim the device in Thingsboard. The duration is in milliseconds."""
@@ -1044,65 +1069,138 @@ class TBDeviceMqttClient:
         return provisioning_client.get_credentials()
 
     @staticmethod
-    def _split_message(message_pack, max_size, max_payload_size):
+    def _new_split_message(message_pack, max_size, max_payload_size):
         if message_pack is None:
             return []
         split_messages = []
         if isinstance(message_pack, dict) and message_pack.get('device') is not None and len(message_pack.keys()) in [1,2]:
+            # RPC message
             return [{'data': message_pack, 'datapoints': TBDeviceMqttClient._count_datapoints_in_message(message_pack), 'message': message_pack}]
         if not isinstance(message_pack, list):
             message_pack = [message_pack]
         final_message_item = {'data': {}, 'datapoints': 0}
-        add_last_item = False
+        message_item_values_with_allowed_size = {}
+        cached_append_method = split_messages.append
         for message in message_pack:
-            if isinstance(message, dict):
-                ts = None
-                if message.get("ts") is not None and message.get("values") is not None:
-                    ts = message.get("ts")
-                    values = message.get("values")
-                else:
-                    values = message
-
-                values_data_keys = tuple(values.keys())
-                if len(values_data_keys) == 1:
-                    if ts is not None:
-                        final_message_item['data']['ts'] = ts
-                        final_message_item['data']['values'] = values
-                    if final_message_item['datapoints'] < max_size:
-                        if ts is not None:
-                            final_message_item['data']['values'].update(values)
-                            final_message_item['datapoints'] += 1
-                        else:
-                            final_message_item['data'].update(values)
-                            final_message_item['datapoints'] += 1
-                            continue
-                    else:
-                        split_messages.append(final_message_item)
-                        final_message_item = {'data': {**values}, 'datapoints': 0}  # Copy is required,
-                        # because we need to keep the original dict for next iteration
-                        add_last_item = True
-                        continue
-                message_item_values_with_allowed_size = {}
-                for current_data_key_index in range(len(values_data_keys)):
-                    data_key = values_data_keys[current_data_key_index]
-                    if len(message_item_values_with_allowed_size.keys()) < max_size and len(
-                            str(message_item_values_with_allowed_size)) < max_payload_size:
-                        message_item_values_with_allowed_size[data_key] = values[data_key]
-                    if (len(message_item_values_with_allowed_size.keys()) >= max_size
-                        or current_data_key_index == len(values_data_keys) - 1) or len(
-                            str(message_item_values_with_allowed_size)) >= max_payload_size:
-                        if ts is not None:
-                            final_message_item['data'] = {"ts": ts, "values": message_item_values_with_allowed_size,
-                                                          'metadata': message.get('metadata')}
-                        else:
-                            final_message_item['data'] = message_item_values_with_allowed_size
-                        final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                        split_messages.append({**final_message_item})  # Copy is required,
-                        # because we need to keep the original dict for next iteration
-                        message_item_values_with_allowed_size = {}
-            else:
+            if not isinstance(message, dict):
                 log.error("Message is not a dictionary!")
                 log.debug("Message: %s", message)
-        if add_last_item:
-            split_messages.append(final_message_item)
+                continue
+            ts = message.get('ts') if 'values' in message and 'ts' in message else None
+            values = message.get('values', message)
+            if isinstance(values, list):
+                new_values = {}
+                for item in values:
+                    if isinstance(item, dict):
+                        new_values.update(item)
+                values = new_values
+
+            if len(values) == 1:
+                key, value = next(iter(values.items()))
+                if ts is not None:
+                    final_message_item['data'] = {'ts': ts, 'values': {key: value}}
+                else:
+                    final_message_item['data'] = {key: value}
+                final_message_item['datapoints'] += 1
+
+                if final_message_item['datapoints'] >= max_size:
+                    cached_append_method(final_message_item)
+                    final_message_item = {'data': {}, 'datapoints': 0}
+                continue
+
+            # Splitting logic for multiple keys
+            for data_key, data_value in values.items():
+                if len(message_item_values_with_allowed_size) < max_size and len(
+                        str(message_item_values_with_allowed_size)) < max_payload_size:
+                    message_item_values_with_allowed_size[data_key] = data_value
+
+                if len(message_item_values_with_allowed_size) >= max_size or len(
+                        str(message_item_values_with_allowed_size)) >= max_payload_size:
+                    if ts is not None:
+                        final_message_item['data'] = {"ts": ts, "values": message_item_values_with_allowed_size}
+                        if 'metadata' in message:
+                            final_message_item['data']['metadata'] = message['metadata']
+                    else:
+                        final_message_item['data'] = message_item_values_with_allowed_size
+                    final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
+
+                    cached_append_method(final_message_item.copy())
+                    message_item_values_with_allowed_size.clear()
+
+            # Add last message part if exists
+            if message_item_values_with_allowed_size:
+                if ts is not None:
+                    final_message_item['data'] = {"ts": ts, "values": message_item_values_with_allowed_size}
+                else:
+                    final_message_item['data'] = message_item_values_with_allowed_size
+                final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
+                cached_append_method(final_message_item)
+        return split_messages
+
+    @staticmethod
+    def _split_message(message_pack, max_size, max_payload_size):
+        if not message_pack:
+            return []
+
+        split_messages = []
+
+        # Handle RPC message case
+        if isinstance(message_pack, dict) and message_pack.get('device') and len(message_pack) in [1, 2]:
+            return [{'data': message_pack, 'datapoints': TBDeviceMqttClient._count_datapoints_in_message(message_pack),
+                     'message': message_pack}]
+
+        if not isinstance(message_pack, list):
+            message_pack = [message_pack]
+
+        max_size = max(max_size - 1, 1)
+        append_split_message = split_messages.append
+
+        for message in message_pack:
+            final_message_item = {'data': {}, 'datapoints': 0}
+
+            if not isinstance(message, dict):
+                log.error("Message is not a dictionary!")
+                log.debug("Message: %s", message)
+                continue
+
+            ts = message.get("ts")
+            values = message.get("values", message)
+            values_data_keys = list(values)
+
+            values_length = len(values_data_keys)
+
+            if values_length == 1:
+                single_data = {'ts': ts, 'values': values} if ts else values
+                append_split_message({'data': single_data, 'datapoints': 1})
+                continue
+
+            message_item_values_with_allowed_size = {}
+            current_size = 0
+
+            for current_data_key_index, data_key in enumerate(values_data_keys):
+                value = values[data_key]
+                data_key_size = len(data_key) + len(str(value))
+
+                if len(message_item_values_with_allowed_size) < max_size and current_size + data_key_size < max_payload_size:
+                    message_item_values_with_allowed_size[data_key] = value
+                    current_size += data_key_size
+
+                if (len(message_item_values_with_allowed_size) >= max_size or
+                        current_data_key_index == values_length - 1 or
+                        current_size >= max_payload_size):
+
+                    if ts:
+                        message_chunk = {"ts": ts, "values": message_item_values_with_allowed_size.copy()}
+                        if 'metadata' in message:
+                            message_chunk['metadata'] = message['metadata']
+                        final_message_item['data'] = message_chunk
+                    else:
+                        final_message_item['data'] = message_item_values_with_allowed_size.copy()
+
+                    final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
+                    append_split_message(final_message_item.copy())
+
+                    message_item_values_with_allowed_size.clear()
+                    current_size = 0
+
         return split_messages

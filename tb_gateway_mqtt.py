@@ -315,7 +315,12 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         for device in self._devices_rate_limit.values():
             device[rate_limit_key].set_limit(rate_limit_value, percentage=percentage)
 
-    def __on_service_configuration(self, _, service_config, *args, **kwargs):
+    def __on_service_configuration(self, _, response, *args, **kwargs):
+        if "error" in response:
+            log.warning("Timeout while waiting for service configuration!, session will use default configuration.")
+            self.rate_limits_received = True
+            return
+        service_config = response
         gateway_rate_limit_config = service_config.pop('gatewayRateLimits', {})
         device_rate_limit_config = service_config.pop('rateLimits', {})
 
@@ -348,3 +353,4 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             self.max_payload_size = int(service_config.get('maxPayloadSize'))
         if service_config.get('payloadType'):
             pass
+        self.rate_limits_received = True
