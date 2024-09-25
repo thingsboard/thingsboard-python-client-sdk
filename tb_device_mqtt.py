@@ -661,12 +661,10 @@ class TBDeviceMqttClient:
             self.__device_client_rpc_dict.update({self.__device_client_rpc_number: callback})
             rpc_request_id = self.__device_client_rpc_number
         payload = {"method": method, "params": params}
-        self._publish_data(payload,
-                           RPC_REQUEST_TOPIC + str(rpc_request_id),
-                           self.quality_of_service)
+        self._publish_data(payload, RPC_REQUEST_TOPIC + str(rpc_request_id), self.quality_of_service)
 
     def request_service_configuration(self, callback):
-        self.send_rpc_call("getSessionLimits", {}, callback)
+        self.send_rpc_call("getSessionLimits", {"timeout": 5000}, callback)
 
     def on_service_configuration(self, _, response, *args, **kwargs):
         if "error" in response:
@@ -688,7 +686,10 @@ class TBDeviceMqttClient:
             if rate_limits_config.get('telemetryDataPoints'):
                 self.__telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
         if service_config.get('maxInflightMessages'):
-            self.max_inflight_messages_set(5)#int(service_config.get('maxInflightMessages')))
+            max_inflight_messages = min(self._messages_rate_limit.get_minimal_limit(),
+                                        self.__telemetry_rate_limit.get_minimal_limit(),
+                                        service_config.get('maxInflightMessages', 100))
+            self.max_inflight_messages_set(max_inflight_messages)
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(service_config.get('maxPayloadSize'))
         log.info("Service configuration was successfully retrieved and applied.")

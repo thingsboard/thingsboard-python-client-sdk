@@ -346,11 +346,4 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             # change rate limit for already connected devices
             self._change_devices_rate_limit('telemetry_dp_rate_limit',
                                             device_rate_limit_config.get('telemetryDataPoints'))
-
-        if service_config.get('maxInflightMessages'):
-            self.max_inflight_messages_set(int(service_config.get('maxInflightMessages')))
-        if service_config.get('maxPayloadSize'):
-            self.max_payload_size = int(service_config.get('maxPayloadSize'))
-        if service_config.get('payloadType'):
-            pass
         self.rate_limits_received = True
