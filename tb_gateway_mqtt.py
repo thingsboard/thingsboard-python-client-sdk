@@ -321,29 +321,29 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             self.rate_limits_received = True
             return
         service_config = response
-        gateway_rate_limit_config = service_config.pop('gatewayRateLimits', {})
-        device_rate_limit_config = service_config.pop('rateLimits', {})
+        gateway_devices_rate_limit_config = service_config.pop('gatewayRateLimits', {})
+        gateway_device_itself_rate_limit_config = service_config.pop('rateLimits', {})
 
-        super().on_service_configuration(_, {'rateLimit': gateway_rate_limit_config, **service_config}, *args, **kwargs)
+        super().on_service_configuration(_, {'rateLimit': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
 
-        if device_rate_limit_config.get("messages"):
+        if gateway_devices_rate_limit_config.get("messages"):
             # change global rate limit for future devices
-            self.__device_messages_rate_limit = device_rate_limit_config.get('messages')
+            self.__device_messages_rate_limit = gateway_devices_rate_limit_config.get('messages')
 
             # change rate limit for already connected devices
-            self._change_devices_rate_limit('msg_rate_limit', device_rate_limit_config.get('messages'))
-        if device_rate_limit_config.get('telemetryMessages'):
+            self._change_devices_rate_limit('msg_rate_limit', gateway_devices_rate_limit_config.get('messages'))
+        if gateway_devices_rate_limit_config.get('telemetryMessages'):
             # change global rate limit for future devices
-            self.__device_telemetry_rate_limit = device_rate_limit_config.get('telemetryMessages')
+            self.__device_telemetry_rate_limit = gateway_devices_rate_limit_config.get('telemetryMessages')
 
             # change rate limit for already connected devices
             self._change_devices_rate_limit('telemetry_msg_rate_limit',
-                                            device_rate_limit_config.get('telemetryMessages'))
-        if device_rate_limit_config.get('telemetryDataPoints'):
+                                            gateway_devices_rate_limit_config.get('telemetryMessages'))
+        if gateway_devices_rate_limit_config.get('telemetryDataPoints'):
             # change global rate limit for future devices
-            self.__device_telemetry_dp_rate_limit = device_rate_limit_config.get('telemetryDataPoints')
+            self.__device_telemetry_dp_rate_limit = gateway_devices_rate_limit_config.get('telemetryDataPoints')
 
             # change rate limit for already connected devices
             self._change_devices_rate_limit('telemetry_dp_rate_limit',
-                                            device_rate_limit_config.get('telemetryDataPoints'))
+                                            gateway_devices_rate_limit_config.get('telemetryDataPoints'))
         self.rate_limits_received = True
