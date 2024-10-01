@@ -15,7 +15,6 @@
 import logging
 from copy import deepcopy
 from inspect import signature
-from re import split
 from time import sleep
 
 import paho.mqtt.client as paho
@@ -777,14 +776,15 @@ class TBDeviceMqttClient:
                 if attributes_format:
                     split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
                 else:
-                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']}
-                                  for split_message in device_split_messages]
+                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
             else:
                 device_data = data.get(device)
                 device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(),
                                                             self.max_payload_size)
-                split_messages = [
-                    {'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                if attributes_format:
+                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                else:
+                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
         else:
             split_messages = [{'message': data, 'datapoints': 0}]
 
@@ -1063,7 +1063,7 @@ class TBDeviceMqttClient:
                 value = values[data_key]
                 data_key_size = len(data_key) + len(str(value))
 
-                if len(message_item_values_with_allowed_size) < datapoints_max_count + current_size // 1024 and current_size + data_key_size < max_payload_size:
+                if len(message_item_values_with_allowed_size) < datapoints_max_count and current_size + data_key_size < max_payload_size:
                     message_item_values_with_allowed_size[data_key] = value
                     current_size += data_key_size
 
