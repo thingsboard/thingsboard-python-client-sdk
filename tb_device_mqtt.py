@@ -15,6 +15,7 @@
 import logging
 from copy import deepcopy
 from inspect import signature
+from re import split
 from time import sleep
 
 import paho.mqtt.client as paho
@@ -246,20 +247,20 @@ class RateLimit:
     def get_rate_limit_by_host(host, rate_limit):
         if rate_limit == "DEFAULT_TELEMETRY_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             elif "tb" in host and "cloud" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             elif "demo.thingsboard.io" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             else:
                 rate_limit = "0:0,"
         elif rate_limit == "DEFAULT_MESSAGES_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             elif "tb" in host and "cloud" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             elif "demo.thingsboard.io" in host:
-                rate_limit = "5:1,60:60,"
+                rate_limit = "10:1,60:60,"
             else:
                 rate_limit = "0:0,"
         else:
@@ -767,13 +768,16 @@ class TBDeviceMqttClient:
         data = kwargs.get("payload")
         if isinstance(data, str):
             data = loads(data)
-        payload = data
         topic = kwargs.get("topic", '')
-        if topic.endswith('telemetry') or topic.endswith('attributes'):
+        attributes_format = topic.endswith('attributes')
+        if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:
                 device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(),
                                                             self.max_payload_size)
-                split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']}
+                if attributes_format:
+                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                else:
+                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']}
                                   for split_message in device_split_messages]
             else:
                 device_data = data.get(device)
@@ -783,9 +787,6 @@ class TBDeviceMqttClient:
                     {'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
         else:
             split_messages = [{'message': data, 'datapoints': 0}]
-
-        if len(split_messages) == 0:
-            log.debug("Cannot split message to smaller parts: %r", payload)
 
         results = []
         for part in split_messages:
