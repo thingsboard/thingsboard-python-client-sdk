@@ -63,12 +63,15 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             host, device_telemetry_rate_limit, device_telemetry_dp_rate_limit)
         self.__device_messages_rate_limit = RateLimit.get_rate_limit_by_host(host, device_messages_rate_limit)
 
+        self._devices_connected_through_gateway_telemetry_messages_rate_limit = RateLimit(self.__device_telemetry_rate_limit, "Rate limit for devices connected through gateway telemetry messages")
+        self._devices_connected_through_gateway_telemetry_datapoints_rate_limit = RateLimit(self.__device_telemetry_dp_rate_limit, "Rate limit for devices connected through gateway telemetry data points")
+        self._devices_connected_through_gateway_messages_rate_limit = RateLimit(self.__device_messages_rate_limit, "Rate limit for devices connected through gateway messages")
+
         self.service_configuration_callback = self.__on_service_configuration
         self.quality_of_service = quality_of_service
         self.__max_sub_id = 0
         self.__sub_dict = {}
         self.__connected_devices = set("*")
-        self._devices_rate_limit = {}
         self.devices_server_side_rpc_request_handler = None
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
@@ -125,6 +128,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         if message.topic.startswith(GATEWAY_ATTRIBUTES_RESPONSE_TOPIC):
             with self._lock:
                 req_id = content["id"]
+                self._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter(1)
                 # pop callback and use it
                 if self._attr_request_dict[req_id]:
                     callback = self._attr_request_dict.pop(req_id)
@@ -143,6 +147,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                 # callbacks for device. in this case callback executes for all attributes in message
                 if content.get("device") is None:
                     return
+                self._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter(1)
                 target = content["device"] + "|*"
                 if self.__sub_dict.get(target):
                     for device in self.__sub_dict[target]:
@@ -154,6 +159,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                         for device in self.__sub_dict[target]:
                             self.__sub_dict[target][device](content)
         elif message.topic == GATEWAY_RPC_TOPIC:
+            self._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter(1)
             if self.devices_server_side_rpc_request_handler:
                 self.devices_server_side_rpc_request_handler(self, content)
 
@@ -162,7 +168,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             log.error("There are no keys to request")
             return False
 
-        ts_in_millis = int(round(time() * 1000))
         attr_request_number = self._add_attr_request_callback(callback)
         msg = {"keys": keys,
                "device": device,
@@ -170,18 +175,16 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                "id": attr_request_number}
         info = self._send_device_request(TBSendMethod.PUBLISH, device, topic=GATEWAY_ATTRIBUTES_REQUEST_TOPIC, data=msg,
                                          qos=1)
-        self._add_timeout(attr_request_number, ts_in_millis + 30000)
+        self.__attrs_request_timeout[attr_request_number] = int(time()) + 20
         return info
 
     def _send_device_request(self, _type, device_name, **kwargs):
         if _type == TBSendMethod.PUBLISH:
-            if self._devices_rate_limit.get(device_name) is None:
-                self._add_device_rate_limit(device_name)
-            device_msg_rate_limit = self._devices_rate_limit[device_name]['msg_rate_limit']
-            device_dp_rate_limit = self._devices_rate_limit[device_name]['dp_rate_limit']
+            device_msg_rate_limit = self._devices_connected_through_gateway_messages_rate_limit
+            device_dp_rate_limit = self.EMPTY_RATE_LIMIT
             if kwargs.get('topic') == GATEWAY_TELEMETRY_TOPIC:
-                device_msg_rate_limit = self._devices_rate_limit[device_name]['telemetry_msg_rate_limit']
-                device_dp_rate_limit = self._devices_rate_limit[device_name]['telemetry_dp_rate_limit']
+                device_msg_rate_limit = self._devices_connected_through_gateway_telemetry_messages_rate_limit
+                device_dp_rate_limit = self._devices_connected_through_gateway_telemetry_datapoints_rate_limit
             info = self._publish_data(**kwargs, device=device_name,
                                       msg_rate_limit=device_msg_rate_limit,
                                       dp_rate_limit=device_dp_rate_limit)
@@ -242,16 +245,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             return False
 
         with self._lock:
-            # if device == '*':
-            #     for device_name in self._devices_rate_limit.keys():
-            #         is_reached = self.check_device_rate_limit(device_name)
-            #         if is_reached:
-            #             return is_reached
-            # else:
-            #     is_reached = self.check_device_rate_limit(device)
-            #     if is_reached:
-            #         return is_reached
-
             self.__max_sub_id += 1
             key = device + "|" + attribute
             if key not in self.__sub_dict:
@@ -299,22 +292,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          data=claiming_request, qos=self.quality_of_service)
         return info
 
-    def _add_device_rate_limit(self, device_name):
-        telemetry_rate_limit = RateLimit(self.__device_telemetry_rate_limit, "Rate limit for device %s telemetry messages" % device_name)
-        telemetry_dp_rate_limit = RateLimit(self.__device_telemetry_dp_rate_limit, "Rate limit for device %s telemetry data points" % device_name)
-        msg_dp_rate_limit = self.EMPTY_RATE_LIMIT
-        msg_rate_limit = RateLimit(self.__device_messages_rate_limit, "Rate limit for device %s messages" % device_name)
-        self._devices_rate_limit[device_name] = {
-            'msg_rate_limit': msg_rate_limit,
-            'dp_rate_limit': msg_dp_rate_limit,
-            'telemetry_msg_rate_limit': telemetry_rate_limit,
-            'telemetry_dp_rate_limit': telemetry_dp_rate_limit
-        }
-
-    def _change_devices_rate_limit(self, rate_limit_key, rate_limit_value, percentage=50):
-        for device in self._devices_rate_limit.values():
-            device[rate_limit_key].set_limit(rate_limit_value, percentage=percentage)
-
     def __on_service_configuration(self, _, response, *args, **kwargs):
         if "error" in response:
             log.warning("Timeout while waiting for service configuration!, session will use default configuration.")
@@ -327,23 +304,9 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         super().on_service_configuration(_, {'rateLimit': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
 
         if gateway_devices_rate_limit_config.get("messages"):
-            # change global rate limit for future devices
-            self.__device_messages_rate_limit = gateway_devices_rate_limit_config.get('messages')
-
-            # change rate limit for already connected devices
-            self._change_devices_rate_limit('msg_rate_limit', gateway_devices_rate_limit_config.get('messages'))
+            self._devices_connected_through_gateway_messages_rate_limit.set_limit(gateway_devices_rate_limit_config.get("messages"))
         if gateway_devices_rate_limit_config.get('telemetryMessages'):
-            # change global rate limit for future devices
-            self.__device_telemetry_rate_limit = gateway_devices_rate_limit_config.get('telemetryMessages')
-
-            # change rate limit for already connected devices
-            self._change_devices_rate_limit('telemetry_msg_rate_limit',
-                                            gateway_devices_rate_limit_config.get('telemetryMessages'))
+            self._devices_connected_through_gateway_telemetry_messages_rate_limit.set_limit(gateway_devices_rate_limit_config.get('telemetryMessages'))
         if gateway_devices_rate_limit_config.get('telemetryDataPoints'):
-            # change global rate limit for future devices
-            self.__device_telemetry_dp_rate_limit = gateway_devices_rate_limit_config.get('telemetryDataPoints')
-
-            # change rate limit for already connected devices
-            self._change_devices_rate_limit('telemetry_dp_rate_limit',
-                                            gateway_devices_rate_limit_config.get('telemetryDataPoints'))
+            self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit(gateway_devices_rate_limit_config.get('telemetryDataPoints'))
         self.rate_limits_received = True

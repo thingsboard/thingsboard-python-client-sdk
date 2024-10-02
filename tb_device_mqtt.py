@@ -176,7 +176,7 @@ class RateLimit:
                 self.__rate_limit_dict[int(rate[1])] = {"counter": 0,
                                                         "start": int(monotonic()),
                                                         "limit": int(int(rate[0]) * self.percentage / 100)}
-        log.debug("Rate limit set to values: ")
+        log.debug("Rate limit %s set to values: " % self.name)
         with self.__lock:
             if not self.__no_limit:
                 for rate_limit_time in self.__rate_limit_dict:
@@ -701,6 +701,8 @@ class TBDeviceMqttClient:
             limit_reached_check = (message_rate_limit.check_limit_reached()
                                    or (dp_rate_limit is not None and dp_rate_limit.check_limit_reached(amount=amount))
                                    or not self.is_connected())
+            if timeout < limit_reached_check:
+                timeout = limit_reached_check
             if not timeout_updated and limit_reached_check:
                 timeout += 10
                 timeout_updated = True
@@ -711,12 +713,12 @@ class TBDeviceMqttClient:
                 disconnected = True
                 timeout = max(timeout, 180) + 10
             if int(monotonic()) >= timeout + start_time:
-                log.error("Timeout while waiting for rate limit to be released!")
+                log.warning("Timeout while waiting for rate limit for %i seconds to be released!", limit_reached_check)
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
                 if isinstance(limit_reached_check, int):
-                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...",
-                              limit_reached_check)
+                    log.warning("Rate limit reached for %i seconds, waiting for rate limit to be released...",
+                                limit_reached_check)
                     waited = True
                 else:
                     log.debug("Waiting for rate limit to be released...")
@@ -815,10 +817,12 @@ class TBDeviceMqttClient:
             if not part:
                 continue
             dp_rate_limit.increase_rate_limit_counter(part['datapoints'])
-            self._wait_for_rate_limit_released(timeout,
-                                               message_rate_limit=msg_rate_limit,
-                                               dp_rate_limit=dp_rate_limit,
-                                               amount=part['datapoints'])
+            rate_limited = self._wait_for_rate_limit_released(timeout,
+                                                              message_rate_limit=msg_rate_limit,
+                                                              dp_rate_limit=dp_rate_limit,
+                                                              amount=part['datapoints'])
+            if rate_limited:
+                return rate_limited
             msg_rate_limit.increase_rate_limit_counter()
             kwargs["payload"] = dumps(part['message'])
             self.wait_until_current_queued_messages_processed()
@@ -1004,11 +1008,11 @@ class TBDeviceMqttClient:
     def _get_data_points_from_message(data):
         if isinstance(data, dict):
             if data.get("ts") is not None and data.get("values") is not None:
-                datapoints_in_message_amount = len(data['values']) + len(str(data['values']))/1000
+                datapoints_in_message_amount = len(data['values']) + len(str(data['values'])) / 1000
             else:
-                datapoints_in_message_amount = len(data.keys()) + len(str(data))/1000
+                datapoints_in_message_amount = len(data.keys()) + len(str(data)) / 1000
         else:
-            datapoints_in_message_amount = len(data) + len(str(data))/1000
+            datapoints_in_message_amount = len(data) + len(str(data)) / 1000
         return int(datapoints_in_message_amount)
 
     @staticmethod
