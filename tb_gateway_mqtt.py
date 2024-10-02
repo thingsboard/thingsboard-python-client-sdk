@@ -300,10 +300,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         return info
 
     def _add_device_rate_limit(self, device_name):
-        telemetry_rate_limit = RateLimit(self.__device_telemetry_rate_limit)
-        telemetry_dp_rate_limit = RateLimit(self.__device_telemetry_dp_rate_limit)
+        telemetry_rate_limit = RateLimit(self.__device_telemetry_rate_limit, "Rate limit for device %s telemetry messages" % device_name)
+        telemetry_dp_rate_limit = RateLimit(self.__device_telemetry_dp_rate_limit, "Rate limit for device %s telemetry data points" % device_name)
         msg_dp_rate_limit = self.EMPTY_RATE_LIMIT
-        msg_rate_limit = RateLimit(self.__device_messages_rate_limit)
+        msg_rate_limit = RateLimit(self.__device_messages_rate_limit, "Rate limit for device %s messages" % device_name)
         self._devices_rate_limit[device_name] = {
             'msg_rate_limit': msg_rate_limit,
             'dp_rate_limit': msg_dp_rate_limit,
@@ -311,7 +311,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             'telemetry_dp_rate_limit': telemetry_dp_rate_limit
         }
 
-    def _change_devices_rate_limit(self, rate_limit_key, rate_limit_value, percentage=80):
+    def _change_devices_rate_limit(self, rate_limit_key, rate_limit_value, percentage=50):
         for device in self._devices_rate_limit.values():
             device[rate_limit_key].set_limit(rate_limit_value, percentage=percentage)
 

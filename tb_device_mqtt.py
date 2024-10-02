@@ -148,26 +148,35 @@ class TBPublishInfo:
 
 
 class RateLimit:
-    def __init__(self, rate_limit, percentage=80):
-        self.__start_time = monotonic()
+    def __init__(self, rate_limit, name=None, percentage=80):
         self.__no_limit = False
-        if ''.join(c for c in rate_limit if c not in [' ', ',', ';']) in ("", "0:0"):
-            self.__no_limit = True
         self.__rate_limit_dict = {}
         self.__lock = RLock()
-        rate_configs = rate_limit.split(";")
-        if "," in rate_limit:
-            rate_configs = rate_limit.split(",")
-        for rate in rate_configs:
-            if rate == "":
-                continue
-            rate = rate.split(":")
-            self.__rate_limit_dict[int(rate[1])] = {"counter": 0,
-                                                    "start": int(monotonic()),
-                                                    "limit": int(int(rate[0]) * percentage/100)}
-        log.debug("Rate limit set to values: ")
         self.__minimal_timeout = DEFAULT_TIMEOUT
         self.__minimal_limit = 1000000000
+        from_dict = isinstance(rate_limit, dict)
+        if from_dict:
+            self.__rate_limit_dict = rate_limit.get('rateLimit', rate_limit)
+            name = rate_limit.get('name', name)
+            percentage = rate_limit.get('percentage', percentage)
+            self.no_limit = rate_limit.get('no_limit', False)
+        self.name = name
+        self.percentage = percentage
+        self.__start_time = int(monotonic())
+        if not from_dict:
+            if ''.join(c for c in rate_limit if c not in [' ', ',', ';']) in ("", "0:0"):
+                self.__no_limit = True
+            rate_configs = rate_limit.split(";")
+            if "," in rate_limit:
+                rate_configs = rate_limit.split(",")
+            for rate in rate_configs:
+                if rate == "":
+                    continue
+                rate = rate.split(":")
+                self.__rate_limit_dict[int(rate[1])] = {"counter": 0,
+                                                        "start": int(monotonic()),
+                                                        "limit": int(int(rate[0]) * self.percentage / 100)}
+        log.debug("Rate limit set to values: ")
         with self.__lock:
             if not self.__no_limit:
                 for rate_limit_time in self.__rate_limit_dict:
@@ -209,10 +218,11 @@ class RateLimit:
     def has_limit(self):
         return not self.__no_limit
 
-    def set_limit(self, rate_limit, percentage=0):
+    def set_limit(self, rate_limit, percentage=80):
         with self.__lock:
             old_rate_limit_dict = deepcopy(self.__rate_limit_dict)
             self.__rate_limit_dict = {}
+            self.percentage = percentage if percentage != 0 else self.percentage
             rate_configs = rate_limit.split(";")
             if "," in rate_limit:
                 rate_configs = rate_limit.split(",")
@@ -222,9 +232,10 @@ class RateLimit:
                 rate = rate.split(":")
                 rate_limit_time = int(rate[1])
                 limit = int(int(rate[0]) * percentage / 100)
-                self.__rate_limit_dict[int(rate[1])] = {"counter": old_rate_limit_dict.get(rate_limit_time, {}).get('counter', 0),
-                                                        "start": self.__rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
-                                                        "limit": limit}
+                self.__rate_limit_dict[int(rate[1])] = {
+                    "counter": old_rate_limit_dict.get(rate_limit_time, {}).get('counter', 0),
+                    "start": self.__rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
+                    "limit": limit}
                 if rate_limit_time < self.__minimal_limit:
                     self.__minimal_timeout = rate_limit_time + 1
                 if limit < self.__minimal_limit:
@@ -234,6 +245,14 @@ class RateLimit:
             log.debug("Rate limit set to values: ")
             for rate_limit_time in self.__rate_limit_dict:
                 log.debug("Time: %s, Limit: %s", rate_limit_time, self.__rate_limit_dict[rate_limit_time]["limit"])
+
+    def __dict__(self):
+        return {
+            "rateLimit": self.__rate_limit_dict,
+            "name": self.name,
+            "percentage": self.percentage,
+            "no_limit": self.__no_limit
+        }
 
     @staticmethod
     def get_rate_limits_by_host(host, rate_limit, dp_rate_limit):
@@ -271,11 +290,11 @@ class RateLimit:
     def get_dp_rate_limit_by_host(host, dp_rate_limit):
         if dp_rate_limit == "DEFAULT_TELEMETRY_DP_RATE_LIMIT":
             if "thingsboard.cloud" in host:
-                dp_rate_limit = "5:1,60:60,"
+                dp_rate_limit = "10:1,300:60,"
             elif "tb" in host and "cloud" in host:
-                dp_rate_limit = "5:1,60:60,"
+                dp_rate_limit = "10:1,300:60,"
             elif "demo.thingsboard.io" in host:
-                dp_rate_limit = "5:1,60:60,"
+                dp_rate_limit = "10:1,300:60,"
             else:
                 dp_rate_limit = "0:0,"
         else:
@@ -287,7 +306,7 @@ class RateLimit:
 class TBDeviceMqttClient:
     """ThingsBoard MQTT client. This class provides interface to send data to ThingsBoard and receive data from"""
 
-    EMPTY_RATE_LIMIT = RateLimit('0:0,')
+    EMPTY_RATE_LIMIT = RateLimit('0:0,', "EMPTY_RATE_LIMIT")
 
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
                  chunk_size=0, messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
@@ -325,10 +344,10 @@ class TBDeviceMqttClient:
                                                                                           telemetry_dp_rate_limit)
         messages_rate_limit = RateLimit.get_rate_limit_by_host(self.__host, messages_rate_limit)
 
-        self._messages_rate_limit = RateLimit(messages_rate_limit)
-        self.__telemetry_rate_limit = RateLimit(telemetry_rate_limit)
-        self.__telemetry_dp_rate_limit = RateLimit(telemetry_dp_rate_limit)
-        self._client.max_inflight_messages_set(self.__telemetry_rate_limit.get_minimal_limit())
+        self._messages_rate_limit = RateLimit(messages_rate_limit, "Rate limit for messages")
+        self._telemetry_rate_limit = RateLimit(telemetry_rate_limit, "Rate limit for telemetry messages")
+        self._telemetry_dp_rate_limit = RateLimit(telemetry_dp_rate_limit, "Rate limit for telemetry data points")
+        self._client.max_inflight_messages_set(self._telemetry_rate_limit.get_minimal_limit())
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -651,13 +670,13 @@ class TBDeviceMqttClient:
             if rate_limits_config.get('messages'):
                 self._messages_rate_limit.set_limit(rate_limits_config.get('messages'), percentage=80)
             if rate_limits_config.get('telemetryMessages'):
-                self.__telemetry_rate_limit.set_limit(rate_limits_config.get('telemetryMessages'), percentage=80)
+                self._telemetry_rate_limit.set_limit(rate_limits_config.get('telemetryMessages'), percentage=80)
             if rate_limits_config.get('telemetryDataPoints'):
-                self.__telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
+                self._telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
         if service_config.get('maxInflightMessages'):
             max_inflight_messages = int(min(self._messages_rate_limit.get_minimal_limit(),
-                                        self.__telemetry_rate_limit.get_minimal_limit(),
-                                        service_config.get('maxInflightMessages', 100)) * 80 / 100)
+                                            self._telemetry_rate_limit.get_minimal_limit(),
+                                            service_config.get('maxInflightMessages', 100)) * 80 / 100)
             self.max_inflight_messages_set(max_inflight_messages)
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(int(service_config.get('maxPayloadSize')) * 80 / 100)
@@ -677,6 +696,7 @@ class TBDeviceMqttClient:
         disconnected = False
         limit_reached_check = True
         log_posted = False
+        waited = False
         while limit_reached_check:
             limit_reached_check = (message_rate_limit.check_limit_reached()
                                    or (dp_rate_limit is not None and dp_rate_limit.check_limit_reached(amount=amount))
@@ -695,11 +715,15 @@ class TBDeviceMqttClient:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
                 if isinstance(limit_reached_check, int):
-                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...", limit_reached_check)
+                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...",
+                              limit_reached_check)
+                    waited = True
                 else:
                     log.debug("Waiting for rate limit to be released...")
                 log_posted = True
             sleep(.01)
+        if waited:
+            log.debug("Rate limit released, sending data to ThingsBoard...")
 
     def wait_until_current_queued_messages_processed(self):
         previous_notification_time = 0
@@ -718,12 +742,12 @@ class TBDeviceMqttClient:
                       msg_rate_limit=None, dp_rate_limit=None):
         if msg_rate_limit is None:
             if kwargs.get('topic') == TELEMETRY_TOPIC:
-                msg_rate_limit = self.__telemetry_rate_limit
+                msg_rate_limit = self._telemetry_rate_limit
             else:
                 msg_rate_limit = self._messages_rate_limit
         if dp_rate_limit is None:
             if kwargs.get('topic') == TELEMETRY_TOPIC:
-                dp_rate_limit = self.__telemetry_dp_rate_limit
+                dp_rate_limit = self._telemetry_dp_rate_limit
             else:
                 dp_rate_limit = self.EMPTY_RATE_LIMIT
         if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
@@ -758,7 +782,7 @@ class TBDeviceMqttClient:
             return msg_rate_limit, dp_rate_limit
         else:
             if topic == TELEMETRY_TOPIC:
-                return self.__telemetry_rate_limit, self.__telemetry_dp_rate_limit
+                return self._telemetry_rate_limit, self._telemetry_dp_rate_limit
             else:
                 return self._messages_rate_limit, None
 
@@ -771,22 +795,20 @@ class TBDeviceMqttClient:
         attributes_format = topic.endswith('attributes')
         if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:
-                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(),
-                                                            self.max_payload_size)
+                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
                 if attributes_format:
                     split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
                 else:
                     split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
             else:
                 device_data = data.get(device)
-                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(),
-                                                            self.max_payload_size)
+                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
                 if attributes_format:
                     split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
                 else:
                     split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
         else:
-            split_messages = [{'message': data, 'datapoints': 0}]
+            split_messages = [{'message': data, 'datapoints': self._count_datapoints_in_message(data, device)}]
 
         results = []
         for part in split_messages:
@@ -801,10 +823,18 @@ class TBDeviceMqttClient:
             kwargs["payload"] = dumps(part['message'])
             self.wait_until_current_queued_messages_processed()
             if not self.stopped:
+                if device is not None:
+                    log.debug("Device: %s, Sending message to topic: %s ", device, topic)
                 if part['datapoints'] > 0:
                     log.debug("Sending message with %i datapoints", part['datapoints'])
+                    log.debug("Message payload: %r", kwargs["payload"])
+                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
+                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
                 else:
                     log.debug("Sending message with %r", kwargs["payload"])
+                    log.debug("Message payload: %r", kwargs["payload"])
+                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
+                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
             results.append(self._client.publish(**kwargs))
         return TBPublishInfo(results)
 
@@ -956,14 +986,18 @@ class TBDeviceMqttClient:
             if isinstance(data.get(device), list):
                 for data_object in data[device]:
                     datapoints += TBDeviceMqttClient._count_datapoints_in_message(data_object)  # noqa
-            else:
+            elif isinstance(data.get(device), dict):
                 datapoints += TBDeviceMqttClient._count_datapoints_in_message(data.get(device, data.get('device')))
+            else:
+                datapoints += 1
         else:
             if isinstance(data, dict):
                 datapoints += TBDeviceMqttClient._get_data_points_from_message(data)
-            else:
+            elif isinstance(data, list):
                 for item in data:
                     datapoints += TBDeviceMqttClient._get_data_points_from_message(item)
+            else:
+                datapoints += 1
         return datapoints
 
     @staticmethod
