@@ -71,6 +71,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         self.quality_of_service = quality_of_service
         self.__max_sub_id = 0
         self.__sub_dict = {}
+        self.__attrs_request_timeout = {}
         self.__connected_devices = set("*")
         self.devices_server_side_rpc_request_handler = None
         self._client.on_connect = self._on_connect
