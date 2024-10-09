@@ -29,6 +29,7 @@ from threading import RLock, Thread
 from enum import Enum
 
 from paho.mqtt.reasoncodes import ReasonCodes
+
 from orjson import dumps, loads, JSONDecodeError
 
 from sdk_utils import verify_checksum
@@ -126,10 +127,17 @@ class TBPublishInfo:
     def rc(self):
         if isinstance(self.message_info, list):
             for info in self.message_info:
-                if info.rc != 0:
+                if isinstance(info.rc, ReasonCodes):
+                    if info.rc.value == 0:
+                        continue
                     return info.rc
+                else:
+                    if info.rc != 0:
+                        return info.rc
             return self.TB_ERR_SUCCESS
         else:
+            if isinstance(self.message_info.rc, ReasonCodes):
+                return self.message_info.rc.value
             return self.message_info.rc
 
     def mid(self):
