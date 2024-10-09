@@ -355,7 +355,7 @@ class TBDeviceMqttClient:
         self._messages_rate_limit = RateLimit(messages_rate_limit, "Rate limit for messages")
         self._telemetry_rate_limit = RateLimit(telemetry_rate_limit, "Rate limit for telemetry messages")
         self._telemetry_dp_rate_limit = RateLimit(telemetry_dp_rate_limit, "Rate limit for telemetry data points")
-        self._client.max_inflight_messages_set(self._telemetry_rate_limit.get_minimal_limit())
+        self.max_inflight_messages_set(self._telemetry_rate_limit.get_minimal_limit())
         self.__attrs_request_timeout = {}
         self.__timeout_thread = Thread(target=self.__timeout_check)
         self.__timeout_thread.daemon = True
@@ -626,7 +626,10 @@ class TBDeviceMqttClient:
     def max_inflight_messages_set(self, inflight):
         """Set the maximum number of messages with QoS>0 that can be a part way through their network flow at once.
         Defaults to minimal rate limit. Increasing this value will consume more memory but can increase throughput."""
-        self._client.max_inflight_messages_set(inflight)
+        if inflight < 0:
+            log.error("Inflight messages number must be equal or greater than 0")
+            return
+        self._client._max_inflight_messages = inflight
 
     def max_queued_messages_set(self, queue_size):
         """Set the maximum number of outgoing messages with QoS>0 that can be pending in the outgoing message queue.
