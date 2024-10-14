@@ -646,7 +646,10 @@ class TBDeviceMqttClient:
     def max_queued_messages_set(self, queue_size):
         """Set the maximum number of outgoing messages with QoS>0 that can be pending in the outgoing message queue.
         Defaults to 0. 0 means unlimited. When the queue is full, any further outgoing messages would be dropped."""
-        self._client.max_queued_messages_set(queue_size)
+        if queue_size < 0:
+            raise ValueError("Invalid queue size.")
+
+        self._client._max_queued_messages = queue_size
 
     def reconnect_delay_set(self, min_delay=1, max_delay=120):
         """The client will automatically retry connection. Between each attempt it will wait a number of seconds
