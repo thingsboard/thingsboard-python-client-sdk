@@ -301,12 +301,11 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         gateway_devices_rate_limit_config = service_config.pop('gatewayRateLimits', {})
         gateway_device_itself_rate_limit_config = service_config.pop('rateLimits', {})
 
-        super().on_service_configuration(_, {'rateLimit': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
-
         if gateway_devices_rate_limit_config.get("messages"):
             self._devices_connected_through_gateway_messages_rate_limit.set_limit(gateway_devices_rate_limit_config.get("messages"))
         if gateway_devices_rate_limit_config.get('telemetryMessages'):
             self._devices_connected_through_gateway_telemetry_messages_rate_limit.set_limit(gateway_devices_rate_limit_config.get('telemetryMessages'))
         if gateway_devices_rate_limit_config.get('telemetryDataPoints'):
             self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit(gateway_devices_rate_limit_config.get('telemetryDataPoints'))
-        self.rate_limits_received = True
+
+        super().on_service_configuration(_, {'rateLimit': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
