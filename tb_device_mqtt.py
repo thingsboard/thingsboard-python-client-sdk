@@ -702,11 +702,19 @@ class TBDeviceMqttClient:
             rate_limits_config = service_config.get("rateLimit")
 
             if rate_limits_config.get('messages'):
-                self._messages_rate_limit.set_limit(rate_limits_config.get('messages'), percentage=80)
+                self._messages_rate_limit.set_limit(rate_limits_config.get('messages'))
+            else:
+                self._messages_rate_limit.set_limit('0:0,')
+
             if rate_limits_config.get('telemetryMessages'):
-                self._telemetry_rate_limit.set_limit(rate_limits_config.get('telemetryMessages'), percentage=80)
+                self._telemetry_rate_limit.set_limit(rate_limits_config.get('telemetryMessages'))
+            else:
+                self._telemetry_rate_limit.set_limit('0:0,')
+
             if rate_limits_config.get('telemetryDataPoints'):
-                self._telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'), percentage=80)
+                self._telemetry_dp_rate_limit.set_limit(rate_limits_config.get('telemetryDataPoints'))
+            else:
+                self._telemetry_dp_rate_limit.set_limit('0:0,')
 
         if service_config.get('maxInflightMessages'):
             use_messages_rate_limit_factor = self._messages_rate_limit.has_limit()
