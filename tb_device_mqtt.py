@@ -837,13 +837,13 @@ class TBDeviceMqttClient:
             return self._client.unsubscribe(**kwargs)
 
     def __add_metadata_to_data_dict_from_device(self, data):
-        if isinstance(data, dict) and "metadata" in data:
+        if isinstance(data, dict) and ("metadata" in data and isinstance(data["metadata"], dict)):
             data["metadata"]["publishedTs"] = int(timestamp() * 1000)
         elif isinstance(data, list):
             current_time = int(timestamp() * 1000)
             for data_item in data:
                 if isinstance(data_item, dict):
-                    if 'ts' in data_item and 'metadata' in data_item:
+                    if 'ts' in data_item and ('metadata' in data_item and isinstance(data_item["metadata"], dict)):
                         data_item["metadata"]["publishedTs"] = current_time
         elif isinstance(data, dict):
             for key, value in data.items():
