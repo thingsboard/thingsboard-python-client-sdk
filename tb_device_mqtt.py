@@ -1225,6 +1225,9 @@ class TBDeviceMqttClient:
 
         return split_messages
 
+    def add_attrs_request_timeout(self, attr_request_number, timeout):
+        self.__attrs_request_timeout[attr_request_number] = timeout
+
 
 class ProvisionClient(paho.Client):
     PROVISION_REQUEST_TOPIC = "/provision/request"
