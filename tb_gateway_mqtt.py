@@ -175,7 +175,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                "id": attr_request_number}
         info = self._send_device_request(TBSendMethod.PUBLISH, device, topic=GATEWAY_ATTRIBUTES_REQUEST_TOPIC, data=msg,
                                          qos=1)
-        self.__attrs_request_timeout[attr_request_number] = int(time()) + 20
+        self.add_attrs_request_timeout(attr_request_number, int(time()) + 20)
         return info
 
     def _send_device_request(self, _type, device_name, **kwargs):
