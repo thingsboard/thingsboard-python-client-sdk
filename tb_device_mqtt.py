@@ -1163,6 +1163,7 @@ class TBDeviceMqttClient:
         final_message_item = {'data': [], 'datapoints': 0}
 
         message_item_values_with_allowed_size = {}
+        ts = None
         current_size = 0
 
         for (message_index, message) in enumerate(message_pack):
@@ -1170,8 +1171,10 @@ class TBDeviceMqttClient:
                 log.error("Message is not a dictionary!")
                 log.debug("Message: %s", message)
                 continue
-
+            old_ts = ts if ts is not None else message.get("ts")
             ts = message.get("ts")
+            ts_changed = ts is not None and old_ts != ts
+
             values = message.get("values", message)
             values_data_keys = list(values)
 
@@ -1189,14 +1192,19 @@ class TBDeviceMqttClient:
                 data_key_size = len(data_key) + len(str(value))
 
                 if ((datapoints_max_count == 0 or len(message_item_values_with_allowed_size) < datapoints_max_count)
-                        and current_size + data_key_size < max_payload_size):
+                        and current_size + data_key_size < max_payload_size) and not ts_changed:
                     message_item_values_with_allowed_size[data_key] = value
                     current_size += data_key_size
 
-                if ((datapoints_max_count > 0 and len(message_item_values_with_allowed_size) >= datapoints_max_count + current_size // 1024)
-                        or current_size + data_key_size >= max_payload_size):
+                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size))
+                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) \
+                    or ts_changed:
                     if ts:
-                        message_chunk = {"ts": ts, "values": message_item_values_with_allowed_size.copy()}
+                        ts_to_write = ts
+                        if old_ts is not None and old_ts != ts:
+                            ts_to_write = old_ts
+                            old_ts = ts
+                        message_chunk = {"ts": ts_to_write, "values": message_item_values_with_allowed_size.copy()}
                         if 'metadata' in message:
                             message_chunk['metadata'] = message['metadata']
                         final_message_item['data'].append(message_chunk)
@@ -1208,6 +1216,10 @@ class TBDeviceMqttClient:
                     final_message_item = {'data': [], 'datapoints': 0}
 
                     message_item_values_with_allowed_size.clear()
+                    if ts_changed:
+                        message_item_values_with_allowed_size[data_key] = value
+                        current_size += data_key_size
+                    ts_changed = False
                     current_size = 0
 
             if (message_index == len(message_pack) - 1
@@ -1221,9 +1233,18 @@ class TBDeviceMqttClient:
                     final_message_item['data'].append(message_item_values_with_allowed_size.copy())
 
                 final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                append_split_message(final_message_item.copy())
+                if final_message_item['data']:
+                    append_split_message(final_message_item.copy())
 
         return split_messages
+
+    @staticmethod
+    def _datapoints_limit_reached(datapoints_max_count, current_datapoints_size, current_size):
+        return 0 < datapoints_max_count <= current_datapoints_size + current_size // 1024
+
+    @staticmethod
+    def _payload_size_limit_reached(max_payload_size, current_size, additional_size):
+        return current_size + additional_size >= max_payload_size
 
     def add_attrs_request_timeout(self, attr_request_number, timeout):
         self.__attrs_request_timeout[attr_request_number] = timeout
