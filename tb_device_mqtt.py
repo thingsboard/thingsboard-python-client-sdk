@@ -171,7 +171,7 @@ class RateLimit:
         self._minimal_limit = 1000000000
         from_dict = isinstance(rate_limit, dict)
         if from_dict:
-            self._rate_limit_dict = rate_limit.get('rateLimit', rate_limit)
+            self._rate_limit_dict = rate_limit.get('rateLimits', rate_limit)
             name = rate_limit.get('name', name)
             percentage = rate_limit.get('percentage', percentage)
             self._no_limit = rate_limit.get('no_limit', False)
@@ -265,7 +265,7 @@ class RateLimit:
     @property
     def __dict__(self):
         return {
-            "rateLimit": self._rate_limit_dict,
+            "rateLimits": self._rate_limit_dict,
             "name": self.name,
             "percentage": self.percentage,
             "no_limit": self._no_limit
@@ -694,12 +694,12 @@ class TBDeviceMqttClient:
             self.rate_limits_received = True
             return
         service_config = response
-        if not isinstance(service_config, dict) or 'rateLimit' not in service_config:
+        if not isinstance(service_config, dict) or 'rateLimits' not in service_config:
             log.warning("Cannot retrieve service configuration, session will use default configuration.")
             log.debug("Received the following response: %r", service_config)
             return
-        if service_config.get("rateLimit"):
-            rate_limits_config = service_config.get("rateLimit")
+        if service_config.get("rateLimits"):
+            rate_limits_config = service_config.get("rateLimits")
 
             if rate_limits_config.get('messages'):
                 self._messages_rate_limit.set_limit(rate_limits_config.get('messages'))
