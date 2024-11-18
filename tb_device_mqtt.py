@@ -810,7 +810,7 @@ class TBDeviceMqttClient:
                 if int(monotonic()) - waiting_started > timeout_for_break and not connection_was_lost or self.stopped:
                     break
 
-    def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
+    def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device_or_devices=None,
                       msg_rate_limit=None, dp_rate_limit=None):
         if msg_rate_limit is None:
             if kwargs.get('topic') == TELEMETRY_TOPIC:
@@ -830,7 +830,11 @@ class TBDeviceMqttClient:
 
         if _type == TBSendMethod.PUBLISH:
             self.__add_metadata_to_data_dict_from_device(kwargs["payload"])
-            return self.__send_publish_with_limitations(kwargs, timeout, device, msg_rate_limit, dp_rate_limit)
+            return self.__send_publish_with_limitations(kwargs,
+                                                        timeout,
+                                                        device_or_devices,
+                                                        msg_rate_limit,
+                                                        dp_rate_limit)
         elif _type == TBSendMethod.SUBSCRIBE:
             return self._client.subscribe(**kwargs)
         elif _type == TBSendMethod.UNSUBSCRIBE:
@@ -858,27 +862,53 @@ class TBDeviceMqttClient:
             else:
                 return self._messages_rate_limit, None
 
-    def __send_publish_with_limitations(self, kwargs, timeout, device=None, msg_rate_limit: RateLimit = None,
+    def __send_publish_with_limitations(self, kwargs, timeout, device_or_devices=None, msg_rate_limit: RateLimit = None,
                                         dp_rate_limit: RateLimit = None):
         data = kwargs.get("payload")
         if isinstance(data, str):
             data = loads(data)
         topic = kwargs.get("topic", '')
-        attributes_format = topic.endswith('attributes')
-        if topic.endswith('telemetry') or attributes_format:
+        qos = kwargs.get("qos", self.quality_of_service)
+        is_attributes = topic.endswith('attributes')
+        is_telemetry = topic.endswith('telemetry')
+        if device_or_devices is None or isinstance(device_or_devices, str):
+            return self.__split_and_send_message_for_single_device(data, timeout, is_telemetry, is_attributes,
+                                                                   topic, qos, device_or_devices, msg_rate_limit,
+                                                                   dp_rate_limit)
+        else:
+            return self.__split_and_send_message_for_multiply_devices(data, timeout, is_attributes, topic, qos,
+                                                                      device_or_devices, msg_rate_limit, dp_rate_limit)
+
+    def __split_and_send_message_for_single_device(self,
+                                                   data: dict,
+                                                   timeout,
+                                                   is_telemetry: bool,
+                                                   is_attributes: bool,
+                                                   topic: str,
+                                                   qos: int,
+                                                   device=None,
+                                                   msg_rate_limit: RateLimit = None,
+                                                   dp_rate_limit: RateLimit = None):
+        if is_telemetry or is_attributes:
             if device is None or data.get(device) is None:
                 device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
-                if attributes_format:
-                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                if is_attributes:
+                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in
+                                      device_split_messages for msg_data in split_message['data']]
                 else:
-                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for
+                                      split_message in device_split_messages]
             else:
                 device_data = data.get(device)
-                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
-                if attributes_format:
-                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(),
+                                                            self.max_payload_size)
+                if is_attributes:
+                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in
+                                      device_split_messages for msg_data in split_message['data']]
                 else:
-                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [
+                        {'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for
+                        split_message in device_split_messages]
         else:
             split_messages = [{'message': data, 'datapoints': self._count_datapoints_in_message(data, device)}]
 
@@ -886,47 +916,110 @@ class TBDeviceMqttClient:
         for part in split_messages:
             if not part:
                 continue
-            self.__send_split_message(results, part, kwargs, timeout, device, msg_rate_limit, dp_rate_limit, topic)
+            self.__send_split_message(results, part['message'], part['datapoints'], timeout,
+                                      msg_rate_limit, dp_rate_limit, topic, qos)
         return TBPublishInfo(results)
 
-    def __send_split_message(self, results, part, kwargs, timeout, device, msg_rate_limit, dp_rate_limit,
-                             topic):
-        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
-            dp_rate_limit.increase_rate_limit_counter(part['datapoints'])
-            rate_limited = self._wait_for_rate_limit_released(timeout,
-                                                              message_rate_limit=msg_rate_limit,
-                                                              dp_rate_limit=dp_rate_limit,
-                                                              amount=part['datapoints'])
-            if rate_limited:
-                return rate_limited
-        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
-            msg_rate_limit.increase_rate_limit_counter()
-        kwargs["payload"] = dumps(part['message'])
-        self._wait_until_current_queued_messages_processed()
-        if not self.stopped:
-            if device is not None:
-                log.debug("Device: %s, Sending message to topic: %s ", device, topic)
-            if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
-                if part['datapoints'] > 0:
-                    log.debug("Sending message with %i datapoints", part['datapoints'])
-                    if log.isEnabledFor(5) and hasattr(log, 'trace'):
-                        log.trace("Message payload: %r", kwargs["payload"])
-                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
-                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
+    def __split_and_send_message_for_multiply_devices(self,
+                                                      data,
+                                                      timeout,
+                                                      is_attributes: bool,
+                                                      topic: str,
+                                                      qos: int,
+                                                      devices,
+                                                      msg_rate_limit: RateLimit = None,
+                                                      dp_rate_limit: RateLimit = None):
+        prepared_device_messages = {}
+        for device in devices:
+            device_data = data.get(device)
+            device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(),
+                                                    self.max_payload_size)
+
+            if prepared_device_messages.get(device) is None:
+                prepared_device_messages[device] = {'messages': [], 'current_index': 0}
+
+            if is_attributes:
+                for split_message in device_split_messages:
+                    for msg_data in split_message['data']:
+                        msg_size = split_message.get('tb_gw_msg_chunk_size')
+                        prepared_device_messages[device]['messages'].append({'message': {device: msg_data},
+                                                        'datapoints': split_message['datapoints'],
+                                                        'tb_gw_msg_chunk_size': msg_size})
+            else:
+                for split_message in device_split_messages:
+                    prepared_device_messages[device]['messages'].append({'message': {device: split_message['data']},
+                                                    'datapoints': split_message['datapoints'],
+                                                    'tb_gw_msg_chunk_size': split_message['tb_gw_msg_chunk_size']})
+
+        devices_messages_sized = []
+        temp_message = {'datapoints': 0}
+        temp_message_size = 0
+        last_added = False
+        for device in prepared_device_messages:
+            if prepared_device_messages[device]['current_index'] <= len(prepared_device_messages[device]['messages']) - 1:
+                current_index = prepared_device_messages[device]['current_index']
+                current_index_message_size = prepared_device_messages[device]['messages'][current_index]['tb_gw_msg_chunk_size']
+                if temp_message_size + current_index_message_size >= self.max_payload_size:
+                    datapoints = temp_message.pop('datapoints')
+                    devices_messages_sized.append({'message': deepcopy(temp_message), 'datapoints': datapoints})
+                    temp_message = {'datapoints': 0}
+                    temp_message_size = 0
+                    last_added = True
                 else:
-                    if log.isEnabledFor(5) and hasattr(log, 'trace'):
-                        log.trace("Sending message with %r", kwargs["payload"])
-                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
-                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
-        result = self._client.publish(**kwargs)
+                    last_added = False
+                    temp_message[device] = prepared_device_messages[device]['messages'][current_index]['message'][device]
+                    temp_message['datapoints'] += prepared_device_messages[device]['messages'][current_index]['datapoints']
+                    temp_message_size += current_index_message_size
+                    prepared_device_messages[device]['current_index'] += 1
+        if not last_added and temp_message_size > 0:
+            datapoints = temp_message.pop('datapoints')
+            devices_messages_sized.append({'message': temp_message, 'datapoints': datapoints})
+
+        results = []
+        for message in devices_messages_sized:
+            if not message:
+                continue
+            self.__send_split_message(results, message['message'], message['datapoints'], timeout, msg_rate_limit, dp_rate_limit, topic, qos)
+        return TBPublishInfo(results)
+
+    def __send_split_message(self, results, message, datapoints, timeout, msg_rate_limit, dp_rate_limit,
+                             topic, qos, retain=False, properties=None):
+        if isinstance(message, (dict, list)):
+            message = dumps(message)
+        self.__wait_for_rate_limits_if_needed(datapoints, timeout, msg_rate_limit, dp_rate_limit)
+        if log.isEnabledFor(5) and hasattr(log, 'trace'):
+            log.trace("Sending message with payload: %r", message)
+        result = self._client.publish(topic=topic, payload=message, qos=qos, retain=retain, properties=properties)
         if result.rc == MQTT_ERR_QUEUE_SIZE:
             while not self.stopped and result.rc == MQTT_ERR_QUEUE_SIZE:
                 if int(monotonic()) - self.__error_logged > 10:
                     log.warning("Queue size exceeded, waiting for messages to be processed by paho client.")
                     self.__error_logged = int(monotonic())
                 sleep(.01)  # Give some time for paho to process messages
-                result = self._client.publish(**kwargs)
+                result = self._client.publish(topic=topic, payload=message, qos=qos, retain=retain, properties=properties)
         results.append(result)
+
+    def __wait_for_rate_limits_if_needed(self, datapoints, timeout, msg_rate_limit, dp_rate_limit):
+        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+            dp_rate_limit.increase_rate_limit_counter(datapoints)
+            rate_limited = self._wait_for_rate_limit_released(timeout,
+                                                              message_rate_limit=msg_rate_limit,
+                                                              dp_rate_limit=dp_rate_limit,
+                                                              amount=datapoints)
+            if rate_limited:
+                return rate_limited
+        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+            msg_rate_limit.increase_rate_limit_counter()
+        self._wait_until_current_queued_messages_processed()
+        if not self.stopped:
+            if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+                if datapoints > 0:
+                    log.debug("Sending message with %i datapoints", datapoints)
+                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
+                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
+                else:
+                    log.debug("Rate limits after sending message: %r", msg_rate_limit.__dict__)
+                    log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
 
     def _subscribe_to_topic(self, topic, qos=None, timeout=DEFAULT_TIMEOUT):
         if qos is None:
@@ -941,9 +1034,12 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
-        return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout, msg_rate_limit=self._messages_rate_limit)
+        return self._send_request(TBSendMethod.SUBSCRIBE,
+                                  {"topic": topic, "qos": qos},
+                                  timeout,
+                                  msg_rate_limit=self._messages_rate_limit)
 
-    def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT, device=None,
+    def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT, device_or_devices=None,
                       msg_rate_limit=None, dp_rate_limit=None):
         if qos is None:
             qos = self.quality_of_service
@@ -960,8 +1056,12 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
-        return self._send_request(TBSendMethod.PUBLISH, {"topic": topic, "payload": data, "qos": qos}, timeout,
-                                  device=device, msg_rate_limit=msg_rate_limit, dp_rate_limit=dp_rate_limit)
+        return self._send_request(TBSendMethod.PUBLISH,
+                                  {"topic": topic, "payload": data, "qos": qos},
+                                  timeout,
+                                  device_or_devices=device_or_devices,
+                                  msg_rate_limit=msg_rate_limit,
+                                  dp_rate_limit=dp_rate_limit)
 
     def send_telemetry(self, telemetry, quality_of_service=None, wait_for_publish=True):
         """Send telemetry to ThingsBoard. The telemetry can be a single dictionary or a list of dictionaries."""
@@ -1164,7 +1264,7 @@ class TBDeviceMqttClient:
 
         message_item_values_with_allowed_size = {}
         ts = None
-        current_size = 0
+        current_size: int = 0
 
         for (message_index, message) in enumerate(message_pack):
             if not isinstance(message, dict):
@@ -1184,7 +1284,7 @@ class TBDeviceMqttClient:
                 single_data = {'ts': ts, 'values': values} if ts else values
                 if not isinstance(single_data, list):
                     single_data = [single_data]
-                append_split_message({'data': single_data, 'datapoints': 1})
+                append_split_message({'data': single_data, 'datapoints': 1, 'tb_gw_msg_chunk_size': len(str(single_data))})
                 continue
 
             for current_data_key_index, data_key in enumerate(values_data_keys):
@@ -1212,6 +1312,7 @@ class TBDeviceMqttClient:
                         final_message_item['data'].append(message_item_values_with_allowed_size.copy())
 
                     final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
+                    final_message_item['tb_gw_msg_chunk_size'] = current_size
                     append_split_message(final_message_item.copy())
                     final_message_item = {'data': [], 'datapoints': 0}
 
@@ -1234,6 +1335,7 @@ class TBDeviceMqttClient:
 
                 final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
                 if final_message_item['data']:
+                    final_message_item['tb_gw_msg_chunk_size'] = current_size
                     append_split_message(final_message_item.copy())
 
         return split_messages

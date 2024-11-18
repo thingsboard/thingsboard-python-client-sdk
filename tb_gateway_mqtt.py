@@ -14,6 +14,7 @@
 #
 
 import logging
+from typing import Any, Dict
 
 try:
     from time import monotonic as time
@@ -185,7 +186,22 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             if kwargs.get('topic') == GATEWAY_TELEMETRY_TOPIC:
                 device_msg_rate_limit = self._devices_connected_through_gateway_telemetry_messages_rate_limit
                 device_dp_rate_limit = self._devices_connected_through_gateway_telemetry_datapoints_rate_limit
-            info = self._publish_data(**kwargs, device=device_name,
+            info = self._publish_data(**kwargs,
+                                      device_or_devices=device_name,
+                                      msg_rate_limit=device_msg_rate_limit,
+                                      dp_rate_limit=device_dp_rate_limit)
+            return info
+
+    def _send_devices_batch_request(self, _type, data: Dict[str, Any], **kwargs):
+        if _type == TBSendMethod.PUBLISH:
+            device_msg_rate_limit = self._devices_connected_through_gateway_messages_rate_limit
+            device_dp_rate_limit = self.EMPTY_RATE_LIMIT
+            if kwargs.get('topic') == GATEWAY_TELEMETRY_TOPIC:
+                device_msg_rate_limit = self._devices_connected_through_gateway_telemetry_messages_rate_limit
+                device_dp_rate_limit = self._devices_connected_through_gateway_telemetry_datapoints_rate_limit
+            info = self._publish_data(data=data,
+                                      **kwargs,
+                                      device_or_devices=data.keys(),
                                       msg_rate_limit=device_msg_rate_limit,
                                       dp_rate_limit=device_dp_rate_limit)
             return info
@@ -203,6 +219,12 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          data={device: attributes},
                                          qos=quality_of_service)
 
+    def gw_send_devices_attributes(self, attributes, quality_of_service=1):
+        return self._send_devices_batch_request(TBSendMethod.PUBLISH,
+                                                topic=GATEWAY_ATTRIBUTES_TOPIC,
+                                                data=attributes,
+                                                qos=quality_of_service)
+
     def gw_send_telemetry(self, device, telemetry, quality_of_service=1):
         if not isinstance(telemetry, list):
             telemetry = [telemetry]
@@ -212,6 +234,12 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          topic=GATEWAY_TELEMETRY_TOPIC,
                                          data={device: telemetry},
                                          qos=quality_of_service)
+
+    def gw_send_devices_telemetry(self, telemetry, quality_of_service=1):
+        return self._send_devices_batch_request(TBSendMethod.PUBLISH,
+                                                topic=GATEWAY_TELEMETRY_TOPIC,
+                                                data=telemetry,
+                                                qos=quality_of_service)
 
     def gw_connect_device(self, device_name, device_type="default"):
         info = self._send_device_request(TBSendMethod.PUBLISH, device_name, topic=GATEWAY_MAIN_TOPIC + "connect",
