@@ -25,7 +25,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'vdE3xpyPrnnFOhTs6FMf')
+        cls.client = TBDeviceMqttClient('127.0.0.1', 1883, 'TEST_DEVICE_TOKEN')
         cls.client.connect(timeout=1)
 
     @classmethod
