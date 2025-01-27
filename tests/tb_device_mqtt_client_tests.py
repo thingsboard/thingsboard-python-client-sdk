@@ -1,22 +1,7 @@
-# Copyright 2024. ThingsBoard
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#  http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import unittest
 from time import sleep
-
-from tb_device_mqtt import TBDeviceMqttClient
-
+from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException
+from unittest.mock import MagicMock
 
 class TBDeviceMqttClientTests(unittest.TestCase):
     """
@@ -40,7 +25,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('127.0.0.1', 1883, 'TEST_DEVICE_TOKEN')
+        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'vdE3xpyPrnnFOhTs6FMf')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -82,6 +67,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         attributes = {"sensorModel": "DHT-22", self.client_attribute_name: self.client_attribute_value}
         self.assertEqual(self.client.send_attributes(attributes, 0).get(), 0)
 
+    def test_large_telemetry(self):
+        large_telemetry = {"key_{}".format(i): i for i in range(1000)}
+        result = self.client.send_telemetry(large_telemetry, 0).get()
+        self.assertEqual(result, 0)
+
     def test_subscribe_to_attrs(self):
         sub_id_1 = self.client.subscribe_to_attribute(self.shared_attribute_name, self.callback_for_specific_attr)
         sub_id_2 = self.client.subscribe_to_all_attributes(self.callback_for_everything)
@@ -95,6 +85,79 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.client.unsubscribe_from_attribute(sub_id_1)
         self.client.unsubscribe_from_attribute(sub_id_2)
 
+    def test_send_rpc_call(self):
+        def rpc_callback(req_id, result, exception):
+            self.assertEqual(result, {"response": "success"})
+            self.assertIsNone(exception)
 
-if __name__ == '__main__':
-    unittest.main('tb_device_mqtt_client_tests')
+        self.client.send_rpc_call("testMethod", {"param": "value"}, rpc_callback)
+
+    def test_publish_with_error(self):
+        with self.assertRaises(TBQoSException):
+            self.client._publish_data("invalid", "invalid_topic", qos=3)
+
+    def test_decode_message(self):
+        mock_message = MagicMock()
+        mock_message.payload = b'{"key": "value"}'
+        decoded = self.client._decode(mock_message)
+        self.assertEqual(decoded, {"key": "value"})
+
+    def test_max_inflight_messages_set(self):
+        self.client.max_inflight_messages_set(10)
+        self.assertEqual(self.client._client._max_inflight_messages, 10)
+
+    def test_max_queued_messages_set(self):
+        self.client.max_queued_messages_set(20)
+        self.assertEqual(self.client._client._max_queued_messages, 20)
+
+    def test_claim_device(self):
+        secret_key = "secret_key"
+        duration = 60000
+        result = self.client.claim(secret_key=secret_key, duration=duration)
+        self.assertIsInstance(result, TBPublishInfo)
+
+    def test_claim_device_invalid_key(self):
+        invalid_secret_key = "inv_key"
+        duration = 60000
+        result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
+        self.assertIsInstance(result, TBPublishInfo)
+#
+
+class TestRateLimit(unittest.TestCase):
+    def setUp(self):
+        self.rate_limit = RateLimit("5:1,10:2")
+
+    def test_add_counter_and_check_limit(self):
+        for _ in range(5):
+            self.rate_limit.add_counter()
+        self.assertTrue(self.rate_limit.check_limit_reached())
+
+    def test_rate_limit_reset(self):
+        for _ in range(5):
+            self.rate_limit.add_counter()
+        self.assertTrue(self.rate_limit.check_limit_reached())
+        sleep(1)
+        self.assertFalse(self.rate_limit.check_limit_reached())
+
+    def test_rate_limit_set_limit(self):
+        new_rate_limit = RateLimit("15:3,30:10")
+        self.assertEqual(new_rate_limit.get_minimal_limit(), 15)
+
+class TestTBPublishInfo(unittest.TestCase):
+    def test_rc_and_mid(self):
+        mock_message_info = MagicMock()
+        mock_message_info.rc = 0
+        mock_message_info.mid = 123
+        publish_info = TBPublishInfo(mock_message_info)
+        self.assertEqual(publish_info.rc(), 0)
+        self.assertEqual(publish_info.mid(), 123)
+
+    def test_publish_error(self):
+        mock_message_info = MagicMock()
+        mock_message_info.rc = -1
+        publish_info = TBPublishInfo(mock_message_info)
+        self.assertEqual(publish_info.rc(), -1)
+        self.assertEqual(publish_info.ERRORS_DESCRIPTION[-1], 'Previous error repeated.')
+
+if __name__ == "__main__":
+    unittest.main()
