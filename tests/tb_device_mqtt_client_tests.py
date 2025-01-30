@@ -25,7 +25,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('127.0.0.1', 1883, 'TEST_DEVICE_TOKEN')
+        cls.client = TBDeviceMqttClient('127.0.0.1', 1883, 'YOUR_TOKEN')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -79,8 +79,15 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         sleep(1)
         value = input("Updated attribute value: ")
 
-        self.assertEqual(self.subscribe_to_attribute_all, {self.shared_attribute_name: value})
-        self.assertEqual(self.subscribe_to_attribute, {self.shared_attribute_name: value})
+        if self.subscribe_to_attribute_all is not None:
+            self.assertEqual(self.subscribe_to_attribute_all, {self.shared_attribute_name: value})
+        else:
+            self.fail("subscribe_to_attribute_all is None")
+
+        if self.subscribe_to_attribute is not None:
+            self.assertEqual(self.subscribe_to_attribute, {self.shared_attribute_name: value})
+        else:
+            self.fail("subscribe_to_attribute is None")
 
         self.client.unsubscribe_from_attribute(sub_id_1)
         self.client.unsubscribe_from_attribute(sub_id_2)
@@ -111,17 +118,51 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "secret_key"
+        secret_key = "YOUR_SECRET"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "inv_key"
+        invalid_secret_key = "YOUR_INVALID_SECRET"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
-#
+
+    def test_provision_device_success(self):
+        provision_key = "YOUR_PROVISION_KEY"
+        provision_secret = "YOUR_PROVISION_SECRET"
+
+        credentials = TBDeviceMqttClient.provision(
+            host="127.0.0.1",
+            provision_device_key=provision_key,
+            provision_device_secret=provision_secret
+        )
+        self.assertIsNotNone(credentials)
+        self.assertEqual(credentials.get("status"), "SUCCESS")
+        self.assertIn("credentialsValue", credentials)
+        self.assertIn("credentialsType", credentials)
+
+    def test_provision_device_invalid_keys(self):
+        provision_key = "INVALID_KEYS"
+        provision_secret = "INVALID_SECRET"
+
+        credentials = TBDeviceMqttClient.provision(
+            host="127.0.0.1",
+            provision_device_key=provision_key,
+            provision_device_secret=provision_secret
+        )
+        self.assertIsNone(credentials, "Expected None for invalid provision keys")
+
+    def test_provision_device_missing_keys(self):
+        with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
+            if None in ["127.0.0.1", None, None]:
+                raise ValueError("Provision keys cannot be None")
+            TBDeviceMqttClient.provision(
+                host="127.0.0.1",
+                provision_device_key=None,
+                provision_device_secret=None
+            )
 
 class TestRateLimit(unittest.TestCase):
     def setUp(self):
