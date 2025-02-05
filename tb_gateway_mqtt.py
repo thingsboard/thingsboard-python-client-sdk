@@ -319,4 +319,4 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         else:
             self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit('0:0,')
 
-        super().on_service_configuration(_, {'rateLimit': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
+        super().on_service_configuration(_, {'rateLimits': gateway_device_itself_rate_limit_config, **service_config}, *args, **kwargs)
