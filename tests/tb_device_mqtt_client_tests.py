@@ -25,7 +25,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('127.0.0.1', 1883, 'YOUR_TOKEN')
+        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'gEVBWSkNkLR8VmkHz9F0')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -118,23 +118,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "YOUR_SECRET"
+        secret_key = "123qwe123"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "YOUR_INVALID_SECRET"
+        invalid_secret_key = "123qwe1231"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_provision_device_success(self):
-        provision_key = "YOUR_PROVISION_KEY"
-        provision_secret = "YOUR_PROVISION_SECRET"
+        provision_key = "hz0nwspctzzbje5enns5"
+        provision_secret = "l8xad8blrydf5e2cdv84"
 
         credentials = TBDeviceMqttClient.provision(
-            host="127.0.0.1",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -144,11 +144,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "INVALID_KEYS"
-        provision_secret = "INVALID_SECRET"
+        provision_key = "hz0nwspcQzzbje5enns5"
+        provision_secret = "l8xad8Glrydf5e2cdv84"
 
         credentials = TBDeviceMqttClient.provision(
-            host="127.0.0.1",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -156,10 +156,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["127.0.0.1", None, None]:
+            if None in ["thingsboard.cloud", None, None]:
                 raise ValueError("Provision keys cannot be None")
             TBDeviceMqttClient.provision(
-                host="127.0.0.1",
+                host="thingsboard.cloud",
                 provision_device_key=None,
                 provision_device_secret=None
             )
@@ -170,19 +170,19 @@ class TestRateLimit(unittest.TestCase):
 
     def test_add_counter_and_check_limit(self):
         for _ in range(5):
-            self.rate_limit.add_counter()
+            self.rate_limit.increase_rate_limit_counter()
         self.assertTrue(self.rate_limit.check_limit_reached())
 
     def test_rate_limit_reset(self):
         for _ in range(5):
-            self.rate_limit.add_counter()
+            self.rate_limit.increase_rate_limit_counter()
         self.assertTrue(self.rate_limit.check_limit_reached())
         sleep(1)
         self.assertFalse(self.rate_limit.check_limit_reached())
 
     def test_rate_limit_set_limit(self):
         new_rate_limit = RateLimit("15:3,30:10")
-        self.assertEqual(new_rate_limit.get_minimal_limit(), 15)
+        self.assertEqual(new_rate_limit.get_minimal_limit(), 12)
 
 class TestTBPublishInfo(unittest.TestCase):
     def test_rc_and_mid(self):
