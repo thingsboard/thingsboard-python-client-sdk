@@ -397,7 +397,6 @@ class TBDeviceMqttClient:
     def __service_loop_func(self):
         self.__service_loop.run()
 
-    Исправили Thread заменив target=self.__service_loop_func, а затем определили __service_loop_func()
     def __service_loop(self):
         while not self.stopped:
             if self.__request_service_configuration_required:
