@@ -38,7 +38,7 @@ class TBGatewayMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBGatewayMqttClient('127.0.0.1', 1883, 'TEST_GATEWAY_TOKEN')
+        cls.client = TBGatewayMqttClient('host', 1883, 'token')
         cls.client.connect(timeout=1)
 
     @classmethod
