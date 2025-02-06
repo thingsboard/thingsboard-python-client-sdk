@@ -4,17 +4,18 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#  http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
 import unittest
 from unittest.mock import MagicMock
-from time import sleep, monotonic
+from time import sleep
 from tb_device_mqtt import RateLimit, TBDeviceMqttClient
 
 
@@ -113,6 +114,112 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(mock_limit.check_limit_reached())
         mock_limit.increase_rate_limit_counter()
         mock_limit.increase_rate_limit_counter.assert_called()
+
+    # Extended Tests
+
+    def test_counter_increments_correctly(self):
+        self.rate_limit.increase_rate_limit_counter()
+        self.assertEqual(self.rate_limit._rate_limit_dict[1]['counter'], 1)
+        self.rate_limit.increase_rate_limit_counter(5)
+        self.assertEqual(self.rate_limit._rate_limit_dict[1]['counter'], 6)
+
+    def test_percentage_affects_limits(self):
+        rate_limit_50 = RateLimit("10:1,60:10", percentage=50)
+        print("Rate limit dict:", rate_limit_50._rate_limit_dict)  # Debug output
+
+        actual_limits = {k: v['limit'] for k, v in rate_limit_50._rate_limit_dict.items()}
+
+        expected_limits = {
+            1: 5,  # 10:1 > 1:5
+            10: 30  # 60:10 > 10:30
+        }
+
+        self.assertEqual(actual_limits, expected_limits)
+
+    def test_no_limit_behavior(self):
+        unlimited = RateLimit("0:0")
+        self.assertTrue(unlimited._no_limit)
+        self.assertFalse(unlimited.check_limit_reached())
+
+    def test_set_limit_preserves_counters(self):
+        self.rate_limit.increase_rate_limit_counter(3)
+        prev_counters = {k: v['counter'] for k, v in self.rate_limit._rate_limit_dict.items()}
+
+        self.rate_limit.set_limit("20:2,120:20")
+
+        for key, counter in prev_counters.items():
+            if key in self.rate_limit._rate_limit_dict:
+                self.assertGreaterEqual(self.rate_limit._rate_limit_dict[key]['counter'], counter)
+
+    def test_get_rate_limits_by_host(self):
+        limit, dp_limit = RateLimit.get_rate_limits_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_RATE_LIMIT",
+                                                            "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        self.assertEqual(limit, "10:1,60:60,")
+        self.assertEqual(dp_limit, "10:1,300:60,")
+# достать из телеги старые и сделать одно целое
+
+    def test_limit_reset_after_time_passes(self):
+        self.rate_limit.increase_rate_limit_counter(10)
+        self.assertTrue(self.rate_limit.check_limit_reached())
+        sleep(1.1)
+        self.assertFalse(self.rate_limit.check_limit_reached())
+
+    def test_message_rate_limit(self):
+        client = TBDeviceMqttClient("localhost")
+        print("Messages rate limit dict:", client._messages_rate_limit._rate_limit_dict)  # Debug output
+
+        if not client._messages_rate_limit._rate_limit_dict:
+            client._messages_rate_limit.set_limit("10:1,60:10")
+
+        rate_limit_dict = client._messages_rate_limit._rate_limit_dict
+        limit = rate_limit_dict.get(1, {}).get('limit', None)
+
+        if limit is None:
+            raise ValueError("Key 1 is missing in the rate limit dict.")
+
+        client._messages_rate_limit.increase_rate_limit_counter(limit + 1)
+        print("Messages rate limit after increment:", client._messages_rate_limit._rate_limit_dict)
+        self.assertTrue(client._messages_rate_limit.check_limit_reached())
+        sleep(1.1)
+        self.assertFalse(client._messages_rate_limit.check_limit_reached())
+
+    def test_telemetry_rate_limit(self):
+        client = TBDeviceMqttClient("localhost")
+        print("Telemetry rate limit dict:", client._telemetry_rate_limit._rate_limit_dict)  # Debug output
+
+        if not client._telemetry_rate_limit._rate_limit_dict:
+            client._telemetry_rate_limit.set_limit("10:1,60:10")
+
+        rate_limit_dict = client._telemetry_rate_limit._rate_limit_dict
+        limit = rate_limit_dict.get(1, {}).get('limit', None)
+
+        if limit is None:
+            raise ValueError("Key 1 is missing in the telemetry rate limit dict.")
+
+        client._telemetry_rate_limit.increase_rate_limit_counter(limit + 1)
+        print("Telemetry rate limit after increment:", client._telemetry_rate_limit._rate_limit_dict)
+        self.assertTrue(client._telemetry_rate_limit.check_limit_reached())
+        sleep(1.1)
+        self.assertFalse(client._telemetry_rate_limit.check_limit_reached())
+
+    def test_telemetry_dp_rate_limit(self):
+        client = TBDeviceMqttClient("localhost")
+        print("Telemetry DP rate limit dict:", client._telemetry_dp_rate_limit._rate_limit_dict)  # Debug output
+
+        if not client._telemetry_dp_rate_limit._rate_limit_dict:
+            client._telemetry_dp_rate_limit.set_limit("10:1,60:10")
+
+        rate_limit_dict = client._telemetry_dp_rate_limit._rate_limit_dict
+        limit = rate_limit_dict.get(1, {}).get('limit', None)
+
+        if limit is None:
+            raise ValueError("Key 1 is missing in the telemetry DP rate limit dict.")
+
+        client._telemetry_dp_rate_limit.increase_rate_limit_counter(limit + 1)
+        print("Telemetry DP rate limit after increment:", client._telemetry_dp_rate_limit._rate_limit_dict)
+        self.assertTrue(client._telemetry_dp_rate_limit.check_limit_reached())
+        sleep(1.1)
+        self.assertFalse(client._telemetry_dp_rate_limit.check_limit_reached())
 
 
 if __name__ == "__main__":
