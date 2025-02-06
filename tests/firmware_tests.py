@@ -1,3 +1,17 @@
+# Copyright 2025. ThingsBoard
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unittest
 from unittest.mock import MagicMock, patch
 from tb_device_mqtt import TBDeviceMqttClient, TBTimeoutException
@@ -8,12 +22,12 @@ class TestTBDeviceMqttClient(unittest.TestCase):
     @patch('tb_device_mqtt.paho.Client')
     def setUp(self, mock_paho_client):
         self.mock_mqtt_client = mock_paho_client.return_value
-        self.client = TBDeviceMqttClient(host='thingsboard.cloud', port=1883, username='gEVBWSkNkLR8VmkHz9F0',
+        self.client = TBDeviceMqttClient(host='host', port=1883, username='token',
                                          password=None)
 
     def test_connect(self):
         self.client.connect()
-        self.mock_mqtt_client.connect.assert_called_with('thingsboard.cloud', 1883, keepalive=120)
+        self.mock_mqtt_client.connect.assert_called_with('host', 1883, keepalive=120)
         self.mock_mqtt_client.loop_start.assert_called()
 
     def test_disconnect(self):
@@ -110,7 +124,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
     def test_timeout_exception(self):
         with self.assertRaises(TBTimeoutException):
             raise TBTimeoutException("Timeout occurred")
-# вот такой юнит тест и мне надо чтобы ты помог мне решить проблему с тем что у меня вылазит такая ошибка данный юнит тест проверяет вот этот файл
 
 if __name__ == '__main__':
     unittest.main()
