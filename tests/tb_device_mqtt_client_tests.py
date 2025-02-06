@@ -1,3 +1,18 @@
+# Copyright 2025. ThingsBoard
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 import unittest
 from time import sleep
 from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException
@@ -25,7 +40,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'gEVBWSkNkLR8VmkHz9F0')
+        cls.client = TBDeviceMqttClient('host', 1883, 'token')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -118,23 +133,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "123qwe123"
+        secret_key = "secret_key"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "123qwe1231"
+        invalid_secret_key = "invalid_secret_key"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_provision_device_success(self):
-        provision_key = "hz0nwspctzzbje5enns5"
-        provision_secret = "l8xad8blrydf5e2cdv84"
+        provision_key = "provision_key"
+        provision_secret = "provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
+            host="host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -144,11 +159,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "hz0nwspcQzzbje5enns5"
-        provision_secret = "l8xad8Glrydf5e2cdv84"
+        provision_key = "invalid_provision_key"
+        provision_secret = "invalid_provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
+            host="host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -156,10 +171,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["thingsboard.cloud", None, None]:
+            if None in ["host", None, None]:
                 raise ValueError("Provision keys cannot be None")
             TBDeviceMqttClient.provision(
-                host="thingsboard.cloud",
+                host="host",
                 provision_device_key=None,
                 provision_device_secret=None
             )
