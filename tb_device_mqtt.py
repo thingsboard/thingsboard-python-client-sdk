@@ -125,6 +125,9 @@ class TBPublishInfo:
     def __init__(self, message_info):
         self.message_info = message_info
 
+    def get_rc(self):
+        return self.rc()
+
     # pylint: disable=invalid-name
     def rc(self):
         if isinstance(self.message_info, list):
