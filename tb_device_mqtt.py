@@ -125,6 +125,9 @@ class TBPublishInfo:
     def __init__(self, message_info):
         self.message_info = message_info
 
+    def get_rc(self):
+        return self.rc()
+
     # pylint: disable=invalid-name
     def rc(self):
         if isinstance(self.message_info, list):
@@ -344,7 +347,6 @@ class TBDeviceMqttClient:
             self._client.username_pw_set(username, password=password)
         self._lock = RLock()
 
-
         self._attr_request_dict = {}
         self.stopped = False
         self.__is_connected = False
@@ -387,15 +389,7 @@ class TBDeviceMqttClient:
         self.rate_limits_received = False
         self.__request_service_configuration_required = False
         self.__service_loop = Thread(target=self.__service_loop, name="Service loop", daemon=True)
-        self.__updating_thread = Thread(target=self.__service_loop_func, name="Firmware Updating Thread", daemon=True)
-        self.__current_chunk = 0
-        self.__firmware_request_id = 0
-        self.firmware_info = {}
-        self.firmware_data = b''
         self.__service_loop.start()
-
-    def __service_loop_func(self):
-        self.__service_loop.run()
 
     def __service_loop(self):
         while not self.stopped:
@@ -626,8 +620,6 @@ class TBDeviceMqttClient:
         self.firmware_received = True
 
     def __get_firmware(self):
-        print("DEBUG: __get_firmware called")
-        self._publish_data("test_payload", "test_topic", 1)
         payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) \
             else str(self.__chunk_size).encode()
         self._publish_data(payload, f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
