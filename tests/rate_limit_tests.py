@@ -115,8 +115,6 @@ class TestRateLimit(unittest.TestCase):
         mock_limit.increase_rate_limit_counter()
         mock_limit.increase_rate_limit_counter.assert_called()
 
-    # Extended Tests
-
     def test_counter_increments_correctly(self):
         self.rate_limit.increase_rate_limit_counter()
         self.assertEqual(self.rate_limit._rate_limit_dict[1]['counter'], 1)
@@ -130,8 +128,8 @@ class TestRateLimit(unittest.TestCase):
         actual_limits = {k: v['limit'] for k, v in rate_limit_50._rate_limit_dict.items()}
 
         expected_limits = {
-            1: 5,  # 10:1 > 1:5
-            10: 30  # 60:10 > 10:30
+            1: 5,   # for "10:1" -> 10 * 50% = 5
+            10: 30  # for "60:10" -> 60 * 50% = 30
         }
 
         self.assertEqual(actual_limits, expected_limits)
@@ -152,11 +150,13 @@ class TestRateLimit(unittest.TestCase):
                 self.assertGreaterEqual(self.rate_limit._rate_limit_dict[key]['counter'], counter)
 
     def test_get_rate_limits_by_host(self):
-        limit, dp_limit = RateLimit.get_rate_limits_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_RATE_LIMIT",
-                                                            "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        limit, dp_limit = RateLimit.get_rate_limits_by_host(
+            "thingsboard.cloud",
+            "DEFAULT_TELEMETRY_RATE_LIMIT",
+            "DEFAULT_TELEMETRY_DP_RATE_LIMIT"
+        )
         self.assertEqual(limit, "10:1,60:60,")
         self.assertEqual(dp_limit, "10:1,300:60,")
-# достать из телеги старые и сделать одно целое
 
     def test_limit_reset_after_time_passes(self):
         self.rate_limit.increase_rate_limit_counter(10)
@@ -220,6 +220,52 @@ class TestRateLimit(unittest.TestCase):
         self.assertTrue(client._telemetry_dp_rate_limit.check_limit_reached())
         sleep(1.1)
         self.assertFalse(client._telemetry_dp_rate_limit.check_limit_reached())
+
+    def test_get_rate_limit_by_host_telemetry_cloud(self):
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        self.assertEqual(result, "10:1,60:60,")
+
+    def test_get_rate_limit_by_host_telemetry_demo(self):
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        self.assertEqual(result, "10:1,60:60,")
+
+    def test_get_rate_limit_by_host_telemetry_unknown_host(self):
+        result = RateLimit.get_rate_limit_by_host("unknown.host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        self.assertEqual(result, "0:0,")
+
+    def test_get_rate_limit_by_host_messages_cloud(self):
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        self.assertEqual(result, "10:1,60:60,")
+
+    def test_get_rate_limit_by_host_messages_demo(self):
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        self.assertEqual(result, "10:1,60:60,")
+
+    def test_get_rate_limit_by_host_messages_unknown_host(self):
+        result = RateLimit.get_rate_limit_by_host("my.custom.host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        self.assertEqual(result, "0:0,")
+
+    def test_get_rate_limit_by_host_custom_string(self):
+        # If rate_limit is something else (not "DEFAULT_..."), it should return the same string
+        result = RateLimit.get_rate_limit_by_host("my.custom.host", "15:2,120:20")
+        self.assertEqual(result, "15:2,120:20")
+
+    def test_get_dp_rate_limit_by_host_telemetry_dp_cloud(self):
+        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        self.assertEqual(result, "10:1,300:60,")
+
+    def test_get_dp_rate_limit_by_host_telemetry_dp_demo(self):
+        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        self.assertEqual(result, "10:1,300:60,")
+
+    def test_get_dp_rate_limit_by_host_telemetry_dp_unknown(self):
+        result = RateLimit.get_dp_rate_limit_by_host("unknown.host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        self.assertEqual(result, "0:0,")
+
+    def test_get_dp_rate_limit_by_host_custom(self):
+        # If dp_rate_limit is some custom value
+        result = RateLimit.get_dp_rate_limit_by_host("my.custom.host", "25:3,80:10,")
+        self.assertEqual(result, "25:3,80:10,")
 
 
 if __name__ == "__main__":
