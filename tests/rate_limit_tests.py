@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#  http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@
 import unittest
 from unittest.mock import MagicMock
 from time import sleep
-from tb_device_mqtt import RateLimit, TBDeviceMqttClient
+from tb_device_mqtt import RateLimit, TBDeviceMqttClient, TELEMETRY_TOPIC
 
 
 class TestRateLimit(unittest.TestCase):
@@ -222,11 +222,11 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(client._telemetry_dp_rate_limit.check_limit_reached())
 
     def test_get_rate_limit_by_host_telemetry_cloud(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_telemetry_demo(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_TELEMETRY_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_telemetry_unknown_host(self):
@@ -234,11 +234,11 @@ class TestRateLimit(unittest.TestCase):
         self.assertEqual(result, "0:0,")
 
     def test_get_rate_limit_by_host_messages_cloud(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("thingsboard.cloud", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_messages_demo(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_messages_unknown_host(self):
@@ -246,16 +246,15 @@ class TestRateLimit(unittest.TestCase):
         self.assertEqual(result, "0:0,")
 
     def test_get_rate_limit_by_host_custom_string(self):
-        # If rate_limit is something else (not "DEFAULT_..."), it should return the same string
         result = RateLimit.get_rate_limit_by_host("my.custom.host", "15:2,120:20")
         self.assertEqual(result, "15:2,120:20")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_cloud(self):
-        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        result = RateLimit.get_dp_rate_limit_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
         self.assertEqual(result, "10:1,300:60,")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_demo(self):
-        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        result = RateLimit.get_dp_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
         self.assertEqual(result, "10:1,300:60,")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_unknown(self):
@@ -263,10 +262,161 @@ class TestRateLimit(unittest.TestCase):
         self.assertEqual(result, "0:0,")
 
     def test_get_dp_rate_limit_by_host_custom(self):
-        # If dp_rate_limit is some custom value
         result = RateLimit.get_dp_rate_limit_by_host("my.custom.host", "25:3,80:10,")
         self.assertEqual(result, "25:3,80:10,")
 
+    def test_get_rate_limits_by_topic_with_device(self):
+        custom_msg_limit = object()
+        custom_dp_limit = object()
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=TELEMETRY_TOPIC,
+            device="MyDevice",
+            msg_rate_limit=custom_msg_limit,
+            dp_rate_limit=custom_dp_limit
+        )
+        self.assertIs(msg_limit, custom_msg_limit)
+        self.assertIs(dp_limit, custom_dp_limit)
+
+    def test_get_rate_limits_by_topic_no_device_telemetry_topic(self):
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=TELEMETRY_TOPIC,
+            device=None,
+            msg_rate_limit=None,
+            dp_rate_limit=None
+        )
+        self.assertIs(msg_limit, self.client._telemetry_rate_limit)
+        self.assertIs(dp_limit, self.client._telemetry_dp_rate_limit)
+
+    def test_get_rate_limits_by_topic_no_device_other_topic(self):
+        some_topic = "v1/devices/me/attributes"
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=some_topic,
+            device=None,
+            msg_rate_limit=None,
+            dp_rate_limit=None
+        )
+        self.assertIs(msg_limit, self.client._messages_rate_limit)
+        self.assertIsNone(dp_limit)
+
+
+class TestOnServiceConfigurationIntegration(unittest.TestCase):
+
+    def setUp(self):
+        self.client = TBDeviceMqttClient(
+            host="my.test.host",
+            port=1883,
+            username="fake_token",
+            messages_rate_limit="0:0,",
+            telemetry_rate_limit="0:0,",
+            telemetry_dp_rate_limit="0:0,"
+        )
+        self.assertIsInstance(self.client._messages_rate_limit, RateLimit)
+        self.assertIsInstance(self.client._telemetry_rate_limit, RateLimit)
+        self.assertIsInstance(self.client._telemetry_dp_rate_limit, RateLimit)
+
+    def test_on_service_config_error(self):
+        config_with_error = {"error": "Some error text"}
+        self.client.on_service_configuration(None, config_with_error)
+        self.assertTrue(self.client.rate_limits_received, "После 'error' rate_limits_received => True")
+        self.assertTrue(self.client._messages_rate_limit._no_limit)
+        self.assertTrue(self.client._telemetry_rate_limit._no_limit)
+
+    def test_on_service_config_no_rateLimits(self):
+
+        config_no_ratelimits = {"maxInflightMessages": 100}
+        self.client.on_service_configuration(None, config_no_ratelimits)
+        self.assertTrue(self.client._messages_rate_limit._no_limit)
+        self.assertTrue(self.client._telemetry_rate_limit._no_limit)
+
+    def test_on_service_config_partial_rateLimits_no_messages(self):
+        config = {
+            "rateLimits": {
+                "telemetryMessages": "10:1,60:10"
+            }
+        }
+        self.client.on_service_configuration(None, config)
+        self.assertTrue(self.client._messages_rate_limit._no_limit)
+        self.assertFalse(self.client._telemetry_rate_limit._no_limit)
+
+    def test_on_service_config_all_three(self):
+        config = {
+            "rateLimits": {
+                "messages": "5:1,30:10",
+                "telemetryMessages": "10:1,60:20",
+                "telemetryDataPoints": "100:10"
+            }
+        }
+        self.client.on_service_configuration(None, config)
+        self.assertFalse(self.client._messages_rate_limit._no_limit)
+        self.assertFalse(self.client._telemetry_rate_limit._no_limit)
+        self.assertFalse(self.client._telemetry_dp_rate_limit._no_limit)
+
+    def test_on_service_config_max_inflight_both_limits(self):
+        self.client._messages_rate_limit.set_limit("10:1", 80)   # => limit=8
+        self.client._telemetry_rate_limit.set_limit("5:1", 80)   # => limit=4
+
+        config = {
+            "rateLimits": {
+                "messages": "10:1",
+                "telemetryMessages": "5:1"
+            },
+            "maxInflightMessages": 50
+        }
+        self.client.on_service_configuration(None, config)
+        self.assertEqual(self.client._client._max_inflight_messages, 3)
+        self.assertEqual(self.client._client._max_queued_messages, 3)
+
+    def test_on_service_config_max_inflight_only_messages(self):
+        self.client._messages_rate_limit.set_limit("20:1", 80)  # => 16
+        self.client._telemetry_rate_limit.set_limit("0:0,", 80) # => no_limit => has_limit=False
+
+        config = {
+            "rateLimits": {
+                "messages": "20:1"
+            },
+            "maxInflightMessages": 40
+        }
+        self.client.on_service_configuration(None, config)
+        # min(16,40)=16 => 16*80%=12.8 => int=12
+        self.assertEqual(self.client._client._max_inflight_messages, 12)
+        self.assertEqual(self.client._client._max_queued_messages, 12)
+
+    def test_on_service_config_max_inflight_only_telemetry(self):
+        self.client._messages_rate_limit.set_limit("0:0,", 80)  # => no_limit
+        self.client._telemetry_rate_limit.set_limit("10:1", 80) # => limit=8
+
+        config = {
+            "rateLimits": {
+                "telemetryMessages": "10:1"
+            },
+            "maxInflightMessages": 15
+        }
+        self.client.on_service_configuration(None, config)
+        # min(8,15)=8 => 8*80%=6.4 => int=6
+        self.assertEqual(self.client._client._max_inflight_messages, 6)
+        self.assertEqual(self.client._client._max_queued_messages, 6)
+
+    def test_on_service_config_max_inflight_no_limits(self):
+
+        self.client._messages_rate_limit.set_limit("0:0,", 80)
+        self.client._telemetry_rate_limit.set_limit("0:0,", 80)
+
+        config = {
+            "rateLimits": {},
+            "maxInflightMessages": 100
+        }
+        self.client.on_service_configuration(None, config)
+        # else => int(100*0.8)=80
+        self.assertEqual(self.client._client._max_inflight_messages, 80)
+        self.assertEqual(self.client._client._max_queued_messages, 80)
+
+    def test_on_service_config_maxPayloadSize(self):
+        config = {
+            "rateLimits": {},
+            "maxPayloadSize": 2000
+        }
+        self.client.on_service_configuration(None, config)
+        self.assertEqual(self.client.max_payload_size, 1600)
 
 if __name__ == "__main__":
     unittest.main()
