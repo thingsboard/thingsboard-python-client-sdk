@@ -1,11 +1,11 @@
 # Copyright 2024. ThingsBoard
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #  http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -132,16 +132,16 @@ class TBPublishInfo:
     def rc(self):
         if isinstance(self.message_info, list):
             for info in self.message_info:
-                if isinstance(info.rc, ReasonCodes):
+                if isinstance(info.rc, ReasonCodes) or hasattr(info.rc, 'value'):
                     if info.rc.value == 0:
                         continue
-                    return info.rc
+                    return info.rc.value
                 else:
                     if info.rc != 0:
                         return info.rc
             return self.TB_ERR_SUCCESS
         else:
-            if isinstance(self.message_info.rc, ReasonCodes):
+            if isinstance(self.message_info.rc, ReasonCodes) or hasattr(self.message_info.rc, 'value'):
                 return self.message_info.rc.value
             return self.message_info.rc
 
@@ -242,6 +242,11 @@ class RateLimit:
             old_rate_limit_dict = deepcopy(self._rate_limit_dict)
             self._rate_limit_dict = {}
             self.percentage = percentage if percentage != 0 else self.percentage
+            if rate_limit.strip() == "0:0,":
+                self._rate_limit_dict.clear()
+                self._no_limit = True
+                log.debug("Rate limit set to NO_LIMIT from '0:0,' directive.")
+                return
             rate_configs = rate_limit.split(";")
             if "," in rate_limit:
                 rate_configs = rate_limit.split(",")
@@ -676,6 +681,7 @@ class TBDeviceMqttClient:
         info = self._publish_data(resp, RPC_RESPONSE_TOPIC + req_id, quality_of_service)
         if wait_for_publish:
             info.get()
+        return info
 
     def send_rpc_call(self, method, params, callback):
         """Send RPC call to ThingsBoard. The callback will be called when the response is received."""
