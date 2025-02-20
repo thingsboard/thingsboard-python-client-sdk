@@ -23,7 +23,7 @@ class TestRateLimit(unittest.TestCase):
 
     def setUp(self):
         self.rate_limit = RateLimit("10:1,60:10", "test_limit")
-        self.client = TBDeviceMqttClient("localhost")
+        self.client = TBDeviceMqttClient("<THINGSBOARD_HOST>")
 
         print("Default messages rate limit:", self.client._messages_rate_limit._rate_limit_dict)
         print("Default telemetry rate limit:", self.client._telemetry_rate_limit._rate_limit_dict)
@@ -165,7 +165,7 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(self.rate_limit.check_limit_reached())
 
     def test_message_rate_limit(self):
-        client = TBDeviceMqttClient("localhost")
+        client = TBDeviceMqttClient("<THINGSBOARD_HOST>")
         print("Messages rate limit dict:", client._messages_rate_limit._rate_limit_dict)  # Debug output
 
         if not client._messages_rate_limit._rate_limit_dict:
@@ -184,7 +184,7 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(client._messages_rate_limit.check_limit_reached())
 
     def test_telemetry_rate_limit(self):
-        client = TBDeviceMqttClient("localhost")
+        client = TBDeviceMqttClient("<THINGSBOARD_HOST>")
         print("Telemetry rate limit dict:", client._telemetry_rate_limit._rate_limit_dict)  # Debug output
 
         if not client._telemetry_rate_limit._rate_limit_dict:
@@ -203,7 +203,7 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(client._telemetry_rate_limit.check_limit_reached())
 
     def test_telemetry_dp_rate_limit(self):
-        client = TBDeviceMqttClient("localhost")
+        client = TBDeviceMqttClient("<THINGSBOARD_HOST>")
         print("Telemetry DP rate limit dict:", client._telemetry_dp_rate_limit._rate_limit_dict)  # Debug output
 
         if not client._telemetry_dp_rate_limit._rate_limit_dict:
@@ -303,9 +303,9 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
 
     def setUp(self):
         self.client = TBDeviceMqttClient(
-            host="my.test.host",
+            host="<THINGSBOARD_HOST>",
             port=1883,
-            username="fake_token",
+            username="<ACCESS_TOKEN>",
             messages_rate_limit="0:0,",
             telemetry_rate_limit="0:0,",
             telemetry_dp_rate_limit="0:0,"
@@ -353,7 +353,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
 
     def test_on_service_config_max_inflight_both_limits(self):
         self.client._messages_rate_limit.set_limit("10:1", 80)   # => limit=8
-        self.client._telemetry_rate_limit.set_limit("5:1", 80)   # => limit=4
+        self.client._telemetry_rate_limit.set_limit("5:1", 80)     # => limit=4
 
         config = {
             "rateLimits": {
@@ -368,7 +368,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
 
     def test_on_service_config_max_inflight_only_messages(self):
         self.client._messages_rate_limit.set_limit("20:1", 80)  # => 16
-        self.client._telemetry_rate_limit.set_limit("0:0,", 80) # => no_limit => has_limit=False
+        self.client._telemetry_rate_limit.set_limit("0:0,", 80)  # => no_limit => has_limit=False
 
         config = {
             "rateLimits": {
@@ -383,7 +383,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
 
     def test_on_service_config_max_inflight_only_telemetry(self):
         self.client._messages_rate_limit.set_limit("0:0,", 80)  # => no_limit
-        self.client._telemetry_rate_limit.set_limit("10:1", 80) # => limit=8
+        self.client._telemetry_rate_limit.set_limit("10:1", 80)   # => limit=8
 
         config = {
             "rateLimits": {

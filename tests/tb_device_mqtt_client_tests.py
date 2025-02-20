@@ -53,7 +53,6 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        # Используем заглушки для host и access token
         cls.client = TBDeviceMqttClient('<THINGSBOARD_HOST>', 1883, '<ACCESS_TOKEN>')
         cls.client.connect(timeout=1)
 
