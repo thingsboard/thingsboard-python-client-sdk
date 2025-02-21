@@ -315,7 +315,7 @@ class TBGatewayMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBGatewayMqttClient('<HOST>', 1883, '<ACCSESS TOKEN>')
+        cls.client = TBGatewayMqttClient('thingsboard_host', 1883, 'token')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -342,8 +342,10 @@ class TBGatewayMqttClientTests(unittest.TestCase):
         TBGatewayMqttClientTests.subscribe_to_attribute = result
 
     def test_connect_disconnect_device(self):
-        self.assertEqual(self.client.gw_connect_device(self.device_name).rc, 0)
-        self.assertEqual(self.client.gw_disconnect_device(self.device_name).rc, 0)
+        connect_info = self.client.gw_connect_device(self.device_name)
+        self.assertEqual(connect_info.rc(), 0, "Device connection failed")
+        disconnect_info = self.client.gw_disconnect_device(self.device_name)
+        self.assertEqual(disconnect_info.rc(), 0, "Device disconnection failed")
 
     def test_request_attributes(self):
         self.client.gw_request_shared_attributes(self.device_name, [self.shared_attr_name],
