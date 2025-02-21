@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from time import sleep
 from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException, TBSendMethod
-from threading import RLock
+import threading
 
 def has_get_rc():
     return hasattr(TBPublishInfo, "get_rc")
@@ -53,7 +53,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('<THINGSBOARD_HOST>', 1883, '<ACCESS_TOKEN>')
+        cls.client = TBDeviceMqttClient('dummy_host', 1883, 'dummy_access_token')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -170,23 +170,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "<SECRET_KEY>"
+        secret_key = "dummy_secret_key"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "<INVALID_SECRET_KEY>"
+        invalid_secret_key = "dummy_invalid_secret_key"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_provision_device_success(self):
-        provision_key = "<PROVISION_KEY>"
-        provision_secret = "<PROVISION_SECRET>"
+        provision_key = "dummy_provision_key"
+        provision_secret = "dummy_provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="<THINGSBOARD_HOST>",
+            host="dummy_host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -196,11 +196,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "<INVALID_PROVISION_KEY>"
-        provision_secret = "<INVALID_PROVISION_SECRET>"
+        provision_key = "dummy_invalid_provision_key"
+        provision_secret = "dummy_invalid_provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="<THINGSBOARD_HOST>",
+            host="dummy_host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -208,10 +208,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["<THINGSBOARD_HOST>", None, None]:
+            if None in ["dummy_host", None, None]:
                 raise ValueError("Provision keys cannot be None")
             TBDeviceMqttClient.provision(
-                host="<THINGSBOARD_HOST>",
+                host="dummy_host",
                 provision_device_key=None,
                 provision_device_secret=None
             )
@@ -221,32 +221,32 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         mock_client_instance = mock_provision_client.return_value
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "ACCESS_TOKEN"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="<THINGSBOARD_HOST>",
-            provision_device_key="<PROVISION_KEY>",
-            provision_device_secret="<PROVISION_SECRET>",
-            access_token="<ACCESS_TOKEN>",
-            device_name="<DEVICE_NAME>",
+            host="dummy_host",
+            provision_device_key="dummy_provision_key",
+            provision_device_secret="dummy_provision_secret",
+            access_token="dummy_access_token",
+            device_name="DummyDevice",
             gateway=True
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "ACCESS_TOKEN"
         })
         mock_provision_client.assert_called_with(
-            host="<THINGSBOARD_HOST>",
+            host="dummy_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "<PROVISION_KEY>",
-                "provisionDeviceSecret": "<PROVISION_SECRET>",
-                "token": "<ACCESS_TOKEN>",
+                "provisionDeviceKey": "dummy_provision_key",
+                "provisionDeviceSecret": "dummy_provision_secret",
+                "token": "dummy_access_token",
                 "credentialsType": "ACCESS_TOKEN",
-                "deviceName": "<DEVICE_NAME>",
+                "deviceName": "DummyDevice",
                 "gateway": True
             }
         )
@@ -254,63 +254,63 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         mock_provision_client.reset_mock()
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "MQTT_BASIC"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="<THINGSBOARD_HOST>",
-            provision_device_key="<PROVISION_KEY>",
-            provision_device_secret="<PROVISION_SECRET>",
-            username="<USERNAME>",
-            password="<PASSWORD>",
-            client_id="<CLIENT_ID>",
-            device_name="<DEVICE_NAME>"
+            host="dummy_host",
+            provision_device_key="dummy_provision_key",
+            provision_device_secret="dummy_provision_secret",
+            username="dummy_username",
+            password="dummy_password",
+            client_id="dummy_client_id",
+            device_name="DummyDevice"
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "MQTT_BASIC"
         })
         mock_provision_client.assert_called_with(
-            host="<THINGSBOARD_HOST>",
+            host="dummy_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "<PROVISION_KEY>",
-                "provisionDeviceSecret": "<PROVISION_SECRET>",
-                "username": "<USERNAME>",
-                "password": "<PASSWORD>",
-                "clientId": "<CLIENT_ID>",
+                "provisionDeviceKey": "dummy_provision_key",
+                "provisionDeviceSecret": "dummy_provision_secret",
+                "username": "dummy_username",
+                "password": "dummy_password",
+                "clientId": "dummy_client_id",
                 "credentialsType": "MQTT_BASIC",
-                "deviceName": "<DEVICE_NAME>"
+                "deviceName": "DummyDevice"
             }
         )
 
         mock_provision_client.reset_mock()
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "X509_CERTIFICATE"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="<THINGSBOARD_HOST>",
-            provision_device_key="<PROVISION_KEY>",
-            provision_device_secret="<PROVISION_SECRET>",
-            hash="<HASH>"
+            host="dummy_host",
+            provision_device_key="dummy_provision_key",
+            provision_device_secret="dummy_provision_secret",
+            hash="dummy_hash"
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "mockValue",
+            "credentialsValue": "dummy_value",
             "credentialsType": "X509_CERTIFICATE"
         })
         mock_provision_client.assert_called_with(
-            host="<THINGSBOARD_HOST>",
+            host="dummy_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "<PROVISION_KEY>",
-                "provisionDeviceSecret": "<PROVISION_SECRET>",
-                "hash": "<HASH>",
+                "provisionDeviceKey": "dummy_provision_key",
+                "provisionDeviceSecret": "dummy_provision_secret",
+                "hash": "dummy_hash",
                 "credentialsType": "X509_CERTIFICATE"
             }
         )
@@ -319,7 +319,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         pass
         # with self.assertRaises(ValueError) as context:
         #     TBDeviceMqttClient.provision(
-        #         host="<THINGSBOARD_HOST>",
+        #         host="dummy_host",
         #         provision_device_key=None,
         #         provision_device_secret=None
         #     )
@@ -388,7 +388,7 @@ class FakeReasonCodes:
         self.value = value
 
 
-@unittest.skipUnless(has_get_rc(), "TBPublishInfo.get_rc() is missing from your local version of tb_device_mqtt.py")
+@unittest.skipUnless(has_get_rc(), "TBPublishInfo.get_rc() отсутствует в вашей локальной версии tb_device_mqtt.py")
 class TBPublishInfoTests(unittest.TestCase):
 
     def test_get_rc_single_reasoncodes_zero(self):
@@ -490,6 +490,28 @@ class TBPublishInfoTests(unittest.TestCase):
 
         error_args, _ = mock_logger.return_value.error.call_args
         self.assertIn("Test Error", str(error_args[1]))
+
+
+class TestUnsubscribeFromAttribute(unittest.TestCase):
+    def setUp(self):
+        self.client = TBDeviceMqttClient("dummy_host", 1883, "dummy_token", "dummy")
+        if not hasattr(self.client, "_lock"):
+            self.client._lock = threading.Lock()
+        self.client._TBDeviceMqttClient__device_sub_dict = {
+            "attr1": {1: lambda msg: "callback1", 2: lambda msg: "callback2"},
+            "attr2": {3: lambda msg: "callback3"}
+        }
+
+    def test_unsubscribe_specific(self):
+        self.client.unsubscribe_from_attribute(2)
+        device_sub_dict = self.client._TBDeviceMqttClient__device_sub_dict
+        self.assertIn(1, device_sub_dict.get("attr1", {}))
+        self.assertNotIn(2, device_sub_dict.get("attr1", {}))
+        self.assertIn(3, device_sub_dict.get("attr2", {}))
+
+    def test_unsubscribe_all(self):
+        self.client.unsubscribe_from_attribute('*')
+        self.assertEqual(self.client._TBDeviceMqttClient__device_sub_dict, {})
 
 
 if __name__ == "__main__":
