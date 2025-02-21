@@ -17,7 +17,7 @@ from unittest.mock import patch, MagicMock
 
 from paho.mqtt.client import MQTT_ERR_QUEUE_SIZE
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo, RateLimit
-
+from tb_gateway_mqtt import TBGatewayMqttClient
 
 class TestSendSplitMessageRetry(unittest.TestCase):
     def setUp(self):
@@ -228,6 +228,32 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
         self.assertTrue(len(data_list) >= 1)
         found_pressure = any("values" in rec and rec["values"].get("pressure") == 101 for rec in data_list)
         self.assertTrue(found_pressure, "Should see ‘pressure’:101 in leftover")
+
+    def test_ts_to_write_branch(self):
+        message1 = {
+            "ts": 1000,
+            "values": {"a": "A", "b": "B"}
+        }
+        message2 = {
+            "ts": 2000,
+            "values": {"c": "C", "d": "D"},
+            "metadata": "meta2"
+        }
+        message_pack = [message1, message2]
+        datapoints_max_count = 10
+        max_payload_size = 50
+
+        with patch("tb_device_mqtt.TBDeviceMqttClient._datapoints_limit_reached", return_value=True), \
+                patch("tb_device_mqtt.TBDeviceMqttClient._payload_size_limit_reached", return_value=False):
+            result = TBDeviceMqttClient._split_message(message_pack, datapoints_max_count, max_payload_size)
+
+        found = False
+        for split in result:
+            data_list = split.get("data", [])
+            for chunk in data_list:
+                if chunk.get("metadata") == "meta2" and chunk.get("ts") == 1000:
+                    found = True
+        self.assertTrue(found, "A fragment with ts equal to 1000 and metadata “meta2” was not found")
 
 if __name__ == "__main__":
     unittest.main()
