@@ -33,7 +33,7 @@ from paho.mqtt.reasoncodes import ReasonCodes
 from paho.mqtt.client import MQTT_ERR_QUEUE_SIZE
 
 from orjson import dumps, loads, JSONDecodeError
-
+import simplejson
 from sdk_utils import verify_checksum
 
 FW_TITLE_ATTR = "fw_title"
@@ -901,7 +901,7 @@ class TBDeviceMqttClient:
                 return rate_limited
         if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
             msg_rate_limit.increase_rate_limit_counter()
-        kwargs["payload"] = dumps(part['message'])
+        kwargs["payload"] = simplejson.dumps(part['message'])
         self._wait_until_current_queued_messages_processed()
         if not self.stopped:
             if device is not None:
@@ -1268,7 +1268,7 @@ class ProvisionClient(paho.Client):
         if rc == 0:
             log.info("[Provisioning client] Connected to ThingsBoard ")
             client.subscribe(self.PROVISION_RESPONSE_TOPIC)  # Subscribe to provisioning response topic
-            provision_request = dumps(self.__provision_request)
+            provision_request = simplejson.dumps(self.__provision_request)
             log.info("[Provisioning client] Sending provisioning request %s" % provision_request)
             client.publish(self.PROVISION_REQUEST_TOPIC, provision_request)  # Publishing provisioning request topic
         else:
