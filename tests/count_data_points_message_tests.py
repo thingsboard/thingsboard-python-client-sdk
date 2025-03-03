@@ -17,7 +17,6 @@ from tb_device_mqtt import TBDeviceMqttClient
 
 
 class TestCountDataPointsInMessage(unittest.TestCase):
-
     def test_simple_dict_no_device(self):
         data = {
             "ts": 123456789,
