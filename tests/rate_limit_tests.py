@@ -20,7 +20,6 @@ from tb_device_mqtt import RateLimit, TBDeviceMqttClient, TELEMETRY_TOPIC
 
 
 class TestRateLimit(unittest.TestCase):
-
     def setUp(self):
         self.rate_limit = RateLimit("10:1,60:10", "test_limit")
         self.client = TBDeviceMqttClient("localhost")
@@ -61,7 +60,7 @@ class TestRateLimit(unittest.TestCase):
 
     def test_set_limit(self):
         self.rate_limit.set_limit("5:1,30:5")
-        print("Updated _rate_limit_dict:", self.rate_limit._rate_limit_dict)  # Debug output
+        print("Updated _rate_limit_dict:", self.rate_limit._rate_limit_dict)
         self.assertIn(5, self.rate_limit._rate_limit_dict)
 
     def test_no_limit(self):
@@ -81,19 +80,19 @@ class TestRateLimit(unittest.TestCase):
     def test_messages_rate_limit_behavior(self):
         for _ in range(50):
             self.client._messages_rate_limit.increase_rate_limit_counter()
-        print("Messages rate limit dict:", self.client._messages_rate_limit._rate_limit_dict)  # Debug output
+        print("Messages rate limit dict:", self.client._messages_rate_limit._rate_limit_dict)
         self.assertTrue(self.client._messages_rate_limit.check_limit_reached())
 
     def test_telemetry_rate_limit_behavior(self):
         for _ in range(50):
             self.client._telemetry_rate_limit.increase_rate_limit_counter()
-        print("Telemetry rate limit dict:", self.client._telemetry_rate_limit._rate_limit_dict)  # Debug output
+        print("Telemetry rate limit dict:", self.client._telemetry_rate_limit._rate_limit_dict)
         self.assertTrue(self.client._telemetry_rate_limit.check_limit_reached())
 
     def test_telemetry_dp_rate_limit_behavior(self):
         for _ in range(50):
             self.client._telemetry_dp_rate_limit.increase_rate_limit_counter()
-        print("Telemetry DP rate limit dict:", self.client._telemetry_dp_rate_limit._rate_limit_dict)  # Debug output
+        print("Telemetry DP rate limit dict:", self.client._telemetry_dp_rate_limit._rate_limit_dict)
         self.assertTrue(self.client._telemetry_dp_rate_limit.check_limit_reached())
 
     def test_rate_limit_90_percent(self):
@@ -123,13 +122,13 @@ class TestRateLimit(unittest.TestCase):
 
     def test_percentage_affects_limits(self):
         rate_limit_50 = RateLimit("10:1,60:10", percentage=50)
-        print("Rate limit dict:", rate_limit_50._rate_limit_dict)  # Debug output
+        print("Rate limit dict:", rate_limit_50._rate_limit_dict)
 
         actual_limits = {k: v['limit'] for k, v in rate_limit_50._rate_limit_dict.items()}
 
         expected_limits = {
-            1: 5,   # for "10:1" -> 10 * 50% = 5
-            10: 30  # for "60:10" -> 60 * 50% = 30
+            1: 5,
+            10: 30
         }
 
         self.assertEqual(actual_limits, expected_limits)
@@ -166,7 +165,7 @@ class TestRateLimit(unittest.TestCase):
 
     def test_message_rate_limit(self):
         client = TBDeviceMqttClient("localhost")
-        print("Messages rate limit dict:", client._messages_rate_limit._rate_limit_dict)  # Debug output
+        print("Messages rate limit dict:", client._messages_rate_limit._rate_limit_dict)
 
         if not client._messages_rate_limit._rate_limit_dict:
             client._messages_rate_limit.set_limit("10:1,60:10")
@@ -185,7 +184,7 @@ class TestRateLimit(unittest.TestCase):
 
     def test_telemetry_rate_limit(self):
         client = TBDeviceMqttClient("localhost")
-        print("Telemetry rate limit dict:", client._telemetry_rate_limit._rate_limit_dict)  # Debug output
+        print("Telemetry rate limit dict:", client._telemetry_rate_limit._rate_limit_dict)
 
         if not client._telemetry_rate_limit._rate_limit_dict:
             client._telemetry_rate_limit.set_limit("10:1,60:10")
@@ -204,7 +203,7 @@ class TestRateLimit(unittest.TestCase):
 
     def test_telemetry_dp_rate_limit(self):
         client = TBDeviceMqttClient("localhost")
-        print("Telemetry DP rate limit dict:", client._telemetry_dp_rate_limit._rate_limit_dict)  # Debug output
+        print("Telemetry DP rate limit dict:", client._telemetry_dp_rate_limit._rate_limit_dict)
 
         if not client._telemetry_dp_rate_limit._rate_limit_dict:
             client._telemetry_dp_rate_limit.set_limit("10:1,60:10")
@@ -242,11 +241,11 @@ class TestRateLimit(unittest.TestCase):
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_messages_unknown_host(self):
-        result = RateLimit.get_rate_limit_by_host("my.custom.host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "0:0,")
 
     def test_get_rate_limit_by_host_custom_string(self):
-        result = RateLimit.get_rate_limit_by_host("my.custom.host", "15:2,120:20")
+        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "15:2,120:20")
         self.assertEqual(result, "15:2,120:20")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_cloud(self):
@@ -300,7 +299,6 @@ class TestRateLimit(unittest.TestCase):
 
 
 class TestOnServiceConfigurationIntegration(unittest.TestCase):
-
     def setUp(self):
         self.client = TBDeviceMqttClient(
             host="my.test.host",
@@ -317,7 +315,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
     def test_on_service_config_error(self):
         config_with_error = {"error": "Some error text"}
         self.client.on_service_configuration(None, config_with_error)
-        self.assertTrue(self.client.rate_limits_received, "После 'error' rate_limits_received => True")
+        self.assertTrue(self.client.rate_limits_received, "After ‘error’ rate_limits_received => True")
         self.assertTrue(self.client._messages_rate_limit._no_limit)
         self.assertTrue(self.client._telemetry_rate_limit._no_limit)
 
