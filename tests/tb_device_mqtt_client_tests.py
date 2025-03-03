@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -53,7 +53,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('dummy_host', 1883, 'dummy_access_token')
+        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'gEVBWSkNkLR8VmkHz9F0')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -161,6 +161,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         decoded = self.client._decode(mock_message)
         self.assertEqual(decoded, '')
 
+
     def test_max_inflight_messages_set(self):
         self.client.max_inflight_messages_set(10)
         self.assertEqual(self.client._client._max_inflight_messages, 10)
@@ -170,23 +171,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "dummy_secret_key"
+        secret_key = "123qwe123"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "dummy_invalid_secret_key"
+        invalid_secret_key = "123qwe1233"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_provision_device_success(self):
-        provision_key = "dummy_provision_key"
-        provision_secret = "dummy_provision_secret"
+        provision_key = "hz0nwspctzzbje5enns5"
+        provision_secret = "l8xad8blrydf5e2cdv84"
 
         credentials = TBDeviceMqttClient.provision(
-            host="dummy_host",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -196,11 +197,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "dummy_invalid_provision_key"
-        provision_secret = "dummy_invalid_provision_secret"
+        provision_key = "hz0nwspqtzzqje5enns5"
+        provision_secret = "l8xad8flqydf5e2cdv84"
 
         credentials = TBDeviceMqttClient.provision(
-            host="dummy_host",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -208,10 +209,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["dummy_host", None, None]:
+            if None in ["thingsboard.cloud", None, None]:
                 raise ValueError("Provision keys cannot be None")
             TBDeviceMqttClient.provision(
-                host="dummy_host",
+                host="thingsboard.cloud",
                 provision_device_key=None,
                 provision_device_secret=None
             )
@@ -221,32 +222,32 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         mock_client_instance = mock_provision_client.return_value
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "ACCESS_TOKEN"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="dummy_host",
-            provision_device_key="dummy_provision_key",
-            provision_device_secret="dummy_provision_secret",
-            access_token="dummy_access_token",
-            device_name="DummyDevice",
+            host="thingsboard.cloud",
+            provision_device_key="hz0nwspctzzbje5enns5",
+            provision_device_secret="l8xad8blrydf5e2cdv84",
+            access_token="ctDSviOHHSx92IIUXSu9",
+            device_name="TestDevice",
             gateway=True
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "ACCESS_TOKEN"
         })
         mock_provision_client.assert_called_with(
-            host="dummy_host",
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "dummy_provision_key",
-                "provisionDeviceSecret": "dummy_provision_secret",
-                "token": "dummy_access_token",
+                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
+                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
+                "token": "ctDSviOHHSx92IIUXSu9",
                 "credentialsType": "ACCESS_TOKEN",
-                "deviceName": "DummyDevice",
+                "deviceName": "TestDevice",
                 "gateway": True
             }
         )
@@ -254,76 +255,66 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         mock_provision_client.reset_mock()
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "MQTT_BASIC"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="dummy_host",
-            provision_device_key="dummy_provision_key",
-            provision_device_secret="dummy_provision_secret",
-            username="dummy_username",
-            password="dummy_password",
-            client_id="dummy_client_id",
-            device_name="DummyDevice"
+            host="thingsboard.cloud",
+            provision_device_key="hz0nwspctzzbje5enns5",
+            provision_device_secret="l8xad8blrydf5e2cdv84",
+            username="7fuamr5x69ref55kcopm",
+            password="wet24epg2f07c5bp8qux",
+            client_id="yvtbl2khizk3l7dp9i3q",
+            device_name="TestDevice"
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "MQTT_BASIC"
         })
         mock_provision_client.assert_called_with(
-            host="dummy_host",
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "dummy_provision_key",
-                "provisionDeviceSecret": "dummy_provision_secret",
-                "username": "dummy_username",
-                "password": "dummy_password",
-                "clientId": "dummy_client_id",
+                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
+                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
+                "username": "7fuamr5x69ref55kcopm",
+                "password": "wet24epg2f07c5bp8qux",
+                "clientId": "yvtbl2khizk3l7dp9i3q",
                 "credentialsType": "MQTT_BASIC",
-                "deviceName": "DummyDevice"
+                "deviceName": "TestDevice"
             }
         )
 
         mock_provision_client.reset_mock()
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "X509_CERTIFICATE"
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="dummy_host",
-            provision_device_key="dummy_provision_key",
-            provision_device_secret="dummy_provision_secret",
-            hash="dummy_hash"
+            host="thingsboard.cloud",
+            provision_device_key="hz0nwspctzzbje5enns5",
+            provision_device_secret="l8xad8blrydf5e2cdv84",
+            hash="DC892A577B7BEE0B5EC1AEAB731A1422F93C322DCA17800AFE1E9EB2C1D4635E"
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
-            "credentialsValue": "dummy_value",
+            "credentialsValue": "mockValue",
             "credentialsType": "X509_CERTIFICATE"
         })
         mock_provision_client.assert_called_with(
-            host="dummy_host",
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "dummy_provision_key",
-                "provisionDeviceSecret": "dummy_provision_secret",
-                "hash": "dummy_hash",
+                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
+                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
+                "hash": "DC892A577B7BEE0B5EC1AEAB731A1422F93C322DCA17800AFE1E9EB2C1D4635E",
                 "credentialsType": "X509_CERTIFICATE"
             }
         )
-
-    def test_provision_missing_required_parameters(self):
-        pass
-        # with self.assertRaises(ValueError) as context:
-        #     TBDeviceMqttClient.provision(
-        #         host="dummy_host",
-        #         provision_device_key=None,
-        #         provision_device_secret=None
-        #     )
-        # self.assertEqual(str(context.exception), "provisionDeviceKey and provisionDeviceSecret are required!")
 
     @patch('tb_device_mqtt.log')
     @patch('tb_device_mqtt.monotonic', autospec=True)
@@ -388,7 +379,7 @@ class FakeReasonCodes:
         self.value = value
 
 
-@unittest.skipUnless(has_get_rc(), "TBPublishInfo.get_rc() отсутствует в вашей локальной версии tb_device_mqtt.py")
+@unittest.skipUnless(has_get_rc(), "TBPublishInfo.get_rc() is missing from your local version of tb_device_mqtt.py")
 class TBPublishInfoTests(unittest.TestCase):
 
     def test_get_rc_single_reasoncodes_zero(self):
@@ -491,10 +482,9 @@ class TBPublishInfoTests(unittest.TestCase):
         error_args, _ = mock_logger.return_value.error.call_args
         self.assertIn("Test Error", str(error_args[1]))
 
-
 class TestUnsubscribeFromAttribute(unittest.TestCase):
     def setUp(self):
-        self.client = TBDeviceMqttClient("dummy_host", 1883, "dummy_token", "dummy")
+        self.client = TBDeviceMqttClient("dummy_host", 1883, "dummy", "dummy")
         if not hasattr(self.client, "_lock"):
             self.client._lock = threading.Lock()
         self.client._TBDeviceMqttClient__device_sub_dict = {
