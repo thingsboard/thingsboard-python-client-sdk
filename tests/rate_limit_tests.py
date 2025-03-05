@@ -320,7 +320,6 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         self.assertTrue(self.client._telemetry_rate_limit._no_limit)
 
     def test_on_service_config_no_rateLimits(self):
-
         config_no_ratelimits = {"maxInflightMessages": 100}
         self.client.on_service_configuration(None, config_no_ratelimits)
         self.assertTrue(self.client._messages_rate_limit._no_limit)
