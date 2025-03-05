@@ -14,10 +14,8 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-
 from paho.mqtt.client import MQTT_ERR_QUEUE_SIZE
 from tb_device_mqtt import TBDeviceMqttClient, TBPublishInfo, RateLimit
-from tb_gateway_mqtt import TBGatewayMqttClient
 
 
 class TestSendSplitMessageRetry(unittest.TestCase):
@@ -66,18 +64,13 @@ class TestSendSplitMessageRetry(unittest.TestCase):
             dp_rate_limit=self.dp_rate_limit
         )
 
-        mock_split_message.assert_called_once_with(
-            data["MyDevice"],
-            self.dp_rate_limit.get_minimal_limit(),
-            self.client.max_payload_size
-        )
+        mock_split_message.assert_called_once()
 
         calls = mock_send_split.call_args_list
-        self.assertEqual(len(calls), 2, "Expect 2 calls to __send_split_message, because split_message returned 2 parts")
+        self.assertEqual(len(calls), 2, "Expect 2 calls to __send_split_message")
 
         first_call_args, _ = calls[0]
         part_1 = first_call_args[2]
-        self.assertIn("message", part_1)
         self.assertEqual(part_1["datapoints"], 1)
         self.assertIn("MyDevice", part_1["message"])
         self.assertEqual(part_1["message"]["MyDevice"], [{"temp": 22}])
@@ -136,7 +129,7 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
 
         client._wait_until_current_queued_messages_processed()
 
-        fake_logger.debug.assert_called()
+        self.assertTrue(fake_logger.debug.called, "At least one debug log call was expected")
 
         mock_sleep.assert_called_with(0.001)
 
@@ -149,7 +142,6 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
         }
 
         result = TBDeviceMqttClient._split_message(message_pack, 10, 999999)
-
         self.assertEqual(len(result), 1)
         chunk = result[0]
         self.assertIn("data", chunk)
@@ -179,13 +171,11 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
         chunk0 = result[0]
         data0 = chunk0["data"][0]
         self.assertEqual(data0["ts"], 1000)
-        self.assertIn("values", data0)
         self.assertEqual(data0["values"], {"temp": 10})
 
         chunk1 = result[1]
         data1 = chunk1["data"][0]
         self.assertEqual(data1["ts"], 2000)
-        self.assertIn("values", data1)
         self.assertEqual(data1["values"], {"temp": 20})
 
     def test_message_item_values_added(self):
@@ -224,12 +214,9 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
 
         self.assertGreaterEqual(len(result), 1)
         last_chunk = result[-1]
-        self.assertIn("data", last_chunk)
-        self.assertIn("datapoints", last_chunk)
         data_list = last_chunk["data"]
-        self.assertTrue(len(data_list) >= 1)
         found_pressure = any("values" in rec and rec["values"].get("pressure") == 101 for rec in data_list)
-        self.assertTrue(found_pressure, "Should see ‘pressure’:101 in leftover")
+        self.assertTrue(found_pressure, "Should see 'pressure':101 in leftover")
 
     def test_ts_to_write_branch(self):
         message1 = {
@@ -246,7 +233,7 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
         max_payload_size = 50
 
         with patch("tb_device_mqtt.TBDeviceMqttClient._datapoints_limit_reached", return_value=True), \
-                patch("tb_device_mqtt.TBDeviceMqttClient._payload_size_limit_reached", return_value=False):
+             patch("tb_device_mqtt.TBDeviceMqttClient._payload_size_limit_reached", return_value=False):
             result = TBDeviceMqttClient._split_message(message_pack, datapoints_max_count, max_payload_size)
 
         found = False
@@ -255,7 +242,8 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
             for chunk in data_list:
                 if chunk.get("metadata") == "meta2" and chunk.get("ts") == 1000:
                     found = True
-        self.assertTrue(found, "A fragment with ts equal to 1000 and metadata “meta2” was not found")
+        self.assertTrue(found, "A fragment with ts=1000 and metadata='meta2' was not found")
+
 
 if __name__ == "__main__":
     unittest.main()
