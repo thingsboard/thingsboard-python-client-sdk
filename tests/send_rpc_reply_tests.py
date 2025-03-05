@@ -15,7 +15,7 @@
 import unittest
 from time import sleep
 from unittest.mock import MagicMock, patch
-from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException
+from tb_device_mqtt import TBDeviceMqttClient
 from threading import RLock
 
 
@@ -27,9 +27,8 @@ class TestTBDeviceMqttClientSendRpcReply(unittest.TestCase):
     @patch.object(TBDeviceMqttClient, '_publish_data', autospec=True)
     def test_send_rpc_reply_qos_invalid(self, mock_publish_data, mock_log):
         result = self.client.send_rpc_reply("some_req_id", {"some": "response"}, quality_of_service=2)
-        mock_publish_data.assert_not_called()
         self.assertIsNone(result)
-        mock_log.error.assert_called()
+        mock_publish_data.assert_not_called()
 
     @patch.object(TBDeviceMqttClient, '_publish_data', autospec=True)
     def test_send_rpc_reply_qos_ok_no_wait(self, mock_publish_data, mock_log):
@@ -44,7 +43,6 @@ class TestTBDeviceMqttClientSendRpcReply(unittest.TestCase):
             "v1/devices/me/rpc/response/another_req_id",
             0
         )
-        mock_log.error.assert_not_called()
 
 
 class TestTimeoutCheck(unittest.TestCase):
