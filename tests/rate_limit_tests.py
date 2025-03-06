@@ -150,7 +150,7 @@ class TestRateLimit(unittest.TestCase):
 
     def test_get_rate_limits_by_host(self):
         limit, dp_limit = RateLimit.get_rate_limits_by_host(
-            "thingsboard_host",
+            "thingsboard.cloud",
             "DEFAULT_TELEMETRY_RATE_LIMIT",
             "DEFAULT_TELEMETRY_DP_RATE_LIMIT"
         )
@@ -221,11 +221,11 @@ class TestRateLimit(unittest.TestCase):
         self.assertFalse(client._telemetry_dp_rate_limit.check_limit_reached())
 
     def test_get_rate_limit_by_host_telemetry_cloud(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_telemetry_demo(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_TELEMETRY_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_telemetry_unknown_host(self):
@@ -233,27 +233,27 @@ class TestRateLimit(unittest.TestCase):
         self.assertEqual(result, "0:0,")
 
     def test_get_rate_limit_by_host_messages_cloud(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("thingsboard.cloud", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_messages_demo(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
 
     def test_get_rate_limit_by_host_messages_unknown_host(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "DEFAULT_MESSAGES_RATE_LIMIT")
+        result = RateLimit.get_rate_limit_by_host("my.custom.host", "DEFAULT_MESSAGES_RATE_LIMIT")
         self.assertEqual(result, "0:0,")
 
     def test_get_rate_limit_by_host_custom_string(self):
-        result = RateLimit.get_rate_limit_by_host("thingsboard_host", "15:2,120:20")
+        result = RateLimit.get_rate_limit_by_host("my.custom.host", "15:2,120:20")
         self.assertEqual(result, "15:2,120:20")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_cloud(self):
-        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        result = RateLimit.get_dp_rate_limit_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
         self.assertEqual(result, "10:1,300:60,")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_demo(self):
-        result = RateLimit.get_dp_rate_limit_by_host("thingsboard_host", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
+        result = RateLimit.get_dp_rate_limit_by_host("demo.thingsboard.io", "DEFAULT_TELEMETRY_DP_RATE_LIMIT")
         self.assertEqual(result, "10:1,300:60,")
 
     def test_get_dp_rate_limit_by_host_telemetry_dp_unknown(self):
@@ -349,8 +349,8 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         self.assertFalse(self.client._telemetry_dp_rate_limit._no_limit)
 
     def test_on_service_config_max_inflight_both_limits(self):
-        self.client._messages_rate_limit.set_limit("10:1", 80)   # => limit=8
-        self.client._telemetry_rate_limit.set_limit("5:1", 80)   # => limit=4
+        self.client._messages_rate_limit.set_limit("10:1", 80)
+        self.client._telemetry_rate_limit.set_limit("5:1", 80)
 
         config = {
             "rateLimits": {
@@ -364,8 +364,8 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 3)
 
     def test_on_service_config_max_inflight_only_messages(self):
-        self.client._messages_rate_limit.set_limit("20:1", 80)  # => 16
-        self.client._telemetry_rate_limit.set_limit("0:0,", 80) # => no_limit => has_limit=False
+        self.client._messages_rate_limit.set_limit("20:1", 80)
+        self.client._telemetry_rate_limit.set_limit("0:0,", 80)
 
         config = {
             "rateLimits": {
@@ -374,13 +374,12 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 40
         }
         self.client.on_service_configuration(None, config)
-        # min(16,40)=16 => 16*80%=12.8 => int=12
         self.assertEqual(self.client._client._max_inflight_messages, 12)
         self.assertEqual(self.client._client._max_queued_messages, 12)
 
     def test_on_service_config_max_inflight_only_telemetry(self):
-        self.client._messages_rate_limit.set_limit("0:0,", 80)  # => no_limit
-        self.client._telemetry_rate_limit.set_limit("10:1", 80) # => limit=8
+        self.client._messages_rate_limit.set_limit("0:0,", 80)
+        self.client._telemetry_rate_limit.set_limit("10:1", 80)
 
         config = {
             "rateLimits": {
@@ -389,7 +388,6 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 15
         }
         self.client.on_service_configuration(None, config)
-        # min(8,15)=8 => 8*80%=6.4 => int=6
         self.assertEqual(self.client._client._max_inflight_messages, 6)
         self.assertEqual(self.client._client._max_queued_messages, 6)
 
@@ -403,7 +401,6 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 100
         }
         self.client.on_service_configuration(None, config)
-        # else => int(100*0.8)=80
         self.assertEqual(self.client._client._max_inflight_messages, 80)
         self.assertEqual(self.client._client._max_queued_messages, 80)
 
