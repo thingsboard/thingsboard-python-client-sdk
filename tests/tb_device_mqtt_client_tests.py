@@ -15,7 +15,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from time import sleep
-from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException, TBSendMethod
+from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException, TBSendMethod, RPC_REQUEST_TOPIC
 import threading
 
 def has_rc():
@@ -161,6 +161,18 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         decoded = self.client._decode(mock_message)
         self.assertEqual(decoded, '')
 
+    def test_on_decoded_message_rpc_request(self):
+        client = TBDeviceMqttClient(host="test_host", port=1883, username="test_token")
+        client._messages_rate_limit = MagicMock()
+        mock_rpc_handler = MagicMock()
+        client.set_server_side_rpc_request_handler(mock_rpc_handler)
+        message = MagicMock()
+        message.topic = RPC_REQUEST_TOPIC + "42"
+        message.payload = b'{"some_key": "some_value"}'
+        content = {"some_key": "some_value"}
+        client._on_decoded_message(content, message)
+        client._messages_rate_limit.increase_rate_limit_counter.assert_called_once()
+        mock_rpc_handler.assert_called_once_with("42", content)
 
     def test_max_inflight_messages_set(self):
         self.client.max_inflight_messages_set(10)
