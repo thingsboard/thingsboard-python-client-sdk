@@ -18,8 +18,8 @@ from time import sleep
 from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException, TBSendMethod
 import threading
 
-def has_get_rc():
-    return hasattr(TBPublishInfo, "get_rc")
+def has_rc():
+    return hasattr(TBPublishInfo, "rc")
 
 
 class FakeReasonCodes:
@@ -27,8 +27,8 @@ class FakeReasonCodes:
         self.value = value
 
 
-def has_get_rc():
-    return hasattr(TBPublishInfo, "get_rc")
+def has_rc():
+    return hasattr(TBPublishInfo, "rc")
 
 
 class TBDeviceMqttClientTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'gEVBWSkNkLR8VmkHz9F0')
+        cls.client = TBDeviceMqttClient('thingsboard_host', 1883, 'token')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -171,23 +171,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
     def test_claim_device(self):
-        secret_key = "123qwe123"
+        secret_key = "secret_key"
         duration = 60000
         result = self.client.claim(secret_key=secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_claim_device_invalid_key(self):
-        invalid_secret_key = "123qwe1233"
+        invalid_secret_key = "secret_key_inv"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
         self.assertIsInstance(result, TBPublishInfo)
 
     def test_provision_device_success(self):
-        provision_key = "hz0nwspctzzbje5enns5"
-        provision_secret = "l8xad8blrydf5e2cdv84"
+        provision_key = "provision_key"
+        provision_secret = "provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
+            host="thingsboard_host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -197,11 +197,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "hz0nwspqtzzqje5enns5"
-        provision_secret = "l8xad8flqydf5e2cdv84"
+        provision_key = "provision_key_inv"
+        provision_secret = "provision_secret_inv"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
+            host="thingsboard_host",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -209,10 +209,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["thingsboard.cloud", None, None]:
+            if None in ["thingsboard_host", None, None]:
                 raise ValueError("Provision keys cannot be None")
             TBDeviceMqttClient.provision(
-                host="thingsboard.cloud",
+                host="thingsboard_host",
                 provision_device_key=None,
                 provision_device_secret=None
             )
@@ -227,10 +227,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
-            provision_device_key="hz0nwspctzzbje5enns5",
-            provision_device_secret="l8xad8blrydf5e2cdv84",
-            access_token="ctDSviOHHSx92IIUXSu9",
+            host="thingsboard_host",
+            provision_device_key="provision_key",
+            provision_device_secret="provision_secret",
+            access_token="token",
             device_name="TestDevice",
             gateway=True
         )
@@ -240,12 +240,12 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsType": "ACCESS_TOKEN"
         })
         mock_provision_client.assert_called_with(
-            host="thingsboard.cloud",
+            host="thingsboard_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
-                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
-                "token": "ctDSviOHHSx92IIUXSu9",
+                "provisionDeviceKey": "provision_key",
+                "provisionDeviceSecret": "provision_secret",
+                "token": "token",
                 "credentialsType": "ACCESS_TOKEN",
                 "deviceName": "TestDevice",
                 "gateway": True
@@ -260,12 +260,12 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
-            provision_device_key="hz0nwspctzzbje5enns5",
-            provision_device_secret="l8xad8blrydf5e2cdv84",
-            username="7fuamr5x69ref55kcopm",
-            password="wet24epg2f07c5bp8qux",
-            client_id="yvtbl2khizk3l7dp9i3q",
+            host="thingsboard_host",
+            provision_device_key="provision_key",
+            provision_device_secret="provision_secret",
+            username="username",
+            password="password",
+            client_id="client_id",
             device_name="TestDevice"
         )
         self.assertEqual(creds, {
@@ -274,14 +274,14 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsType": "MQTT_BASIC"
         })
         mock_provision_client.assert_called_with(
-            host="thingsboard.cloud",
+            host="thingsboard_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
-                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
-                "username": "7fuamr5x69ref55kcopm",
-                "password": "wet24epg2f07c5bp8qux",
-                "clientId": "yvtbl2khizk3l7dp9i3q",
+                "provisionDeviceKey": "provision_key",
+                "provisionDeviceSecret": "provision_secret",
+                "username": "username",
+                "password": "password",
+                "clientId": "clientId",
                 "credentialsType": "MQTT_BASIC",
                 "deviceName": "TestDevice"
             }
@@ -295,10 +295,10 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.cloud",
-            provision_device_key="hz0nwspctzzbje5enns5",
-            provision_device_secret="l8xad8blrydf5e2cdv84",
-            hash="DC892A577B7BEE0B5EC1AEAB731A1422F93C322DCA17800AFE1E9EB2C1D4635E"
+            host="thingsboard_host",
+            provision_device_key="provision_key",
+            provision_device_secret="provision_secret",
+            hash="your_hash"
         )
         self.assertEqual(creds, {
             "status": "SUCCESS",
@@ -306,12 +306,12 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsType": "X509_CERTIFICATE"
         })
         mock_provision_client.assert_called_with(
-            host="thingsboard.cloud",
+            host="thingsboard_host",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "hz0nwspctzzbje5enns5",
-                "provisionDeviceSecret": "l8xad8blrydf5e2cdv84",
-                "hash": "DC892A577B7BEE0B5EC1AEAB731A1422F93C322DCA17800AFE1E9EB2C1D4635E",
+                "provisionDeviceKey": "provision_key",
+                "provisionDeviceSecret": "provision_secret",
+                "hash": "your_hash",
                 "credentialsType": "X509_CERTIFICATE"
             }
         )
@@ -379,56 +379,55 @@ class FakeReasonCodes:
         self.value = value
 
 
-@unittest.skipUnless(has_get_rc(), "TBPublishInfo.get_rc() is missing from your local version of tb_device_mqtt.py")
+@unittest.skipUnless(has_rc(), "TBPublishInfo.rc() is missing from your local version of tb_device_mqtt.py")
 class TBPublishInfoTests(unittest.TestCase):
-
-    def test_get_rc_single_reasoncodes_zero(self):
+    def test_rc_single_reasoncodes_zero(self):
         message_info_mock = MagicMock()
         message_info_mock.rc = FakeReasonCodes(0)
 
         publish_info = TBPublishInfo(message_info_mock)
-        self.assertEqual(publish_info.get_rc(), 0)  # TB_ERR_SUCCESS
+        self.assertEqual(publish_info.rc(), 0)  # TB_ERR_SUCCESS
 
-    def test_get_rc_single_reasoncodes_nonzero(self):
+    def test_rc_single_reasoncodes_nonzero(self):
         message_info_mock = MagicMock()
         message_info_mock.rc = FakeReasonCodes(128)
 
         publish_info = TBPublishInfo(message_info_mock)
-        self.assertEqual(publish_info.get_rc(), 128)
+        self.assertEqual(publish_info.rc(), 128)
 
-    def test_get_rc_single_int_nonzero(self):
+    def test_rc_single_int_nonzero(self):
         message_info_mock = MagicMock()
         message_info_mock.rc = 2
 
         publish_info = TBPublishInfo(message_info_mock)
-        self.assertEqual(publish_info.get_rc(), 2)
+        self.assertEqual(publish_info.rc(), 2)
 
-    def test_get_rc_list_all_zero(self):
+    def test_rc_list_all_zero(self):
         mi1 = MagicMock()
         mi1.rc = FakeReasonCodes(0)
         mi2 = MagicMock()
         mi2.rc = FakeReasonCodes(0)
 
         publish_info = TBPublishInfo([mi1, mi2])
-        self.assertEqual(publish_info.get_rc(), 0)
+        self.assertEqual(publish_info.rc(), 0)
 
-    def test_get_rc_list_mixed(self):
+    def test_rc_list_mixed(self):
         mi1 = MagicMock()
         mi1.rc = FakeReasonCodes(0)
         mi2 = MagicMock()
         mi2.rc = FakeReasonCodes(128)
 
         publish_info = TBPublishInfo([mi1, mi2])
-        self.assertEqual(publish_info.get_rc(), 128)
+        self.assertEqual(publish_info.rc(), 128)
 
-    def test_get_rc_list_int_nonzero(self):
+    def test_rc_list_int_nonzero(self):
         mi1 = MagicMock()
         mi1.rc = 0
         mi2 = MagicMock()
         mi2.rc = 4
 
         publish_info = TBPublishInfo([mi1, mi2])
-        self.assertEqual(publish_info.get_rc(), 4)
+        self.assertEqual(publish_info.rc(), 4)
 
     def test_mid_single(self):
         message_info_mock = MagicMock()
