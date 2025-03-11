@@ -83,7 +83,6 @@ class TestSendSplitMessageRetry(unittest.TestCase):
 
         self.assertIsInstance(result, TBPublishInfo)
 
-    @patch('tb_device_mqtt.sleep', autospec=True)
     @patch('tb_device_mqtt.log.warning', autospec=True)
     def test_send_split_message_queue_size_retry(self, mock_log_warning):
         part = {'datapoints': 3, 'message': {"foo": "bar"}}
