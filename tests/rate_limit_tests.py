@@ -392,7 +392,6 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         self.assertEqual(self.client._client._max_queued_messages, 6)
 
     def test_on_service_config_max_inflight_no_limits(self):
-
         self.client._messages_rate_limit.set_limit("0:0,", 80)
         self.client._telemetry_rate_limit.set_limit("0:0,", 80)
 
@@ -411,6 +410,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         }
         self.client.on_service_configuration(None, config)
         self.assertEqual(self.client.max_payload_size, 1600)
+
 
 class TestableTBDeviceMqttClient(TBDeviceMqttClient):
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
@@ -432,6 +432,7 @@ class TestableTBDeviceMqttClient(TBDeviceMqttClient):
                          telemetry_rate_limit=telemetry_rate_limit,
                          telemetry_dp_rate_limit=telemetry_dp_rate_limit, max_payload_size=max_payload_size,
                          **kwargs)
+
 
 class TestRateLimitParameters(unittest.TestCase):
     def test_default_rate_limits(self):
@@ -464,6 +465,7 @@ class TestRateLimitParameters(unittest.TestCase):
         self.assertEqual(client.test_telemetry_rate_limit, "20:1,100:60,")
         self.assertEqual(client.test_telemetry_dp_rate_limit, "30:1,200:60,")
 
+
 class TestRateLimitFromDict(unittest.TestCase):
     def test_rate_limit_with_rateLimits_key(self):
         rate_limit_input = {
@@ -487,6 +489,7 @@ class TestRateLimitFromDict(unittest.TestCase):
         self.assertIsNone(rl.name)
         self.assertEqual(rl.percentage, 80)
         self.assertFalse(rl._no_limit)
+
 
 if __name__ == "__main__":
     unittest.main()
