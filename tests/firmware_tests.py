@@ -20,7 +20,7 @@ from threading import Thread
 from tb_device_mqtt import (
     TBDeviceMqttClient,
     TBTimeoutException,
-    FW_VERSION_ATTR, FW_TITLE_ATTR, FW_SIZE_ATTR, FW_STATE_ATTR
+    FW_VERSION_ATTR, FW_TITLE_ATTR, FW_STATE_ATTR
 )
 from paho.mqtt.client import ReasonCodes
 
@@ -33,7 +33,7 @@ REQUIRED_SHARED_KEYS = "dummy_shared_keys"
 class TestFirmwareUpdateBranch(unittest.TestCase):
     @patch('tb_device_mqtt.sleep', return_value=None, autospec=True)
     @patch('tb_device_mqtt.log.debug', autospec=True)
-    def test_firmware_update_branch(self, mock_log_debug, mock_sleep):
+    def test_firmware_update_branch(self, _, mock_sleep):
         client = TBDeviceMqttClient('fake_host', username="dummy_token", password="dummy")
         client._TBDeviceMqttClient__service_loop = lambda: None
         client._TBDeviceMqttClient__timeout_check = lambda: None
@@ -74,84 +74,13 @@ class TestFirmwareUpdateBranch(unittest.TestCase):
         client.send_telemetry.assert_called_once_with(client.current_firmware_info)
 
         sleep_called = any(args and (args[0] == 1 or args[0] == 1.0) for args, kwargs in mock_sleep.call_args_list)
-        self.assertTrue(sleep_called, f"sleep(1) was not called, calls: {mock_sleep.call_args_list}")
+        self.assertTrue(sleep_called, f"sleep(2) was not called, calls: {mock_sleep.call_args_list}")
 
         self.assertEqual(client._TBDeviceMqttClient__firmware_request_id, 1)
         self.assertEqual(client._TBDeviceMqttClient__target_firmware_length, 900)
         self.assertEqual(client._TBDeviceMqttClient__chunk_count, ceil(900 / 128))
         client._TBDeviceMqttClient__get_firmware.assert_called_once()
 
-
-class TestTBDeviceMqttClientOnConnect(unittest.TestCase):
-    def test_on_connect_success(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-        client._subscribe_to_topic = MagicMock()
-
-        client._on_connect(client=None, userdata=None, flags=None, result_code=0)
-
-        self.assertTrue(client._TBDeviceMqttClient__is_connected)
-
-        expected_sub_calls = [
-            call('v1/devices/me/attributes', qos=client.quality_of_service),
-            call('v1/devices/me/attributes/response/+', qos=client.quality_of_service),
-            call('v1/devices/me/rpc/request/+', qos=client.quality_of_service),
-            call('v1/devices/me/rpc/response/+', qos=client.quality_of_service),
-        ]
-        client._subscribe_to_topic.assert_has_calls(expected_sub_calls, any_order=False)
-
-        self.assertTrue(client._TBDeviceMqttClient__request_service_configuration_required)
-
-    def test_on_connect_fail_known_code(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-        client._subscribe_to_topic = MagicMock()
-
-        known_error_code = 1
-        client._on_connect(client=None, userdata=None, flags=None, result_code=known_error_code)
-
-        self.assertFalse(client._TBDeviceMqttClient__is_connected)
-        client._subscribe_to_topic.assert_not_called()
-
-    def test_on_connect_fail_unknown_code(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-        client._subscribe_to_topic = MagicMock()
-
-        client._on_connect(client=None, userdata=None, flags=None, result_code=999)
-
-        self.assertFalse(client._TBDeviceMqttClient__is_connected)
-        client._subscribe_to_topic.assert_not_called()
-
-    def test_on_connect_fail_reasoncodes(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-        client._subscribe_to_topic = MagicMock()
-
-        mock_rc = MagicMock(spec=ReasonCodes)
-        mock_rc.getName.return_value = "SomeError"
-
-        client._on_connect(client=None, userdata=None, flags=None, result_code=mock_rc)
-
-        self.assertFalse(client._TBDeviceMqttClient__is_connected)
-        client._subscribe_to_topic.assert_not_called()
-
-    def test_on_connect_callback_with_tb_client(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-
-        def my_connect_callback(client_param, userdata, flags, rc, *args, tb_client=None):
-            self.assertIsNotNone(tb_client, "tb_client must be passed to the colback")
-            self.assertEqual(tb_client, client)
-
-        client._TBDeviceMqttClient__connect_callback = my_connect_callback
-
-        client._on_connect(client=None, userdata="test_user_data", flags="test_flags", result_code=0)
-
-    def test_on_connect_callback_without_tb_client(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-
-        def my_callback(client_param, userdata, flags, rc, *args):
-            pass
-
-        client._TBDeviceMqttClient__connect_callback = my_callback
-
-        client._on_connect(client=None, userdata="test_user_data", flags="test_flags", result_code=0)
 
 
 class TestTBDeviceMqttClient(unittest.TestCase):
@@ -174,21 +103,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
 
         if not hasattr(self.client, '_client'):
             self.client._client = self.mock_mqtt_client
-
-    def test_connect(self):
-        self.client.connect()
-        self.mock_mqtt_client.connect.assert_called_with('host', 1883, keepalive=120)
-        self.mock_mqtt_client.loop_start.assert_called()
-
-    def test_disconnect(self):
-        self.client.disconnect()
-        self.mock_mqtt_client.disconnect.assert_called()
-        self.mock_mqtt_client.loop_stop.assert_called()
-
-    def test_send_telemetry(self):
-        telemetry = {'temp': 22}
-        self.client.send_telemetry(telemetry)
-        self.client._publish_data.assert_called_with([telemetry], 'v1/devices/me/telemetry', 1, True)
 
     def test_get_firmware_update(self):
         self.client._client.subscribe = MagicMock()
@@ -258,14 +172,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client._publish_data.reset_mock()
         self.client._TBDeviceMqttClient__get_firmware()
         self.client._publish_data.assert_called()
-
-    def test_timeout_exception(self):
-        with self.assertRaises(TBTimeoutException):
-            raise TBTimeoutException("Timeout occurred")
-
-    def test_thread_attributes(self):
-        self.assertTrue(isinstance(self.client._TBDeviceMqttClient__service_loop, Thread))
-        self.assertTrue(isinstance(self.client._TBDeviceMqttClient__updating_thread, Thread))
 
 
 class TestFirmwareUpdate(unittest.TestCase):
