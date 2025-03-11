@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import unittest
-from time import sleep
 from unittest.mock import MagicMock, patch
 from tb_device_mqtt import TBDeviceMqttClient
 from threading import RLock
