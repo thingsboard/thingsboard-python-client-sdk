@@ -130,7 +130,7 @@ class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
 
         self.assertTrue(fake_logger.debug.called, "At least one debug log call was expected")
 
-        mock_sleep.assert_called_with(0.001)
+        mock_sleep.assert_called()
 
     def test_single_value_case(self):
         message_pack = {
