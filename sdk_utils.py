@@ -1,4 +1,4 @@
-# Copyright 2024. ThingsBoard
+# Copyright 2025. ThingsBoard
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ except ImportError:
             install_package('pymmh3')
 
 try:
-    from mmh3 import hash, hash128
+    from mmh3 import hash, hash128 # noqa
 except ImportError:
     from pymmh3 import hash, hash128
 

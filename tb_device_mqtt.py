@@ -1,11 +1,11 @@
-# Copyright 2024. ThingsBoard
-# 
+# Copyright 2025. ThingsBoard
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #  http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,6 @@
 import logging
 from copy import deepcopy
 from inspect import signature
-from logging import Logger
 from time import sleep
 
 import paho.mqtt.client as paho
@@ -24,7 +23,7 @@ from math import ceil
 try:
     from time import monotonic, time as timestamp
 except ImportError:
-    from time import time, time as timestamp
+    from time import time as timestamp
 import ssl
 from threading import RLock, Thread
 from enum import Enum
@@ -190,8 +189,8 @@ class RateLimit:
                     continue
                 rate = rate.split(":")
                 self._rate_limit_dict[int(rate[1])] = {"counter": 0,
-                                                        "start": int(monotonic()),
-                                                        "limit": int(int(rate[0]) * self.percentage / 100)}
+                                                       "start": int(monotonic()),
+                                                       "limit": int(int(rate[0]) * self.percentage / 100)}
         log.debug("Rate limit %s set to values: " % self.name)
         with self.__lock:
             if not self._no_limit:
@@ -331,9 +330,9 @@ class TBDeviceMqttClient:
                  telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, **kwargs):
         # Added for compatibility with old versions
         if kwargs.get('rate_limit') is not None or kwargs.get('dp_rate_limit') is not None:
-            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit)
-            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit)
-            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit)
+            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit) # noqa
+            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit) # noqa
+            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit) # noqa
         self._client = paho.Client(protocol=5, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
@@ -576,11 +575,11 @@ class TBDeviceMqttClient:
             self._messages_rate_limit.increase_rate_limit_counter()
             self.firmware_info = loads(message.payload)
             if "/response/" in message.topic:
-                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info, dict) else {}
+                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info, dict) else {} # noqa
             if ((self.firmware_info.get(FW_VERSION_ATTR) is not None
-                and self.firmware_info.get(FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR))
+                and self.firmware_info.get(FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) # noqa
                     or (self.firmware_info.get(FW_TITLE_ATTR) is not None
-                        and self.firmware_info.get(FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR))):
+                        and self.firmware_info.get(FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR))): # noqa
                 log.debug('Firmware is not the same')
                 self.firmware_data = b''
                 self.__current_chunk = 0
@@ -800,8 +799,8 @@ class TBDeviceMqttClient:
                 if int(monotonic()) - previous_notification_time > 5 and current_out_messages > inflight_messages:
                     if logger is None:
                         logger = logging.getLogger('tb_connection')
-                    logger.debug("Waiting for messages to be processed by paho client, current queue size - %r, max inflight messages: %r",
-                                current_out_messages, inflight_messages)
+                    logger.debug("Waiting for messages to be processed by paho client, current queue size - %r, max inflight messages: %r", # noqa
+                                 current_out_messages, inflight_messages)
                     previous_notification_time = int(monotonic())
                 if not self.is_connected():
                     connection_was_lost = True
@@ -867,18 +866,18 @@ class TBDeviceMqttClient:
         attributes_format = topic.endswith('attributes')
         if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:
-                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
+                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
                 if attributes_format:
-                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
-                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages] # noqa
             else:
                 device_data = data.get(device)
-                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
+                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
                 if attributes_format:
-                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
-                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages] # noqa
         else:
             split_messages = [{'message': data, 'datapoints': self._count_datapoints_in_message(data, device)}]
 
@@ -941,7 +940,10 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
-        return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout, msg_rate_limit=self._messages_rate_limit)
+        return self._send_request(TBSendMethod.SUBSCRIBE,
+                                  {"topic": topic, "qos": qos},
+                                  timeout,
+                                  msg_rate_limit=self._messages_rate_limit)
 
     def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
@@ -1051,10 +1053,10 @@ class TBDeviceMqttClient:
 
                 if callback is not None:
                     if isinstance(callback, tuple):
-                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"),
+                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"), # noqa
                                     callback[1])
                     else:
-                        callback(None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"))
+                        callback(None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!")) # noqa
 
                 self.__attrs_request_timeout.pop(attr_request_number)
 
@@ -1196,9 +1198,8 @@ class TBDeviceMqttClient:
                     message_item_values_with_allowed_size[data_key] = value
                     current_size += data_key_size
 
-                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size))
-                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) \
-                    or ts_changed:
+                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size)) # noqa
+                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) or ts_changed: # noqa
                     if ts:
                         ts_to_write = ts
                         if old_ts is not None and old_ts != ts:
