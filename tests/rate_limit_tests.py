@@ -71,7 +71,7 @@ class TestRateLimit(unittest.TestCase):
     def test_messages_rate_limit(self):
         self.assertIsInstance(self.client._messages_rate_limit, RateLimit)
 
-    def test_telemetry_rate_limit(self):
+    def test_telemetry_limiter(self):
         self.assertIsInstance(self.client._telemetry_rate_limit, RateLimit)
 
     def test_telemetry_dp_rate_limit(self):
