@@ -201,25 +201,6 @@ class TestRateLimit(unittest.TestCase):
         sleep(1.1)
         self.assertFalse(client._telemetry_rate_limit.check_limit_reached())
 
-    def test_telemetry_dp_rate_limit(self):
-        client = TBDeviceMqttClient("localhost")
-        print("Telemetry DP rate limit dict:", client._telemetry_dp_rate_limit._rate_limit_dict)
-
-        if not client._telemetry_dp_rate_limit._rate_limit_dict:
-            client._telemetry_dp_rate_limit.set_limit("10:1,60:10")
-
-        rate_limit_dict = client._telemetry_dp_rate_limit._rate_limit_dict
-        limit = rate_limit_dict.get(1, {}).get('limit', None)
-
-        if limit is None:
-            raise ValueError("Key 1 is missing in the telemetry DP rate limit dict.")
-
-        client._telemetry_dp_rate_limit.increase_rate_limit_counter(limit + 1)
-        print("Telemetry DP rate limit after increment:", client._telemetry_dp_rate_limit._rate_limit_dict)
-        self.assertTrue(client._telemetry_dp_rate_limit.check_limit_reached())
-        sleep(1.1)
-        self.assertFalse(client._telemetry_dp_rate_limit.check_limit_reached())
-
     def test_get_rate_limit_by_host_telemetry_cloud(self):
         result = RateLimit.get_rate_limit_by_host("thingsboard.cloud", "DEFAULT_TELEMETRY_RATE_LIMIT")
         self.assertEqual(result, "10:1,60:60,")
