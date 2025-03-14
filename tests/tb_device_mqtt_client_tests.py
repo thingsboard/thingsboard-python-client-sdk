@@ -502,6 +502,9 @@ class TestUnsubscribeFromAttribute(unittest.TestCase):
         self.client.unsubscribe_from_attribute('*')
         self.assertEqual(self.client._TBDeviceMqttClient__device_sub_dict, {})
 
+    def test_clean_device_sub_dict(self):
+        self.client.clean_device_sub_dict()
+        self.assertEqual(self.client._TBDeviceMqttClient__device_sub_dict, {})
 
 if __name__ == "__main__":
     unittest.main()
