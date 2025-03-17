@@ -464,8 +464,6 @@ class TBDeviceMqttClient:
         self.send_telemetry(self.current_firmware_info)
         self.__request_firmware_info()
 
-        self.__updating_thread.start()
-
     def __request_firmware_info(self):
         self.__request_id = self.__request_id + 1
         self._publish_data({"sharedKeys": REQUIRED_SHARED_KEYS},
