@@ -233,7 +233,7 @@ class RateLimit:
     def has_limit(self):
         return not self._no_limit
 
-    def set_limit(self, rate_limit, percentage=80):
+    def set_limit(self, rate_limit, percentage=100):
         with self.__lock:
             self._minimal_timeout = DEFAULT_TIMEOUT
             self._minimal_limit = 1000000000
@@ -254,7 +254,7 @@ class RateLimit:
                 limit = int(int(rate[0]) * percentage / 100)
                 self._rate_limit_dict[int(rate[1])] = {
                     "counter": old_rate_limit_dict.get(rate_limit_time, {}).get('counter', 0),
-                    "start": self._rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
+                    "start": old_rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
                     "limit": limit}
                 if rate_limit_time < self._minimal_limit:
                     self._minimal_timeout = rate_limit_time + 1
