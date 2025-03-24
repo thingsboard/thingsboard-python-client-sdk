@@ -31,8 +31,6 @@ class FakeMessage:
 class TestOnDecodedMessage(unittest.TestCase):
     def setUp(self):
         self.client = TBGatewayMqttClient("localhost", 1883, "dummy_token")
-        if not hasattr(self.client, "_lock"):
-            self.client._lock = threading.Lock()
 
     def test_on_decoded_message_attributes_response_non_tuple(self):
         content = {"id": 123, "data": "dummy_response"}
@@ -52,8 +50,7 @@ class TestOnDecodedMessage(unittest.TestCase):
         self.assertTrue(self.called)
         self.assertEqual(self.callback_args, (content, None))
         self.assertNotIn(123, self.client._attr_request_dict)
-        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(
-            1)
+        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(1)
 
     def test_on_decoded_message_attributes_response_tuple(self):
         content = {"id": 456, "data": "dummy_response"}
@@ -73,8 +70,7 @@ class TestOnDecodedMessage(unittest.TestCase):
         self.assertTrue(self.called)
         self.assertEqual(self.callback_args, (content, None, "extra_value"))
         self.assertNotIn(456, self.client._attr_request_dict)
-        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(
-            1)
+        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(1)
 
     def test_on_decoded_message_attributes_topic(self):
         content = {
@@ -111,8 +107,7 @@ class TestOnDecodedMessage(unittest.TestCase):
         self.assertTrue(self.flags["device_all"])
         self.assertTrue(self.flags["attr1"])
         self.assertTrue(self.flags["attr2"])
-        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(
-            1)
+        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(1)
 
     def test_on_decoded_message_rpc_topic(self):
         content = {"data": "dummy_rpc"}
@@ -131,8 +126,39 @@ class TestOnDecodedMessage(unittest.TestCase):
 
         self.assertTrue(self.called)
         self.assertEqual(self.rpc_args, (self.client, content))
-        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(
-            1)
+        self.client._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter.assert_called_with(1)
+
+    def test_subscription_filling_for_device_attribute(self):
+        self.client._TBGatewayMqttClient__connected_devices = {"test_device"}
+
+        def dummy_callback(msg):
+            pass
+
+        sub_id = self.client.gw_subscribe_to_attribute("test_device", "attr1", dummy_callback)
+
+        sub_key = "test_device|attr1"
+        self.assertIn(sub_key, self.client._TBGatewayMqttClient__sub_dict,
+                      "The ‘test_device|attr1’ key in __sub_dict was expected after subscription.")
+
+        self.assertIn("test_device", self.client._TBGatewayMqttClient__sub_dict[sub_key])
+        self.assertEqual(
+            self.client._TBGatewayMqttClient__sub_dict[sub_key]["test_device"],
+            dummy_callback,
+            "Colback is not the same as expected."
+        )
+
+    def test_subscription_filling_for_all_attributes(self):
+
+        def dummy_callback_all(msg):
+            pass
+
+        sub_id_all = self.client.gw_subscribe_to_all_attributes(dummy_callback_all)
+
+        self.assertIn("*|*", self.client._TBGatewayMqttClient__sub_dict,
+                      "In __sub_dict, the key ‘*|*’ did not appear to subscribe to all attributes.")
+        self.assertIn("*", self.client._TBGatewayMqttClient__sub_dict["*|*"])
+        self.assertEqual(self.client._TBGatewayMqttClient__sub_dict["*|*"]["*"], dummy_callback_all,
+                         "The colback for ‘*|*’->‘*’ is not the same as expected.")
 
 
 if __name__ == '__main__':

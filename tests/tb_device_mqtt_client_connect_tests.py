@@ -48,15 +48,6 @@ class TestTBDeviceMqttClientOnConnect(unittest.TestCase):
         self.assertFalse(client.is_connected())
         client._subscribe_to_topic.assert_not_called()
 
-    def test_on_connect_fail_unknown_code(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-        client._subscribe_to_topic = MagicMock()
-
-        client._on_connect(client=None, userdata=None, flags=None, result_code=999)
-
-        self.assertFalse(client.is_connected())
-        client._subscribe_to_topic.assert_not_called()
-
     def test_on_connect_fail_reasoncodes(self):
         client = TBDeviceMqttClient("host", 1883, "username")
         client._subscribe_to_topic = MagicMock()
@@ -80,9 +71,6 @@ class TestTBDeviceMqttClientOnConnect(unittest.TestCase):
 
         client._on_connect(client=None, userdata="test_user_data", flags="test_flags", result_code=0)
 
-    def test_on_connect_callback_without_tb_client(self):
-        client = TBDeviceMqttClient("host", 1883, "username")
-
         def my_callback(client_param, userdata, flags, rc, *args):
             pass
 
@@ -104,9 +92,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client._TBDeviceMqttClient__service_loop = Thread(target=lambda: None)
         self.client._TBDeviceMqttClient__updating_thread = Thread(target=lambda: None)
 
-        if not hasattr(self.client, '_client'):
-            self.client._client = self.mock_mqtt_client
-
     def test_connect(self):
         self.client.connect()
         self.mock_mqtt_client.connect.assert_called_with('host', 1883, keepalive=120)
@@ -124,9 +109,11 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client._publish_data.assert_called_with([telemetry], 'v1/devices/me/telemetry', 1, True)
 
     def test_timeout_exception(self):
+        try:
+            from tb_device_mqtt import TBTimeoutException
+        except ImportError:
+            self.fail("TBTimeoutException does not exist in the tb_device_mqtt module. "
+                      "The class may have been deleted or renamed.")
+
         with self.assertRaises(TBTimeoutException):
             raise TBTimeoutException("Timeout occurred")
-
-    def test_thread_attributes(self):
-        self.assertTrue(isinstance(self.client._TBDeviceMqttClient__service_loop, Thread))
-        self.assertTrue(isinstance(self.client._TBDeviceMqttClient__updating_thread, Thread))

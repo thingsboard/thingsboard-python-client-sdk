@@ -22,6 +22,7 @@ from threading import RLock
 class TestTBDeviceMqttClientSendRpcReply(unittest.TestCase):
     def setUp(self):
         self.client = TBDeviceMqttClient(host="fake", port=0, username="", password="")
+        self.client._lock = RLock()
 
     @patch.object(TBDeviceMqttClient, '_publish_data', autospec=True)
     def test_send_rpc_reply_qos_invalid(self, mock_publish_data, mock_log):
@@ -47,10 +48,6 @@ class TestTBDeviceMqttClientSendRpcReply(unittest.TestCase):
 class TestTimeoutCheck(unittest.TestCase):
     def setUp(self):
         self.client = TBDeviceMqttClient('fake_host', username="dummy_token", password="dummy")
-        self.client.stopped = False
-        self.client._lock = RLock()
-        self.client._TBDeviceMqttClient__attrs_request_timeout = {}
-        self.client._attr_request_dict = {}
 
     @patch('tb_device_mqtt.sleep', autospec=True)
     @patch('tb_device_mqtt.monotonic', autospec=True)

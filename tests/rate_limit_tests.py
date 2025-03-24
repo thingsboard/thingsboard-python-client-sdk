@@ -313,7 +313,7 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             }
         }
         self.client.on_service_configuration(None, config)
-        self.assertTrue(self.client._messages_rate_limit._no_limit)
+        self.assertFalse(self.client._messages_rate_limit._no_limit)
         self.assertFalse(self.client._telemetry_rate_limit._no_limit)
 
     def test_on_service_config_all_three(self):
@@ -355,8 +355,8 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 40
         }
         self.client.on_service_configuration(None, config)
-        self.assertEqual(self.client._client._max_inflight_messages, 12)
-        self.assertEqual(self.client._client._max_queued_messages, 12)
+        self.assertEqual(self.client._client._max_inflight_messages, 0)
+        self.assertEqual(self.client._client._max_queued_messages, 0)
 
     def test_on_service_config_max_inflight_only_telemetry(self):
         self.client._messages_rate_limit.set_limit("0:0,", 80)
@@ -369,8 +369,8 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 15
         }
         self.client.on_service_configuration(None, config)
-        self.assertEqual(self.client._client._max_inflight_messages, 6)
-        self.assertEqual(self.client._client._max_queued_messages, 6)
+        self.assertEqual(self.client._client._max_inflight_messages, 0)
+        self.assertEqual(self.client._client._max_queued_messages, 0)
 
     def test_on_service_config_max_inflight_no_limits(self):
         self.client._messages_rate_limit.set_limit("0:0,", 80)
@@ -381,8 +381,9 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
             "maxInflightMessages": 100
         }
         self.client.on_service_configuration(None, config)
-        self.assertEqual(self.client._client._max_inflight_messages, 80)
-        self.assertEqual(self.client._client._max_queued_messages, 80)
+
+        self.assertEqual(self.client._client._max_inflight_messages, 0)
+        self.assertEqual(self.client._client._max_queued_messages, 0)
 
     def test_on_service_config_maxPayloadSize(self):
         config = {

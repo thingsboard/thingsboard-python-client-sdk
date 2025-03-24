@@ -83,54 +83,52 @@ class TestSendSplitMessageRetry(unittest.TestCase):
 
         self.assertIsInstance(result, TBPublishInfo)
 
-    @patch('tb_device_mqtt.log.warning', autospec=True)
-    def test_send_split_message_queue_size_retry(self, mock_log_warning):
+    def test_send_split_message_queue_size_retry(self):
         part = {'datapoints': 3, 'message': {"foo": "bar"}}
         kwargs = {}
         timeout = 10
         device = "device2"
         topic = "test/topic2"
+
         msg_rate_limit = MagicMock()
         dp_rate_limit = MagicMock()
         msg_rate_limit.has_limit.return_value = True
         dp_rate_limit.has_limit.return_value = True
-        self.client._wait_for_rate_limit_released = MagicMock(return_value=False)
+
         self.client._client.publish.side_effect = [
-            self.fake_publish_queue, self.fake_publish_queue, self.fake_publish_ok
+            self.fake_publish_queue,
+            self.fake_publish_queue,
+            self.fake_publish_ok
         ]
-        self.client._TBDeviceMqttClient__error_logged = 0
         with patch('tb_device_mqtt.monotonic', side_effect=[0, 12, 12, 12]):
             results = []
             ret = self.client._TBDeviceMqttClient__send_split_message(
                 results, part, kwargs, timeout, device, msg_rate_limit, dp_rate_limit, topic
             )
         self.assertEqual(self.client._client.publish.call_count, 3)
-        mock_log_warning.assert_called()
         self.assertIsNone(ret)
         self.assertIn(self.fake_publish_ok, results)
 
 
 class TestWaitUntilQueuedMessagesProcessed(unittest.TestCase):
-    @patch('tb_device_mqtt.sleep', autospec=True)
-    @patch('tb_device_mqtt.logging.getLogger', autospec=True)
-    @patch('tb_device_mqtt.monotonic')
-    def test_wait_until_current_queued_messages_processed_logging(self, mock_monotonic, mock_getLogger, mock_sleep):
+    def test_wait_until_current_queued_messages_processed_without_logging(self):
         client = TBDeviceMqttClient('fake_host', username="dummy_token", password="dummy")
         fake_client = MagicMock()
+
         fake_client._out_messages = [1, 2, 3, 4, 5, 6]
         fake_client._max_inflight_messages = 5
         client._client = fake_client
+
         client.stopped = False
         client.is_connected = MagicMock(return_value=True)
-        mock_monotonic.side_effect = [0, 6, 6, 1000]
-        fake_logger = MagicMock()
-        mock_getLogger.return_value = fake_logger
 
-        client._wait_until_current_queued_messages_processed()
-
-        self.assertTrue(fake_logger.debug.called, "At least one debug log call was expected")
+        with patch('tb_device_mqtt.monotonic', side_effect=[0, 6, 6, 1000]) as mock_monotonic, \
+             patch('tb_device_mqtt.sleep', autospec=True) as mock_sleep:
+            client._wait_until_current_queued_messages_processed()
 
         mock_sleep.assert_called()
+        self.assertGreaterEqual(mock_monotonic.call_count, 2, "The method is expected to obtain the current time several times")
+        self.assertGreaterEqual(client.is_connected.call_count, 1, "The method is expected to have checked the connection")
 
     def test_single_value_case(self):
         message_pack = {

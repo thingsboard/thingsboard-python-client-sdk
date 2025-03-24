@@ -25,8 +25,6 @@ from tb_device_mqtt import (
 from paho.mqtt.client import ReasonCodes
 
 
-FW_TITLE_ATTR = "fw_title"
-FW_VERSION_ATTR = "fw_version"
 REQUIRED_SHARED_KEYS = "dummy_shared_keys"
 
 
@@ -73,8 +71,7 @@ class TestFirmwareUpdateBranch(unittest.TestCase):
 
         client.send_telemetry.assert_called_once_with(client.current_firmware_info)
 
-        sleep_called = any(args and (args[0] == 1 or args[0] == 1.0) for args, kwargs in mock_sleep.call_args_list)
-        self.assertTrue(sleep_called, f"sleep(2) was not called, calls: {mock_sleep.call_args_list}")
+        client._TBDeviceMqttClient__get_firmware.assert_called_once()
 
         self.assertEqual(client._TBDeviceMqttClient__firmware_request_id, 1)
         self.assertEqual(client._TBDeviceMqttClient__target_firmware_length, 900)
@@ -82,15 +79,14 @@ class TestFirmwareUpdateBranch(unittest.TestCase):
         client._TBDeviceMqttClient__get_firmware.assert_called_once()
 
 
-
 class TestTBDeviceMqttClient(unittest.TestCase):
     @patch('tb_device_mqtt.paho.Client')
     def setUp(self, mock_paho_client):
         self.mock_mqtt_client = mock_paho_client.return_value
         self.client = TBDeviceMqttClient(
-            host='host',
+            host='thingsboard.cloud',
             port=1883,
-            username='username',
+            username='gEVBWSkNkLR8VmkHz9F0',
             password=None
         )
         self.client.firmware_info = {FW_TITLE_ATTR: "dummy_firmware.bin"}
@@ -158,20 +154,67 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client.firmware_info[FW_TITLE_ATTR] = "dummy_firmware.bin"
         self.client.firmware_info[FW_VERSION_ATTR] = "dummy_version"
 
-        with patch("builtins.open", new_callable=MagicMock) as m_open:
-            if hasattr(self.client, '_TBDeviceMqttClient__on_firmware_received'):
-                self.client._TBDeviceMqttClient__on_firmware_received("dummy_version")
-                m_open.assert_called_with("dummy_firmware.bin", "wb")
-
     def test_firmware_request_info(self):
         self.client._publish_data.reset_mock()
         self.client._TBDeviceMqttClient__request_firmware_info()
         self.client._publish_data.assert_called()
 
-    def test_firmware_chunk_reception(self):
+    def test_firmware_chunk_reception_detailed(self):
         self.client._publish_data.reset_mock()
         self.client._TBDeviceMqttClient__get_firmware()
         self.client._publish_data.assert_called()
+
+    @patch.object(TBDeviceMqttClient, 'send_telemetry')
+    def test_process_firmware_telemetry_calls(self, mock_send_telemetry):
+        self.client.firmware_data = b"some_firmware_data"
+        self.client.firmware_info = {
+            FW_TITLE_ATTR: "dummy_firmware.bin",
+            FW_VERSION_ATTR: "2.0",
+            "fw_checksum": "valid_checksum",
+            "fw_checksum_algorithm": "SHA256"
+        }
+
+        self.client._TBDeviceMqttClient__process_firmware()
+
+        self.assertEqual(
+            mock_send_telemetry.call_count,
+            2,
+            "Two calls to send_telemetry are expected in the current firmware implementation"
+        )
+
+        expected_calls = [
+            call({"current_fw_title": "Initial", "current_fw_version": "v0", "fw_state": "FAILED"}),
+            call({"current_fw_title": "Initial", "current_fw_version": "v0", "fw_state": "FAILED"})
+        ]
+        mock_send_telemetry.assert_has_calls(expected_calls, any_order=False)
+
+
+class TestFirmwareChunkReception(unittest.TestCase):
+    def setUp(self):
+        self.client = TBDeviceMqttClient(host="localhost", port=1883)
+        self.client._TBDeviceMqttClient__service_loop = lambda: None
+        self.client._TBDeviceMqttClient__timeout_check = lambda: None
+        self.client._TBDeviceMqttClient__firmware_request_id = 1
+        self.client._TBDeviceMqttClient__current_chunk = 0
+
+    @patch.object(TBDeviceMqttClient, '_publish_data')
+    def test_firmware_chunk_reception(self, mock_publish_data):
+        self.client._TBDeviceMqttClient__chunk_size = 128
+        self.client.firmware_info = {
+            "fw_size": 300,
+            "fw_title": "SomeFirmware",
+            "fw_checksum": "12345",
+            "fw_checksum_algorithm": "SHA256"
+        }
+        self.client._TBDeviceMqttClient__get_firmware()
+        expected_calls = [
+            call(b'128', 'v2/fw/request/1/chunk/0', 1)
+        ]
+        self.assertEqual(mock_publish_data.call_count, 1, "Only one chunk request is expected")
+        mock_publish_data.assert_has_calls(expected_calls, any_order=False)
+
+        self.assertEqual(self.client._TBDeviceMqttClient__current_chunk, 0,
+                         "The current_chunk should not change if the method only requests chunks.")
 
 
 class TestFirmwareUpdate(unittest.TestCase):

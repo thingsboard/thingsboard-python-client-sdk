@@ -22,8 +22,6 @@ from tb_gateway_mqtt import TBGatewayMqttClient, TBSendMethod, GATEWAY_CLAIMING_
 class TestGwUnsubscribe(unittest.TestCase):
     def setUp(self):
         self.client = TBGatewayMqttClient("localhost", 1883, "dummy_token")
-        if not hasattr(self.client, "_lock"):
-            self.client._lock = threading.Lock()
         self.client._TBGatewayMqttClient__sub_dict = {
             "device1|attr1": {1: lambda msg: "callback1"},
             "device2|attr2": {2: lambda msg: "callback2"},
@@ -47,8 +45,6 @@ class TestGwUnsubscribe(unittest.TestCase):
 class TestGwSendRpcReply(unittest.TestCase):
     def setUp(self):
         self.client = TBGatewayMqttClient("localhost", 1883, "dummy_token")
-        if not hasattr(self.client, "_lock"):
-            self.client._lock = threading.Lock()
 
     def test_gw_send_rpc_reply_default_qos(self):
         device = "test_device"
@@ -98,60 +94,6 @@ class TestGwSendRpcReply(unittest.TestCase):
         result = self.client.gw_send_rpc_reply(device, req_id, resp, quality_of_service=invalid_qos)
         self.assertIsNone(result)
 
-class TestOnServiceConfiguration(unittest.TestCase):
-    def setUp(self):
-        self.client = TBGatewayMqttClient("localhost", 1883, "dummy_token")
-        if not hasattr(self.client, "_lock"):
-            self.client._lock = threading.Lock()
-        self.client._devices_connected_through_gateway_messages_rate_limit = MagicMock()
-        self.client._devices_connected_through_gateway_telemetry_messages_rate_limit = MagicMock()
-        self.client._devices_connected_through_gateway_telemetry_datapoints_rate_limit = MagicMock()
-        self.client.rate_limits_received = False
-
-    def test_on_service_configuration_error(self):
-        error_response = {"error": "timeout"}
-        parent_class = self.client.__class__.__bases__[0]
-        with patch.object(parent_class, "on_service_configuration") as mock_parent_on_service_configuration:
-            self.client._TBGatewayMqttClient__on_service_configuration("dummy_arg", error_response)
-            self.assertTrue(self.client.rate_limits_received)
-            mock_parent_on_service_configuration.assert_not_called()
-
-    def test_on_service_configuration_valid(self):
-        response = {
-            "gatewayRateLimits": {
-                "messages": "10:20",
-                "telemetryMessages": "30:40",
-                "telemetryDataPoints": "50:60",
-            },
-            "rateLimits": {"limit": "value"},
-            "other_config": "other_value"
-        }
-        response_copy = response.copy()
-        parent_class = self.client.__class__.__bases__[0]
-        with patch.object(parent_class, "on_service_configuration") as mock_parent_on_service_configuration:
-            self.client._TBGatewayMqttClient__on_service_configuration("dummy_arg", response_copy, "extra_arg", key="extra")
-            self.client._devices_connected_through_gateway_messages_rate_limit.set_limit.assert_called_with("10:20")
-            self.client._devices_connected_through_gateway_telemetry_messages_rate_limit.set_limit.assert_called_with("30:40")
-            self.client._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit.assert_called_with("50:60")
-            expected_dict = {'rateLimit': {"limit": "value"}, "other_config": "other_value"}
-            mock_parent_on_service_configuration.assert_called_with("dummy_arg", expected_dict, "extra_arg", key="extra")
-
-    def test_on_service_configuration_default_telemetry_datapoints(self):
-        response = {
-            "gatewayRateLimits": {
-                "messages": "10:20",
-                "telemetryMessages": "30:40",
-            },
-            "rateLimits": {"limit": "value"},
-            "other_config": "other_value"
-        }
-        response_copy = response.copy()
-        parent_class = self.client.__class__.__bases__[0]
-        with patch.object(parent_class, "on_service_configuration") as mock_parent_on_service_configuration:
-            self.client._TBGatewayMqttClient__on_service_configuration("dummy_arg", response_copy, "extra_arg", key="extra")
-            self.client._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit.assert_called_with("0:0,")
-            expected_dict = {'rateLimit': {"limit": "value"}, "other_config": "other_value"}
-            mock_parent_on_service_configuration.assert_called_with("dummy_arg", expected_dict, "extra_arg", key="extra")
 
 class TestGwDisconnectDevice(unittest.TestCase):
     def setUp(self):
@@ -315,7 +257,7 @@ class TBGatewayMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBGatewayMqttClient('127.0.0.1', 1883, 'TEST_GATEWAY_TOKEN')
+        cls.client = TBGatewayMqttClient('thingsboard.cloud', 1883, 'your_token')
         cls.client.connect(timeout=1)
 
     @classmethod

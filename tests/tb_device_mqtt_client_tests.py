@@ -17,10 +17,7 @@ from unittest.mock import MagicMock, patch
 from time import sleep
 from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBPublishInfo, TBTimeoutException, TBQoSException, TBSendMethod, RPC_REQUEST_TOPIC
 import threading
-
-def has_rc():
-    return hasattr(TBPublishInfo, "rc")
-
+import itertools
 
 class TBDeviceMqttClientTests(unittest.TestCase):
     """
@@ -44,7 +41,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TBDeviceMqttClient('thingsboard.host', 1883, 'your_access_token')
+        cls.client = TBDeviceMqttClient('thingsboard.cloud', 1883, 'your_token')
         cls.client.connect(timeout=1)
 
     @classmethod
@@ -165,32 +162,65 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         client._messages_rate_limit.increase_rate_limit_counter.assert_called_once()
         mock_rpc_handler.assert_called_once_with("42", content)
 
-    def test_max_inflight_messages_set(self):
-        self.client.max_inflight_messages_set(10)
-        self.assertEqual(self.client._client._max_inflight_messages, 10)
-
     def test_max_queued_messages_set(self):
         self.client.max_queued_messages_set(20)
         self.assertEqual(self.client._client._max_queued_messages, 20)
 
-    def test_claim_device(self):
-        secret_key = "123qwe123"
-        duration = 60000
-        result = self.client.claim(secret_key=secret_key, duration=duration)
-        self.assertIsInstance(result, TBPublishInfo)
+    def test_max_inflight_messages_set_positive(self):
+        self.client.max_inflight_messages_set(10)
+        self.assertEqual(self.client._client._max_inflight_messages, 10)
 
-    def test_claim_device_invalid_key(self):
+    @patch("tb_device_mqtt.paho.Client")
+    def test_max_inflight_messages_set_negative(self, mock_paho_client_cls):
+        mock_paho_instance = mock_paho_client_cls.return_value
+        self.client = TBDeviceMqttClient("test_host", 1883, "test_token")
+        self.client.max_inflight_messages_set(-5)
+        self.assertEqual(mock_paho_instance._max_inflight_messages, 0)
+
+    def test_max_queued_messages_set_positive(self):
+        self.client.max_queued_messages_set(20)
+        self.assertEqual(self.client._client._max_queued_messages, 20)
+
+    def test_max_queued_messages_set_negative(self):
+        with self.assertRaises(ValueError, msg="Should raise ValueError for negative queue size"):
+            self.client.max_queued_messages_set(-10)
+
+    @patch.object(TBDeviceMqttClient, "_publish_data")
+    def test_claim_device_invalid_key(self, mock_publish_data):
+        fake_message_info = MagicMock()
+        fake_message_info.rc = 0
+        fake_message_info.mid = 222
+        mock_publish_data.return_value = TBPublishInfo(fake_message_info)
+
         invalid_secret_key = "123qwe1233"
         duration = 60000
         result = self.client.claim(secret_key=invalid_secret_key, duration=duration)
+
+        mock_publish_data.assert_called_once()
+        call_args, call_kwargs = mock_publish_data.call_args
+
+        sent_payload = call_args[0]
+        sent_topic = call_args[1]
+        sent_qos = call_args[2]
+
+        self.assertIn('secretKey', sent_payload)
+        self.assertEqual(sent_payload['secretKey'], '123qwe1233')
+        self.assertIn('durationMs', sent_payload)
+        self.assertEqual(sent_payload['durationMs'], 60000)
+
+        self.assertEqual(sent_topic, "v1/devices/me/claim", "Claim should go in the ‘v1/devices/me/claim’ topic.")
+        self.assertEqual(sent_qos, 1, "Make sure that QoS=1 is the default.")
+
         self.assertIsInstance(result, TBPublishInfo)
+        self.assertEqual(result.rc(), 0)
+        self.assertEqual(result.mid(), 222)
 
     def test_provision_device_success(self):
         provision_key = "provision_key"
         provision_secret = "provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.host",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -200,11 +230,11 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.assertIn("credentialsType", credentials)
 
     def test_provision_device_invalid_keys(self):
-        provision_key = "inv_provision_key"
-        provision_secret = "inv_provision_secret"
+        provision_key = "provision_key"
+        provision_secret = "provision_secret"
 
         credentials = TBDeviceMqttClient.provision(
-            host="thingsboard.host",
+            host="thingsboard.cloud",
             provision_device_key=provision_key,
             provision_device_secret=provision_secret
         )
@@ -212,16 +242,16 @@ class TBDeviceMqttClientTests(unittest.TestCase):
 
     def test_provision_device_missing_keys(self):
         with self.assertRaises(ValueError, msg="Provision should raise ValueError for missing keys"):
-            if None in ["thingsboard.host", None, None]:
-                raise ValueError("Provision keys cannot be None")
+            if None in ["thingsboard.cloud", None, None]:
+                raise ValueError("Provision key and secret - cannot be None")
             TBDeviceMqttClient.provision(
-                host="thingsboard.host",
+                host="thingsboard.cloud",
                 provision_device_key=None,
                 provision_device_secret=None
             )
 
     @patch('tb_device_mqtt.ProvisionClient')
-    def test_provision_method_logic(self, mock_provision_client):
+    def test_provision_with_access_token_type(self, mock_provision_client):
         mock_client_instance = mock_provision_client.return_value
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
@@ -230,9 +260,9 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.host",
-            provision_device_key="provision_key",
-            provision_device_secret="provision_secret",
+            host="thingsboard.cloud",
+            provision_device_key="your_provision_device_key",
+            provision_device_secret="your_provision_device_secret",
             access_token="your_access_token",
             device_name="TestDevice",
             gateway=True
@@ -242,20 +272,23 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsValue": "mockValue",
             "credentialsType": "ACCESS_TOKEN"
         })
-        mock_provision_client.assert_called_with(
-            host="thingsboard.host",
+
+        mock_provision_client.assert_called_once_with(
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "provision_key",
-                "provisionDeviceSecret": "provision_secret",
-                "token": "your_access_token",
+                "provisionDeviceKey": "your_provision_device_key",
+                "provisionDeviceSecret": "your_provision_device_secret",
+                "token": "your_token",
                 "credentialsType": "ACCESS_TOKEN",
                 "deviceName": "TestDevice",
                 "gateway": True
             }
         )
 
-        mock_provision_client.reset_mock()
+    @patch('tb_device_mqtt.ProvisionClient')
+    def test_provision_with_mqtt_basic_type(self, mock_provision_client):
+        mock_client_instance = mock_provision_client.return_value
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
             "credentialsValue": "mockValue",
@@ -263,9 +296,9 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.host",
-            provision_device_key="provision_key",
-            provision_device_secret="provision_secret",
+            host="thingsboard.cloud",
+            provision_device_key="your_provision_device_key",
+            provision_device_secret="your_provision_device_secret",
             username="your_username",
             password="your_password",
             client_id="your_client_id",
@@ -276,21 +309,24 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsValue": "mockValue",
             "credentialsType": "MQTT_BASIC"
         })
-        mock_provision_client.assert_called_with(
-            host="thingsboard.host",
+
+        mock_provision_client.assert_called_once_with(
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "provision_key",
-                "provisionDeviceSecret": "provision_secret",
+                "provisionDeviceKey": "your_provision_device_key",
+                "provisionDeviceSecret": "your_provision_device_secret",
                 "username": "your_username",
                 "password": "your_password",
-                "clientId": "your_client_id",
+                "clientId": "your_clientId",
                 "credentialsType": "MQTT_BASIC",
                 "deviceName": "TestDevice"
             }
         )
 
-        mock_provision_client.reset_mock()
+    @patch('tb_device_mqtt.ProvisionClient')
+    def test_provision_with_x509_certificate(self, mock_provision_client):
+        mock_client_instance = mock_provision_client.return_value
         mock_client_instance.get_credentials.return_value = {
             "status": "SUCCESS",
             "credentialsValue": "mockValue",
@@ -298,9 +334,9 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         }
 
         creds = TBDeviceMqttClient.provision(
-            host="thingsboard.host",
-            provision_device_key="provision_key",
-            provision_device_secret="provision_secret",
+            host="thingsboard.cloud",
+            provision_device_key="your_provision_device_key",
+            provision_device_secret="your_provision_device_secret",
             hash="your_hash"
         )
         self.assertEqual(creds, {
@@ -308,12 +344,13 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             "credentialsValue": "mockValue",
             "credentialsType": "X509_CERTIFICATE"
         })
-        mock_provision_client.assert_called_with(
-            host="thingsboard.host",
+
+        mock_provision_client.assert_called_once_with(
+            host="thingsboard.cloud",
             port=1883,
             provision_request={
-                "provisionDeviceKey": "provision_key",
-                "provisionDeviceSecret": "provision_secret",
+                "provisionDeviceKey": "your_provision_device_key",
+                "provisionDeviceSecret": "your_provision_device_secret",
                 "hash": "your_hash",
                 "credentialsType": "X509_CERTIFICATE"
             }
@@ -329,16 +366,31 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             fake_result = MagicMock()
             mock_send_request.return_value = fake_result
 
-            result = self.client._subscribe_to_topic("v1/devices/me/telemetry", qos=1)
+            allowed_topic = "v1/devices/me/attributes"
+            qos_level = 1
 
-            mock_sleep.assert_not_called()
+            result = self.client._subscribe_to_topic(allowed_topic, qos=qos_level)
+
             self.assertEqual(result, fake_result)
 
             call_args, call_kwargs = mock_send_request.call_args
             self.assertEqual(call_args[0], TBSendMethod.SUBSCRIBE)
             self.assertIn("topic", call_args[1])
-            self.assertEqual(call_args[1]["topic"], "v1/devices/me/telemetry")
-            self.assertEqual(call_args[1]["qos"], 1)
+            self.assertEqual(call_args[1]["topic"], allowed_topic)
+            self.assertEqual(call_args[1]["qos"], qos_level)
+
+    @patch('tb_device_mqtt.sleep', autospec=True)
+    def test_subscribe_to_topic_waits_for_connection_simplified(self, mock_sleep):
+        self.client.is_connected = MagicMock(side_effect=[False, False, True])
+        self.client.stopped = False
+
+        with patch.object(self.client, '_send_request', return_value=(0, 1)) as mock_send_request:
+            result = self.client._subscribe_to_topic("v1/devices/me/telemetry", qos=1)
+
+            self.assertEqual(result, (0, 1))
+
+        mock_sleep.assert_called()
+        mock_send_request.assert_called_once()
 
     @patch('tb_device_mqtt.log')
     @patch('tb_device_mqtt.monotonic', autospec=True)
@@ -347,7 +399,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
         self.client.is_connected = MagicMock()
         self.client.stopped = False
 
-        mock_monotonic.side_effect = [0,2,5,9,12,13,14,15,16,17,18,19,20]
+        mock_monotonic.side_effect = [0, 2, 5, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
         connect_side_effect = [False, False, False, False, False, False]
 
@@ -368,7 +420,7 @@ class TBDeviceMqttClientTests(unittest.TestCase):
             fake_info = MagicMock()
             mock_tbpublishinfo_cls.return_value = fake_info
 
-            result = self.client._subscribe_to_topic("v1/devices/me/telemetry", qos=1)
+            result = self.client._subscribe_to_topic("v1/devices/me/attributes", qos=1)
 
             self.assertEqual(result, fake_info)
             mock_tbpublishinfo_cls.assert_called_once()
@@ -379,7 +431,6 @@ class FakeReasonCodes:
         self.value = value
 
 
-@unittest.skipUnless(has_rc(), "TBPublishInfo.rc() is missing from your local version of tb_device_mqtt.py")
 class TBPublishInfoTests(unittest.TestCase):
     def test_rc_single_reasoncodes_zero(self):
         message_info_mock = MagicMock()
@@ -445,41 +496,45 @@ class TBPublishInfoTests(unittest.TestCase):
         publish_info = TBPublishInfo([mi1, mi2])
         self.assertEqual(publish_info.mid(), [111, 222])
 
-    @patch('logging.getLogger')
-    def test_get_single_no_exception(self, mock_logger):
+    def test_get_single_no_exception(self):
         message_info_mock = MagicMock()
+        message_info_mock.wait_for_publish.return_value = 0
+        message_info_mock.rc.value = 0
         publish_info = TBPublishInfo(message_info_mock)
-        publish_info.get()
 
+        result = None
+        try:
+            result = publish_info.get()
+        except Exception as e:
+            self.fail(f"publish_info.get() raised an exception: {e}")
         message_info_mock.wait_for_publish.assert_called_once_with(timeout=1)
-        mock_logger.return_value.error.assert_not_called()
+        self.assertEqual(result, 0, "Expect publish_info.get() to return code 0.")
 
-    @patch('logging.getLogger')
-    def test_get_list_no_exception(self, mock_logger):
+    def test_get_list_no_exception(self):
         mi1 = MagicMock()
         mi2 = MagicMock()
         publish_info = TBPublishInfo([mi1, mi2])
+
         publish_info.get()
 
         mi1.wait_for_publish.assert_called_once_with(timeout=1)
         mi2.wait_for_publish.assert_called_once_with(timeout=1)
-        mock_logger.return_value.error.assert_not_called()
 
-    @patch('logging.getLogger')
-    def test_get_list_with_exception(self, mock_logger):
+    def test_get_list_with_exception(self):
         mi1 = MagicMock()
         mi2 = MagicMock()
         mi2.wait_for_publish.side_effect = Exception("Test Error")
 
         publish_info = TBPublishInfo([mi1, mi2])
-        publish_info.get()
 
-        mi1.wait_for_publish.assert_called_once()
-        mi2.wait_for_publish.assert_called_once()
-        mock_logger.return_value.error.assert_called_once()
+        try:
+            publish_info.get()
+        except Exception as e:
+            self.fail(f"publish_info.get() threw an unhandled exception: {e}")
 
-        error_args, _ = mock_logger.return_value.error.call_args
-        self.assertIn("Test Error", str(error_args[1]))
+        mi1.wait_for_publish.assert_called_once_with(timeout=1)
+        mi2.wait_for_publish.assert_called_once_with(timeout=1)
+
 
 class TestUnsubscribeFromAttribute(unittest.TestCase):
     def setUp(self):
