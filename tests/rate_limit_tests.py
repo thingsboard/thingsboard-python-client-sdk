@@ -125,12 +125,10 @@ class TestRateLimit(unittest.TestCase):
         print("Rate limit dict:", rate_limit_50._rate_limit_dict)
 
         actual_limits = {k: v['limit'] for k, v in rate_limit_50._rate_limit_dict.items()}
-
         expected_limits = {
             1: 5,
             10: 30
         }
-
         self.assertEqual(actual_limits, expected_limits)
 
     def test_no_limit_behavior(self):
@@ -143,7 +141,6 @@ class TestRateLimit(unittest.TestCase):
         prev_counters = {k: v['counter'] for k, v in self.rate_limit._rate_limit_dict.items()}
 
         self.rate_limit.set_limit("20:2,120:20")
-
         for key, counter in prev_counters.items():
             if key in self.rate_limit._rate_limit_dict:
                 self.assertGreaterEqual(self.rate_limit._rate_limit_dict[key]['counter'], counter)
@@ -172,7 +169,6 @@ class TestRateLimit(unittest.TestCase):
 
         rate_limit_dict = client._messages_rate_limit._rate_limit_dict
         limit = rate_limit_dict.get(1, {}).get('limit', None)
-
         if limit is None:
             raise ValueError("Key 1 is missing in the rate limit dict.")
 
@@ -191,7 +187,6 @@ class TestRateLimit(unittest.TestCase):
 
         rate_limit_dict = client._telemetry_rate_limit._rate_limit_dict
         limit = rate_limit_dict.get(1, {}).get('limit', None)
-
         if limit is None:
             raise ValueError("Key 1 is missing in the telemetry rate limit dict.")
 
@@ -244,6 +239,39 @@ class TestRateLimit(unittest.TestCase):
     def test_get_dp_rate_limit_by_host_custom(self):
         result = RateLimit.get_dp_rate_limit_by_host("my.custom.host", "25:3,80:10,")
         self.assertEqual(result, "25:3,80:10,")
+
+    def test_get_rate_limits_by_topic_with_device(self):
+        custom_msg_limit = object()
+        custom_dp_limit = object()
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=TELEMETRY_TOPIC,
+            device="MyDevice",
+            msg_rate_limit=custom_msg_limit,
+            dp_rate_limit=custom_dp_limit
+        )
+        self.assertIs(msg_limit, custom_msg_limit)
+        self.assertIs(dp_limit, custom_dp_limit)
+
+    def test_get_rate_limits_by_topic_no_device_telemetry_topic(self):
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=TELEMETRY_TOPIC,
+            device=None,
+            msg_rate_limit=None,
+            dp_rate_limit=None
+        )
+        self.assertIs(msg_limit, self.client._telemetry_rate_limit)
+        self.assertIs(dp_limit, self.client._telemetry_dp_rate_limit)
+
+    def test_get_rate_limits_by_topic_no_device_other_topic(self):
+        some_topic = "v1/devices/me/attributes"
+        msg_limit, dp_limit = self.client._TBDeviceMqttClient__get_rate_limits_by_topic(
+            topic=some_topic,
+            device=None,
+            msg_rate_limit=None,
+            dp_rate_limit=None
+        )
+        self.assertIs(msg_limit, self.client._messages_rate_limit)
+        self.assertIsNone(dp_limit)
 
 
 class TestOnServiceConfigurationIntegration(unittest.TestCase):
@@ -361,26 +389,46 @@ class TestOnServiceConfigurationIntegration(unittest.TestCase):
         self.assertEqual(self.client.max_payload_size, 1600)
 
 
-class TestableTBDeviceMqttClient(TBDeviceMqttClient):
-    def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
-                 chunk_size=0, messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
-                 telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
-                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, **kwargs):
-        if kwargs.get('rate_limit') is not None or kwargs.get('dp_rate_limit') is not None:
-            messages_rate_limit = messages_rate_limit if kwargs.get(
-                'rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit)
-            telemetry_rate_limit = telemetry_rate_limit if kwargs.get(
-                'rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit)
-            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get(
-                'dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit)
-        self.test_messages_rate_limit = messages_rate_limit
-        self.test_telemetry_rate_limit = telemetry_rate_limit
-        self.test_telemetry_dp_rate_limit = telemetry_dp_rate_limit
-        super().__init__(host, port, username, password, quality_of_service, client_id,
-                         chunk_size=chunk_size, messages_rate_limit=messages_rate_limit,
-                         telemetry_rate_limit=telemetry_rate_limit,
-                         telemetry_dp_rate_limit=telemetry_dp_rate_limit, max_payload_size=max_payload_size,
-                         **kwargs)
+class TestRateLimitParameters(unittest.TestCase):
+    def test_default_rate_limits(self):
+        client = TBDeviceMqttClient(
+            host="fake_host",
+            username="dummy",
+            password="dummy",
+            messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
+            telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
+            telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT"
+        )
+        self.assertTrue(client._messages_rate_limit._no_limit)
+        self.assertTrue(client._telemetry_rate_limit._no_limit)
+        self.assertTrue(client._telemetry_dp_rate_limit._no_limit)
+
+    def test_custom_rate_limits(self):
+        client = TBDeviceMqttClient(
+            host="fake_host",
+            username="dummy",
+            password="dummy",
+            messages_rate_limit="20:1,100:60,",
+            telemetry_rate_limit="20:1,100:60,",
+            telemetry_dp_rate_limit="30:1,200:60,"
+        )
+        msg_rate_dict = client._messages_rate_limit._rate_limit_dict
+        self.assertIn(1, msg_rate_dict)
+        self.assertEqual(msg_rate_dict[1]['limit'], 16)
+        self.assertIn(60, msg_rate_dict)
+        self.assertEqual(msg_rate_dict[60]['limit'], 80)
+
+        telem_rate_dict = client._telemetry_rate_limit._rate_limit_dict
+        self.assertIn(1, telem_rate_dict)
+        self.assertEqual(telem_rate_dict[1]['limit'], 16)
+        self.assertIn(60, telem_rate_dict)
+        self.assertEqual(telem_rate_dict[60]['limit'], 80)
+
+        dp_rate_dict = client._telemetry_dp_rate_limit._rate_limit_dict
+        self.assertIn(1, dp_rate_dict)
+        self.assertEqual(dp_rate_dict[1]['limit'], 24)
+        self.assertIn(60, dp_rate_dict)
+        self.assertEqual(dp_rate_dict[60]['limit'], 160)
 
 
 class TestRateLimitFromDict(unittest.TestCase):

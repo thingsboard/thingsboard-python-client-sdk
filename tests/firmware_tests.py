@@ -33,8 +33,6 @@ class TestFirmwareUpdateBranch(unittest.TestCase):
     @patch('tb_device_mqtt.log.debug', autospec=True)
     def test_firmware_update_branch(self, _, mock_sleep):
         client = TBDeviceMqttClient('fake_host', username="dummy_token", password="dummy")
-        client._TBDeviceMqttClient__service_loop = lambda: None
-        client._TBDeviceMqttClient__timeout_check = lambda: None
 
         client._messages_rate_limit = MagicMock()
 
@@ -84,7 +82,7 @@ class TestTBDeviceMqttClient(unittest.TestCase):
     def setUp(self, mock_paho_client):
         self.mock_mqtt_client = mock_paho_client.return_value
         self.client = TBDeviceMqttClient(
-            host='thingsboard.cloud',
+            host='your_host',
             port=1883,
             username='your_token',
             password=None
@@ -93,7 +91,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client.firmware_data = b''
         self.client._TBDeviceMqttClient__current_chunk = 0
         self.client._TBDeviceMqttClient__firmware_request_id = 1
-        self.client._TBDeviceMqttClient__service_loop = Thread(target=lambda: None)
         self.client._TBDeviceMqttClient__updating_thread = Thread(target=lambda: None)
         self.client._publish_data = MagicMock()
 
@@ -192,8 +189,6 @@ class TestTBDeviceMqttClient(unittest.TestCase):
 class TestFirmwareChunkReception(unittest.TestCase):
     def setUp(self):
         self.client = TBDeviceMqttClient(host="localhost", port=1883)
-        self.client._TBDeviceMqttClient__service_loop = lambda: None
-        self.client._TBDeviceMqttClient__timeout_check = lambda: None
         self.client._TBDeviceMqttClient__firmware_request_id = 1
         self.client._TBDeviceMqttClient__current_chunk = 0
 
