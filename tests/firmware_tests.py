@@ -86,7 +86,7 @@ class TestTBDeviceMqttClient(unittest.TestCase):
         self.client = TBDeviceMqttClient(
             host='thingsboard.cloud',
             port=1883,
-            username='gEVBWSkNkLR8VmkHz9F0',
+            username='your_token',
             password=None
         )
         self.client.firmware_info = {FW_TITLE_ATTR: "dummy_firmware.bin"}
