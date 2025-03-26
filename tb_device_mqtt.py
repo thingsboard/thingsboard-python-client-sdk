@@ -1294,3 +1294,4 @@ class ProvisionClient(paho.Client):
 
     def get_credentials(self):
         return self.__credentials
+# temp change to force GitHub conflict resolution
