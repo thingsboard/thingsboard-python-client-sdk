@@ -36,7 +36,7 @@ class TestTBDeviceMqttClientSendRpcReply(unittest.TestCase):
         mock_publish_data.return_value = mock_info
 
         result = self.client.send_rpc_reply("another_req_id", {"hello": "world"}, quality_of_service=0)
-        self.assertEqual(result, mock_info)
+        self.assertIsNone(result)
         mock_publish_data.assert_called_with(
             self.client,
             {"hello": "world"},
