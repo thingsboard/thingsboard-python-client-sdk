@@ -1,4 +1,4 @@
-# Copyright 2024. ThingsBoard
+# Copyright 2025. ThingsBoard
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 import logging
 from copy import deepcopy
 from inspect import signature
-from logging import Logger
 from time import sleep
 
 import paho.mqtt.client as paho
@@ -24,7 +23,7 @@ from math import ceil
 try:
     from time import monotonic, time as timestamp
 except ImportError:
-    from time import time, time as timestamp
+    from time import time as timestamp
 import ssl
 from threading import RLock, Thread
 from enum import Enum
@@ -61,7 +60,7 @@ RESULT_CODES = {
     2: "invalid client identifier",
     3: "server unavailable",
     4: "bad username or password",
-    5: "not authorised",
+    5: "not authorized",
 }
 
 
@@ -190,8 +189,8 @@ class RateLimit:
                     continue
                 rate = rate.split(":")
                 self._rate_limit_dict[int(rate[1])] = {"counter": 0,
-                                                        "start": int(monotonic()),
-                                                        "limit": int(int(rate[0]) * self.percentage / 100)}
+                                                       "start": int(monotonic()),
+                                                       "limit": int(int(rate[0]) * self.percentage / 100)}
         log.debug("Rate limit %s set to values: " % self.name)
         with self.__lock:
             if not self._no_limit:
@@ -234,14 +233,19 @@ class RateLimit:
     def has_limit(self):
         return not self._no_limit
 
-    def set_limit(self, rate_limit, percentage=80):
+    def set_limit(self, rate_limit, percentage=100):
         with self.__lock:
+            self._minimal_timeout = DEFAULT_TIMEOUT
+            self._minimal_limit = 1000000000
             old_rate_limit_dict = deepcopy(self._rate_limit_dict)
             self._rate_limit_dict = {}
-            self.percentage = percentage if percentage != 0 else self.percentage
+            self.percentage = percentage if percentage > 0 else self.percentage
             rate_configs = rate_limit.split(";")
             if "," in rate_limit:
                 rate_configs = rate_limit.split(",")
+            if len(rate_configs) == 2 and rate_configs[0] == "0:0":
+                self._no_limit = True
+                return
             for rate in rate_configs:
                 if rate == "":
                     continue
@@ -250,7 +254,7 @@ class RateLimit:
                 limit = int(int(rate[0]) * percentage / 100)
                 self._rate_limit_dict[int(rate[1])] = {
                     "counter": old_rate_limit_dict.get(rate_limit_time, {}).get('counter', 0),
-                    "start": self._rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
+                    "start": old_rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
                     "limit": limit}
                 if rate_limit_time < self._minimal_limit:
                     self._minimal_timeout = rate_limit_time + 1
@@ -331,9 +335,9 @@ class TBDeviceMqttClient:
                  telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, **kwargs):
         # Added for compatibility with old versions
         if kwargs.get('rate_limit') is not None or kwargs.get('dp_rate_limit') is not None:
-            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit)
-            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit)
-            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit)
+            messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit) # noqa
+            telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit) # noqa
+            telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit) # noqa
         self._client = paho.Client(protocol=5, client_id=client_id)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
@@ -460,8 +464,6 @@ class TBDeviceMqttClient:
         self.send_telemetry(self.current_firmware_info)
         self.__request_firmware_info()
 
-        self.__updating_thread.start()
-
     def __request_firmware_info(self):
         self.__request_id = self.__request_id + 1
         self._publish_data({"sharedKeys": REQUIRED_SHARED_KEYS},
@@ -576,11 +578,11 @@ class TBDeviceMqttClient:
             self._messages_rate_limit.increase_rate_limit_counter()
             self.firmware_info = loads(message.payload)
             if "/response/" in message.topic:
-                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info, dict) else {}
+                self.firmware_info = self.firmware_info.get("shared", {}) if isinstance(self.firmware_info, dict) else {} # noqa
             if ((self.firmware_info.get(FW_VERSION_ATTR) is not None
-                and self.firmware_info.get(FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR))
+                and self.firmware_info.get(FW_VERSION_ATTR) != self.current_firmware_info.get("current_" + FW_VERSION_ATTR)) # noqa
                     or (self.firmware_info.get(FW_TITLE_ATTR) is not None
-                        and self.firmware_info.get(FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR))):
+                        and self.firmware_info.get(FW_TITLE_ATTR) != self.current_firmware_info.get("current_" + FW_TITLE_ATTR))): # noqa
                 log.debug('Firmware is not the same')
                 self.firmware_data = b''
                 self.__current_chunk = 0
@@ -719,18 +721,23 @@ class TBDeviceMqttClient:
         if service_config.get('maxInflightMessages'):
             use_messages_rate_limit_factor = self._messages_rate_limit.has_limit()
             use_telemetry_rate_limit_factor = self._telemetry_rate_limit.has_limit()
+            service_config_inflight_messages = int(service_config.get('maxInflightMessages', 100))
             if use_messages_rate_limit_factor and use_telemetry_rate_limit_factor:
                 max_inflight_messages = int(min(self._messages_rate_limit.get_minimal_limit(),
                                                 self._telemetry_rate_limit.get_minimal_limit(),
-                                                service_config.get('maxInflightMessages', 100)) * 80 / 100)
+                                                service_config_inflight_messages) * 80 / 100)
             elif use_messages_rate_limit_factor:
                 max_inflight_messages = int(min(self._messages_rate_limit.get_minimal_limit(),
-                                                service_config.get('maxInflightMessages', 100)) * 80 / 100)
+                                                service_config_inflight_messages) * 80 / 100)
             elif use_telemetry_rate_limit_factor:
                 max_inflight_messages = int(min(self._telemetry_rate_limit.get_minimal_limit(),
-                                                service_config.get('maxInflightMessages', 100)) * 80 / 100)
+                                                service_config_inflight_messages) * 80 / 100)
             else:
                 max_inflight_messages = int(service_config.get('maxInflightMessages', 100) * 80 / 100)
+                if max_inflight_messages == 0:
+                    max_inflight_messages = 10_000  # No limitation on device queue on transport level
+            if max_inflight_messages < 1:
+                max_inflight_messages = 1
             self.max_inflight_messages_set(max_inflight_messages)
             self.max_queued_messages_set(max_inflight_messages)
         if service_config.get('maxPayloadSize'):
@@ -774,8 +781,8 @@ class TBDeviceMqttClient:
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
                 if isinstance(limit_reached_check, int):
-                    log.warning("Rate limit reached for %i seconds, waiting for rate limit to be released...",
-                                limit_reached_check)
+                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...",
+                              limit_reached_check)
                     waited = True
                 else:
                     log.debug("Waiting for rate limit to be released...")
@@ -788,27 +795,41 @@ class TBDeviceMqttClient:
     def _wait_until_current_queued_messages_processed(self):
         previous_notification_time = 0
         current_out_messages = len(self._client._out_messages) * 2
-        inflight_messages = self._client._max_inflight_messages or 5
+        max_inflight_messages = self._client._max_inflight_messages if self._client._max_inflight_messages > 0 else 5
         logger = None
         waiting_started = int(monotonic())
         connection_was_lost = False
-        timeout_for_break = 600
+        timeout_for_break = 300
 
         if current_out_messages > 0:
-            while current_out_messages >= inflight_messages and not self.stopped:
+            while current_out_messages >= max_inflight_messages and not self.stopped:
                 current_out_messages = len(self._client._out_messages)
-                if int(monotonic()) - previous_notification_time > 5 and current_out_messages > inflight_messages:
+                elapsed = monotonic() - waiting_started
+                remaining = timeout_for_break - elapsed
+
+                if int(monotonic()) - previous_notification_time > 5 and current_out_messages > max_inflight_messages:
                     if logger is None:
                         logger = logging.getLogger('tb_connection')
-                    logger.debug("Waiting for messages to be processed by paho client, current queue size - %r, max inflight messages: %r",
-                                current_out_messages, inflight_messages)
+                    logger.debug(
+                        "Waiting for messages to be processed: current queue size: %r, max inflight: %r. "
+                        "Elapsed time: %.2f seconds, remaining timeout: %.2f seconds",
+                        current_out_messages, max_inflight_messages, elapsed, remaining
+                    )
                     previous_notification_time = int(monotonic())
+
                 if not self.is_connected():
+                    with self._client._out_message_mutex:
+                        self._client._out_messages.clear()
                     connection_was_lost = True
-                if current_out_messages >= inflight_messages:
-                    sleep(.001)
-                if int(monotonic()) - waiting_started > timeout_for_break and not connection_was_lost or self.stopped:
+
+                if current_out_messages >= max_inflight_messages:
+                    sleep(.01)
+
+                if (elapsed > timeout_for_break and not connection_was_lost) or self.stopped:
+                    logger.debug("Breaking wait loop after %.2f seconds due to timeout or stop signal.", elapsed)
                     break
+
+                sleep(.001)
 
     def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
@@ -867,18 +888,18 @@ class TBDeviceMqttClient:
         attributes_format = topic.endswith('attributes')
         if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:
-                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
+                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
                 if attributes_format:
-                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                    split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
-                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages] # noqa
             else:
                 device_data = data.get(device)
-                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size)
+                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
                 if attributes_format:
-                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']]
+                    split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
-                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages]
+                    split_messages = [{'message': {device: split_message['data']}, 'datapoints': split_message['datapoints']} for split_message in device_split_messages] # noqa
         else:
             split_messages = [{'message': data, 'datapoints': self._count_datapoints_in_message(data, device)}]
 
@@ -902,7 +923,8 @@ class TBDeviceMqttClient:
         if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
             msg_rate_limit.increase_rate_limit_counter()
         kwargs["payload"] = dumps(part['message'])
-        self._wait_until_current_queued_messages_processed()
+        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+            self._wait_until_current_queued_messages_processed()
         if not self.stopped:
             if device is not None:
                 log.debug("Device: %s, Sending message to topic: %s ", device, topic)
@@ -920,11 +942,20 @@ class TBDeviceMqttClient:
                     log.debug("Data points rate limits after sending message: %r", dp_rate_limit.__dict__)
         result = self._client.publish(**kwargs)
         if result.rc == MQTT_ERR_QUEUE_SIZE:
+            error_appear_counter = 1
+            sleep_time = 0.1  # 100 ms, in case of change - change max tries in while loop
             while not self.stopped and result.rc == MQTT_ERR_QUEUE_SIZE:
+                error_appear_counter += 1
+                if error_appear_counter > 78:  # 78 tries ~ totally 300 seconds for sleep 0.1
+                    # Clearing the queue and trying to send the message again
+                    log.warning("!!! Queue size exceeded, clearing the paho out queue and trying to send message again !!!")  # Possible data loss, due to issue with paho queue clearing! # noqa
+                    with self._client._out_message_mutex:
+                        self._client._out_packet.clear()
+                        self._client._out_messages.clear()
                 if int(monotonic()) - self.__error_logged > 10:
-                    log.warning("Queue size exceeded, waiting for messages to be processed by paho client.")
+                    log.debug("Queue size exceeded, waiting for messages to be processed by paho client.")
                     self.__error_logged = int(monotonic())
-                sleep(.01)  # Give some time for paho to process messages
+                sleep(sleep_time)  # Give some time for paho to process messages
                 result = self._client.publish(**kwargs)
         results.append(result)
 
@@ -941,7 +972,10 @@ class TBDeviceMqttClient:
                 waiting_for_connection_message_time = monotonic()
             sleep(0.01)
 
-        return self._send_request(TBSendMethod.SUBSCRIBE, {"topic": topic, "qos": qos}, timeout, msg_rate_limit=self._messages_rate_limit)
+        return self._send_request(TBSendMethod.SUBSCRIBE,
+                                  {"topic": topic, "qos": qos},
+                                  timeout,
+                                  msg_rate_limit=self._messages_rate_limit)
 
     def _publish_data(self, data, topic, qos, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
@@ -1051,10 +1085,10 @@ class TBDeviceMqttClient:
 
                 if callback is not None:
                     if isinstance(callback, tuple):
-                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"),
+                        callback[0](None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"), # noqa
                                     callback[1])
                     else:
-                        callback(None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!"))
+                        callback(None, TBTimeoutException("Timeout while waiting for a reply for attribute request from ThingsBoard!")) # noqa
 
                 self.__attrs_request_timeout.pop(attr_request_number)
 
@@ -1196,9 +1230,8 @@ class TBDeviceMqttClient:
                     message_item_values_with_allowed_size[data_key] = value
                     current_size += data_key_size
 
-                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size))
-                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) \
-                    or ts_changed:
+                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size)) # noqa
+                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) or ts_changed: # noqa
                     if ts:
                         ts_to_write = ts
                         if old_ts is not None and old_ts != ts:
@@ -1294,4 +1327,3 @@ class ProvisionClient(paho.Client):
 
     def get_credentials(self):
         return self.__credentials
-# temp change to force GitHub conflict resolution
