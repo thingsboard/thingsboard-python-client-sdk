@@ -220,8 +220,9 @@ class RateLimit:
                 if self._rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= current_time:
                     self._rate_limit_dict[rate_limit_time]["start"] = current_time
                     self._rate_limit_dict[rate_limit_time]["counter"] = 0
-                if rate_limit_info['counter'] + amount > rate_limit_info['limit']:
-                    return rate_limit_time
+                current_limit = rate_limit_info['limit']
+                if rate_limit_info['counter'] + amount > current_limit:
+                    return current_limit, rate_limit_time
             return False
 
     def get_minimal_limit(self):
@@ -743,7 +744,7 @@ class TBDeviceMqttClient:
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(int(service_config.get('maxPayloadSize')) * 80 / 100)
         log.info("Service configuration was successfully retrieved and applied.")
-        log.info("Current limits: %r", service_config)
+        log.info("Current device limits: %r", service_config)
         self.rate_limits_received = True
 
     def set_server_side_rpc_request_handler(self, handler):
@@ -762,8 +763,11 @@ class TBDeviceMqttClient:
         log_posted = False
         waited = False
         while limit_reached_check:
-            limit_reached_check = (message_rate_limit.check_limit_reached()
-                                   or (dp_rate_limit is not None and dp_rate_limit.check_limit_reached(amount=amount))
+
+            message_rate_limit_check = message_rate_limit.check_limit_reached()
+            datapoints_rate_limit_check = dp_rate_limit.check_limit_reached(amount=amount) if dp_rate_limit is not None else False
+            limit_reached_check = (message_rate_limit_check
+                                   or datapoints_rate_limit_check
                                    or not self.is_connected())
             if timeout < limit_reached_check:
                 timeout = limit_reached_check
@@ -777,15 +781,25 @@ class TBDeviceMqttClient:
                 disconnected = True
                 timeout = max(timeout, 180) + 10
             if int(monotonic()) >= timeout + start_time:
-                log.warning("Timeout while waiting for rate limit for %i seconds to be released!", limit_reached_check)
+                if message_rate_limit_check:
+                    log.warning("Timeout while waiting for rate limit for messages to be released! Rate limit: %r:%r",
+                                message_rate_limit_check,
+                                message_rate_limit_check)
+                elif datapoints_rate_limit_check:
+                    log.warning("Timeout while waiting for rate limit for data points to be released! Rate limit: %r:%r",
+                                datapoints_rate_limit_check,
+                                datapoints_rate_limit_check)
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
-                if isinstance(limit_reached_check, int):
-                    log.debug("Rate limit reached for %i seconds, waiting for rate limit to be released...",
-                              limit_reached_check)
-                    waited = True
-                else:
-                    log.debug("Waiting for rate limit to be released...")
+                if message_rate_limit_check:
+                    log.debug("Rate limit for messages [%r:%r] - reached, waiting for rate limit to be released...",
+                              message_rate_limit_check,
+                              message_rate_limit_check)
+                elif datapoints_rate_limit_check:
+                    log.debug("Rate limit for data points [%r:%r] - reached, waiting for rate limit to be released...",
+                              datapoints_rate_limit_check,
+                              datapoints_rate_limit_check)
+                waited = True
                 log_posted = True
             if limit_reached_check:
                 sleep(.005)

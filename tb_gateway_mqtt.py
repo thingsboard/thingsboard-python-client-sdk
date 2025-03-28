@@ -323,3 +323,4 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          {'rateLimits': gateway_device_itself_rate_limit_config, **service_config},
                                          *args,
                                          **kwargs)
+        log.info("Current gateway limits: %r", service_config)
