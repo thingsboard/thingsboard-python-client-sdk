@@ -161,69 +161,127 @@ class TBPublishInfo:
         return self.rc()
 
 
+class GreedyTokenBucket:
+    def __init__(self, capacity, duration_sec):
+        self.capacity = capacity
+        self.duration = duration_sec
+        self.tokens = capacity
+        self.last_updated = int(monotonic())
+
+    def refill(self):
+        now = int(monotonic())
+        elapsed = now - self.last_updated
+        refill_rate = self.capacity / self.duration
+        refill_amount = elapsed * refill_rate
+        self.tokens = min(self.capacity, self.tokens + refill_amount)
+        self.last_updated = now
+
+    def can_consume(self, amount=1):
+        self.refill()
+        return self.tokens >= amount
+
+    def consume(self, amount=1):
+        self.refill()
+        if self.tokens >= amount:
+            self.tokens -= amount
+            return True
+        return False
+
+    def get_remaining_tokens(self):
+        self.refill()
+        return self.tokens
+
+
 class RateLimit:
     def __init__(self, rate_limit, name=None, percentage=80):
+        self.__reached_limit_index = 0
+        self.__reached_limit_index_time = 0
         self._no_limit = False
-        self._rate_limit_dict = {}
+        self._rate_buckets = {}
         self.__lock = RLock()
         self._minimal_timeout = DEFAULT_TIMEOUT
-        self._minimal_limit = 1000000000
+        self._minimal_limit = float("inf")
+
         from_dict = isinstance(rate_limit, dict)
-        if from_dict:
-            self._rate_limit_dict = rate_limit.get('rateLimits', rate_limit)
-            name = rate_limit.get('name', name)
-            percentage = rate_limit.get('percentage', percentage)
-            self._no_limit = rate_limit.get('no_limit', False)
         self.name = name
         self.percentage = percentage
-        self.__start_time = int(monotonic())
-        if not from_dict:
-            if ''.join(c for c in rate_limit if c not in [' ', ',', ';']) in ("", "0:0"):
+
+        if from_dict:
+            self._no_limit = rate_limit.get('no_limit', False)
+            self.percentage = rate_limit.get('percentage', percentage)
+            self.name = rate_limit.get('name', name)
+
+            rate_limits = rate_limit.get('rateLimits', {})
+            for duration_str, bucket_info in rate_limits.items():
+                try:
+                    duration = int(duration_str)
+                    capacity = bucket_info.get("capacity")
+                    tokens = bucket_info.get("tokens")
+                    last_updated = bucket_info.get("last_updated")
+
+                    if capacity is None or tokens is None:
+                        continue
+
+                    bucket = GreedyTokenBucket(capacity, duration)
+                    bucket.tokens = min(capacity, float(tokens))
+                    bucket.last_updated = float(last_updated) if last_updated is not None else monotonic()
+
+                    self._rate_buckets[duration] = bucket
+                    self._minimal_limit = min(self._minimal_limit, capacity)
+                    self._minimal_timeout = min(self._minimal_timeout, duration + 1)
+                except Exception as e:
+                    log.warning("Invalid bucket format for duration %s: %s", duration_str, e)
+
+        else:
+            clean = ''.join(c for c in rate_limit if c not in [' ', ',', ';'])
+            if clean in ("", "0:0"):
                 self._no_limit = True
                 return
-            rate_configs = rate_limit.split(";")
-            if "," in rate_limit:
-                rate_configs = rate_limit.split(",")
+
+            rate_configs = rate_limit.replace(";", ",").split(",")
             for rate in rate_configs:
-                if rate == "":
+                if not rate.strip():
                     continue
-                rate = rate.split(":")
-                self._rate_limit_dict[int(rate[1])] = {"counter": 0,
-                                                       "start": int(monotonic()),
-                                                       "limit": int(int(rate[0]) * self.percentage / 100)}
-        log.debug("Rate limit %s set to values: " % self.name)
-        with self.__lock:
-            if not self._no_limit:
-                for rate_limit_time in self._rate_limit_dict:
-                    log.debug("Time: %s, Limit: %s", rate_limit_time,
-                              self._rate_limit_dict[rate_limit_time]["limit"])
-                    if self._rate_limit_dict[rate_limit_time]["limit"] < self._minimal_limit:
-                        self._minimal_limit = self._rate_limit_dict[rate_limit_time]["limit"]
-                    if rate_limit_time < self._minimal_limit:
-                        self._minimal_timeout = rate_limit_time + 1
-            else:
-                log.debug("No rate limits.")
+                try:
+                    limit_str, duration_str = rate.strip().split(":")
+                    limit = int(int(limit_str) * self.percentage / 100)
+                    duration = int(duration_str)
+                    bucket = GreedyTokenBucket(limit, duration)
+                    self._rate_buckets[duration] = bucket
+                    self._minimal_limit = min(self._minimal_limit, limit)
+                    self._minimal_timeout = min(self._minimal_timeout, duration + 1)
+                except Exception as e:
+                    log.warning("Invalid rate limit format '%s': %s", rate, e)
+
+        log.debug("Rate limit %s set to values:", self.name)
+        for duration, bucket in self._rate_buckets.items():
+            log.debug("Window: %ss, Limit: %s", duration, bucket.capacity)
 
     def increase_rate_limit_counter(self, amount=1):
         if self._no_limit:
             return
         with self.__lock:
-            for rate_limit_time in self._rate_limit_dict:
-                self._rate_limit_dict[rate_limit_time]["counter"] += amount
+            for bucket in self._rate_buckets.values():
+                bucket.refill()
+                bucket.tokens = max(0.0, bucket.tokens - amount)
 
     def check_limit_reached(self, amount=1):
         if self._no_limit:
             return False
         with self.__lock:
-            current_time = int(monotonic())
-            for rate_limit_time, rate_limit_info in self._rate_limit_dict.items():
-                if self._rate_limit_dict[rate_limit_time]["start"] + rate_limit_time <= current_time:
-                    self._rate_limit_dict[rate_limit_time]["start"] = current_time
-                    self._rate_limit_dict[rate_limit_time]["counter"] = 0
-                current_limit = rate_limit_info['limit']
-                if rate_limit_info['counter'] + amount > current_limit:
-                    return current_limit, rate_limit_time
+            for duration, bucket in self._rate_buckets.items():
+                if not bucket.can_consume(amount):
+                    return bucket.capacity, duration
+
+            for duration, bucket in self._rate_buckets.items():
+                log.debug("%s left tokens: %.2f per %r seconds",
+                         self.name,
+                         bucket.get_remaining_tokens(),
+                         duration)
+                bucket.consume(amount)
+
             return False
+
 
     def get_minimal_limit(self):
         return self._minimal_limit if self.has_limit() else 0
@@ -234,43 +292,89 @@ class RateLimit:
     def has_limit(self):
         return not self._no_limit
 
-    def set_limit(self, rate_limit, percentage=100):
+    def set_limit(self, rate_limit, percentage=80):
         with self.__lock:
             self._minimal_timeout = DEFAULT_TIMEOUT
-            self._minimal_limit = 1000000000
-            old_rate_limit_dict = deepcopy(self._rate_limit_dict)
-            self._rate_limit_dict = {}
+            self._minimal_limit = float("inf")
+
+            old_buckets = deepcopy(self._rate_buckets)
+            self._rate_buckets = {}
             self.percentage = percentage if percentage > 0 else self.percentage
-            rate_configs = rate_limit.split(";")
-            if "," in rate_limit:
-                rate_configs = rate_limit.split(",")
-            if len(rate_configs) == 2 and rate_configs[0] == "0:0":
+
+            clean = ''.join(c for c in rate_limit if c not in [' ', ',', ';'])
+            if clean in ("", "0:0"):
                 self._no_limit = True
                 return
+
+            rate_configs = rate_limit.replace(";", ",").split(",")
+
             for rate in rate_configs:
-                if rate == "":
+                if not rate.strip():
                     continue
-                rate = rate.split(":")
-                rate_limit_time = int(rate[1])
-                limit = int(int(rate[0]) * percentage / 100)
-                self._rate_limit_dict[int(rate[1])] = {
-                    "counter": old_rate_limit_dict.get(rate_limit_time, {}).get('counter', 0),
-                    "start": old_rate_limit_dict.get(rate_limit_time, {}).get('start', int(monotonic())),
-                    "limit": limit}
-                if rate_limit_time < self._minimal_limit:
-                    self._minimal_timeout = rate_limit_time + 1
-                if limit < self._minimal_limit:
-                    self._minimal_limit = limit
-            if self._rate_limit_dict:
-                self._no_limit = False
-            log.debug("Rate limit set to values: ")
-            for rate_limit_time in self._rate_limit_dict:
-                log.debug("Time: %s, Limit: %s", rate_limit_time, self._rate_limit_dict[rate_limit_time]["limit"])
+                try:
+                    limit_str, duration_str = rate.strip().split(":")
+                    duration = int(duration_str)
+                    new_capacity = int(int(limit_str) * self.percentage / 100)
+
+                    previous_bucket = old_buckets.get(duration)
+                    new_bucket = GreedyTokenBucket(new_capacity, duration)
+
+                    if previous_bucket:
+                        previous_bucket.refill()
+                        used = previous_bucket.capacity - previous_bucket.tokens
+                        new_bucket.tokens = max(0.0, new_capacity - used)
+                        new_bucket.last_updated = monotonic()
+                    else:
+                        new_bucket.tokens = new_capacity
+                        new_bucket.last_updated = monotonic()
+
+                    self._rate_buckets[duration] = new_bucket
+                    self._minimal_limit = min(self._minimal_limit, new_bucket.capacity)
+                    self._minimal_timeout = min(self._minimal_timeout, duration + 1)
+
+                except Exception as e:
+                    log.warning("Invalid rate limit format '%s': %s", rate, e)
+
+            self._no_limit = not bool(self._rate_buckets)
+            log.debug("Rate limit set to values:")
+            for duration, bucket in self._rate_buckets.items():
+                log.debug("Duration: %ss, Limit: %s", duration, bucket.capacity)
+
+    def reach_limit(self):
+        if self._no_limit or not self._rate_buckets:
+            return
+
+        with self.__lock:
+            durations = sorted(self._rate_buckets.keys())
+            current_monotonic = int(monotonic())
+            if self.__reached_limit_index_time >= current_monotonic - self._rate_buckets[durations[-1]].duration:
+                self.__reached_limit_index = 0
+                self.__reached_limit_index_time = current_monotonic
+            if self.__reached_limit_index >= len(durations):
+                self.__reached_limit_index = 0
+                self.__reached_limit_index_time = current_monotonic
+
+            target_duration = durations[self.__reached_limit_index]
+            bucket = self._rate_buckets[target_duration]
+            bucket.refill()
+            bucket.tokens = 0.0
+
+            self.__reached_limit_index += 1
+        log.info("Received disconnection due to rate limit for \"%s\" rate limit, waiting for tokens in bucket for %s seconds",
+                 self.name,
+                 target_duration)
 
     @property
     def __dict__(self):
+        rate_limits_dict = {}
+        for duration, bucket in self._rate_buckets.items():
+            rate_limits_dict[str(duration)] = {
+                "capacity": bucket.capacity,
+                "tokens": bucket.get_remaining_tokens(),
+                "last_updated": bucket.last_updated
+            }
         return {
-            "rateLimits": self._rate_limit_dict,
+            "rateLimits": rate_limits_dict,
             "name": self.name,
             "percentage": self.percentage,
             "no_limit": self._no_limit
@@ -574,6 +678,8 @@ class TBDeviceMqttClient:
                 callback[0](content, None, callback[1])
             elif callback is not None:
                 callback(content, None)
+        else:
+            log.debug("Message received with topic: %s", message.topic)
 
         if message.topic.startswith("v1/devices/me/attributes"):
             self._messages_rate_limit.increase_rate_limit_counter()
@@ -769,8 +875,8 @@ class TBDeviceMqttClient:
             limit_reached_check = (message_rate_limit_check
                                    or datapoints_rate_limit_check
                                    or not self.is_connected())
-            if timeout < limit_reached_check:
-                timeout = limit_reached_check
+            if isinstance(limit_reached_check, tuple) and timeout < limit_reached_check[1]:
+                timeout = limit_reached_check[1]
             if not timeout_updated and limit_reached_check:
                 timeout += 10
                 timeout_updated = True
@@ -791,14 +897,13 @@ class TBDeviceMqttClient:
                                 datapoints_rate_limit_check)
                 return TBPublishInfo(paho.MQTTMessageInfo(None))
             if not log_posted and limit_reached_check:
-                if message_rate_limit_check:
-                    log.debug("Rate limit for messages [%r:%r] - reached, waiting for rate limit to be released...",
-                              message_rate_limit_check,
-                              message_rate_limit_check)
-                elif datapoints_rate_limit_check:
-                    log.debug("Rate limit for data points [%r:%r] - reached, waiting for rate limit to be released...",
-                              datapoints_rate_limit_check,
-                              datapoints_rate_limit_check)
+                if log.isEnabledFor(logging.DEBUG):
+                    if isinstance(message_rate_limit_check, tuple):
+                        log.debug("Rate limit for messages (%r messages per %r second(s)) - almost reached, waiting for rate limit to be released...",
+                                  *message_rate_limit_check)
+                    if isinstance(datapoints_rate_limit_check, tuple):
+                        log.debug("Rate limit for data points (%r data points per %r second(s)) - almost reached, waiting for rate limit to be released...",
+                                  *datapoints_rate_limit_check)
                 waited = True
                 log_posted = True
             if limit_reached_check:

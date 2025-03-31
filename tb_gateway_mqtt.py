@@ -24,6 +24,7 @@ from tb_device_mqtt import TBDeviceMqttClient, RateLimit, TBSendMethod
 
 GATEWAY_ATTRIBUTES_TOPIC = "v1/gateway/attributes"
 GATEWAY_TELEMETRY_TOPIC = "v1/gateway/telemetry"
+GATEWAY_DISCONNECT_TOPIC = "v1/gateway/disconnect"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = "v1/gateway/attributes/request"
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = "v1/gateway/attributes/response"
 GATEWAY_MAIN_TOPIC = "v1/gateway/"
@@ -73,6 +74,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         self.__sub_dict = {}
         self.__connected_devices = set("*")
         self.devices_server_side_rpc_request_handler = None
+        self.device_disconnect_callback = None
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.on_subscribe = self._on_subscribe
@@ -162,6 +164,18 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             self._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter(1)
             if self.devices_server_side_rpc_request_handler:
                 self.devices_server_side_rpc_request_handler(self, content)
+        elif message.topic == GATEWAY_DISCONNECT_TOPIC:
+            if content.get("reason"):
+                reason = content["reason"]
+                log.info("Device \"%s\" disconnected with reason %s", content["device"], content["reason"])
+                if reason == 150:  # 150 - Rate limit reached
+                    self._devices_connected_through_gateway_messages_rate_limit.reach_limit()
+                    self._devices_connected_through_gateway_telemetry_messages_rate_limit.reach_limit()
+                    self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.reach_limit()
+            if self.device_disconnect_callback is not None:
+                self.device_disconnect_callback(self, content)
+        else:
+            log.warning("Unknown message from topic %s", message.topic)
 
     def __request_attributes(self, device, keys, callback, type_is_client=False):
         if not keys:
@@ -323,4 +337,4 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                                          {'rateLimits': gateway_device_itself_rate_limit_config, **service_config},
                                          *args,
                                          **kwargs)
-        log.info("Current gateway limits: %r", service_config)
+        log.info("Current limits for devices connected through the gateway: %r", gateway_devices_rate_limit_config)
