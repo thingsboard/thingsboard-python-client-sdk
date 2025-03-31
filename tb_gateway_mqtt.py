@@ -175,7 +175,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             if self.device_disconnect_callback is not None:
                 self.device_disconnect_callback(self, content)
         else:
-            log.warning("Unknown message from topic %s", message.topic)
+            log.debug("Unexpected message from topic %r, content: %r", message.topic, content)
 
     def __request_attributes(self, device, keys, callback, type_is_client=False):
         if not keys:
