@@ -16,6 +16,27 @@ import logging
 from copy import deepcopy
 from inspect import signature
 from time import sleep
+import importlib.util
+from utils import install_package
+
+def check_tb_paho_mqtt_installed():
+    try:
+        spec = importlib.util.find_spec("paho.mqtt")
+        if spec is None:
+            return False
+        module_path = spec.origin or "(built-in)"
+        if 'tb-paho-mqtt-client' in module_path:
+            return True
+        else:
+            return False
+    except Exception as e:
+        return False
+
+if not check_tb_paho_mqtt_installed():
+    try:
+        install_package('tb-paho-mqtt-client', version='>=2.1.1')
+    except Exception as e:
+        raise ImportError("tb-paho-mqtt-client is not installed, please install it manually.") from e
 
 import paho.mqtt.client as paho
 from math import ceil

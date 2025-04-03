@@ -14,27 +14,34 @@
 
 from sys import executable
 from subprocess import check_call, CalledProcessError
+from pkg_resources import get_distribution, DistributionNotFound
 
 
 def install_package(package, version="upgrade"):
     result = False
-    if version.lower() == "upgrade":
+
+    def try_install(args):
         try:
-            result = check_call([executable, "-m", "pip", "install", package, "--upgrade", "--user"])
+            check_call([executable, "-m", "pip", *args])
+            return True
         except CalledProcessError:
-            result = check_call([executable, "-m", "pip", "install", package, "--upgrade"])
+            return False
+
+    if version.lower() == "upgrade":
+        args = ["install", package, "--upgrade"]
+        result = try_install(args + ["--user"])
+        if not result:
+            result = try_install(args)
     else:
-        from pkg_resources import get_distribution
-        current_package_version = None
         try:
-            current_package_version = get_distribution(package)
-        except Exception:
+            installed_version = get_distribution(package).version
+            if installed_version == version:
+                return True
+        except DistributionNotFound:
             pass
-        if current_package_version is None or current_package_version != version:
-            installation_sign = "==" if ">=" not in version else ""
-            try:
-                result = check_call(
-                    [executable, "-m", "pip", "install", package + installation_sign + version, "--user"])
-            except CalledProcessError:
-                result = check_call([executable, "-m", "pip", "install", package + installation_sign + version])
+        install_version = f"{package}=={version}" if ">=" not in version else f"{package}{version}"
+        args = ["install", install_version]
+        if not try_install(args + ["--user"]):
+            result = try_install(args)
+
     return result
