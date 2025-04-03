@@ -16,20 +16,20 @@ import logging
 from copy import deepcopy
 from inspect import signature
 from time import sleep
-import importlib.util
+from importlib import metadata
 from utils import install_package
 
 def check_tb_paho_mqtt_installed():
     try:
-        spec = importlib.util.find_spec("paho.mqtt")
-        if spec is None:
-            return False
-        module_path = spec.origin or "(built-in)"
-        if 'tb-paho-mqtt-client' in module_path:
-            return True
-        else:
-            return False
-    except Exception as e:
+        dists = metadata.distributions()
+        for dist in dists:
+            if dist.metadata["Name"].lower() == "tb-paho-mqtt-client":
+                files = list(dist.files)
+                for file in files:
+                    if str(file).startswith("paho/mqtt"):
+                        return True
+        return False
+    except Exception:
         return False
 
 if not check_tb_paho_mqtt_installed():
