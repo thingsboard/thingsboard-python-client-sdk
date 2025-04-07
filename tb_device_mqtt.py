@@ -34,7 +34,7 @@ def check_tb_paho_mqtt_installed():
 
 if not check_tb_paho_mqtt_installed():
     try:
-        install_package('tb-paho-mqtt-client', version='>=2.1.1')
+        install_package('tb-paho-mqtt-client', version='>=2.1.2')
     except Exception as e:
         raise ImportError("tb-paho-mqtt-client is not installed, please install it manually.") from e
 
