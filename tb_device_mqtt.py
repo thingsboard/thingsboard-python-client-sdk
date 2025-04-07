@@ -18,6 +18,7 @@ from inspect import signature
 from time import sleep
 from importlib import metadata
 from utils import install_package
+from os import environ
 
 def check_tb_paho_mqtt_installed():
     try:
@@ -213,8 +214,18 @@ class GreedyTokenBucket:
         return self.tokens
 
 
+DEFAULT_RATE_LIMIT_PERCENTAGE = environ.get('TB_DEFAULT_RATE_LIMIT_PERCENTAGE')
+if DEFAULT_RATE_LIMIT_PERCENTAGE is None:
+    DEFAULT_RATE_LIMIT_PERCENTAGE = 80
+else:
+    try:
+        DEFAULT_RATE_LIMIT_PERCENTAGE = int(DEFAULT_RATE_LIMIT_PERCENTAGE)
+    except ValueError:
+        log.warning("Invalid value for TB_DEFAULT_RATE_LIMIT_PERCENTAGE, using default value of 80%%")
+        DEFAULT_RATE_LIMIT_PERCENTAGE = 80
+
 class RateLimit:
-    def __init__(self, rate_limit, name=None, percentage=80):
+    def __init__(self, rate_limit, name=None, percentage=DEFAULT_RATE_LIMIT_PERCENTAGE):
         self.__reached_limit_index = 0
         self.__reached_limit_index_time = 0
         self._no_limit = False
@@ -313,7 +324,7 @@ class RateLimit:
     def has_limit(self):
         return not self._no_limit
 
-    def set_limit(self, rate_limit, percentage=80):
+    def set_limit(self, rate_limit, percentage=DEFAULT_RATE_LIMIT_PERCENTAGE):
         with self.__lock:
             self._minimal_timeout = DEFAULT_TIMEOUT
             self._minimal_limit = float("inf")
@@ -853,15 +864,15 @@ class TBDeviceMqttClient:
             if use_messages_rate_limit_factor and use_telemetry_rate_limit_factor:
                 max_inflight_messages = int(min(self._messages_rate_limit.get_minimal_limit(),
                                                 self._telemetry_rate_limit.get_minimal_limit(),
-                                                service_config_inflight_messages) * 80 / 100)
+                                                service_config_inflight_messages) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
             elif use_messages_rate_limit_factor:
                 max_inflight_messages = int(min(self._messages_rate_limit.get_minimal_limit(),
-                                                service_config_inflight_messages) * 80 / 100)
+                                                service_config_inflight_messages) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
             elif use_telemetry_rate_limit_factor:
                 max_inflight_messages = int(min(self._telemetry_rate_limit.get_minimal_limit(),
-                                                service_config_inflight_messages) * 80 / 100)
+                                                service_config_inflight_messages) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
             else:
-                max_inflight_messages = int(service_config.get('maxInflightMessages', 100) * 80 / 100)
+                max_inflight_messages = int(service_config.get('maxInflightMessages', 100) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
                 if max_inflight_messages == 0:
                     max_inflight_messages = 10_000  # No limitation on device queue on transport level
             if max_inflight_messages < 1:
@@ -869,7 +880,7 @@ class TBDeviceMqttClient:
             self.max_inflight_messages_set(max_inflight_messages)
             self.max_queued_messages_set(max_inflight_messages)
         if service_config.get('maxPayloadSize'):
-            self.max_payload_size = int(int(service_config.get('maxPayloadSize')) * 80 / 100)
+            self.max_payload_size = int(int(service_config.get('maxPayloadSize')) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
         log.info("Service configuration was successfully retrieved and applied.")
         log.info("Current device limits: %r", service_config)
         self.rate_limits_received = True
