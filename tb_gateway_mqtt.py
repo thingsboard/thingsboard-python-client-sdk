@@ -333,8 +333,15 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         else:
             self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.set_limit('0:0,')
 
+        gateway_limits_present = any(
+            [self._devices_connected_through_gateway_messages_rate_limit.has_limit(),
+            self._devices_connected_through_gateway_telemetry_messages_rate_limit.has_limit(),
+            self._devices_connected_through_gateway_telemetry_datapoints_rate_limit.has_limit()]
+        )
+
         super().on_service_configuration(_,
                                          {'rateLimits': gateway_device_itself_rate_limit_config, **service_config},
                                          *args,
-                                         **kwargs)
+                                         **kwargs,
+                                         gateway_limits_present=gateway_limits_present)
         log.info("Current limits for devices connected through the gateway: %r", gateway_devices_rate_limit_config)

@@ -185,13 +185,13 @@ class TBPublishInfo:
 
 class GreedyTokenBucket:
     def __init__(self, capacity, duration_sec):
-        self.capacity = capacity
-        self.duration = duration_sec
-        self.tokens = capacity
-        self.last_updated = int(monotonic())
+        self.capacity = float(capacity)
+        self.duration = float(duration_sec)
+        self.tokens = float(capacity)
+        self.last_updated = monotonic()
 
     def refill(self):
-        now = int(monotonic())
+        now = monotonic()
         elapsed = now - self.last_updated
         refill_rate = self.capacity / self.duration
         refill_amount = elapsed * refill_rate
@@ -200,7 +200,7 @@ class GreedyTokenBucket:
 
     def can_consume(self, amount=1):
         self.refill()
-        return self.tokens >= amount
+        return round(self.tokens, 6) >= round(amount, 6)
 
     def consume(self, amount=1):
         self.refill()
@@ -307,10 +307,9 @@ class RateLimit:
 
             for duration, bucket in self._rate_buckets.items():
                 log.debug("%s left tokens: %.2f per %r seconds",
-                         self.name,
-                         bucket.get_remaining_tokens(),
-                         duration)
-                bucket.consume(amount)
+                          self.name,
+                          bucket.get_remaining_tokens(),
+                          duration)
 
             return False
 
@@ -378,7 +377,7 @@ class RateLimit:
 
         with self.__lock:
             durations = sorted(self._rate_buckets.keys())
-            current_monotonic = int(monotonic())
+            current_monotonic = monotonic()
             if self.__reached_limit_index_time >= current_monotonic - self._rate_buckets[durations[-1]].duration:
                 self.__reached_limit_index = 0
                 self.__reached_limit_index_time = current_monotonic
@@ -878,7 +877,17 @@ class TBDeviceMqttClient:
             if max_inflight_messages < 1:
                 max_inflight_messages = 1
             self.max_inflight_messages_set(max_inflight_messages)
-            self.max_queued_messages_set(max_inflight_messages)
+
+            if (not self._messages_rate_limit.has_limit() and
+                    not self._telemetry_rate_limit.has_limit() and
+                    not self._telemetry_dp_rate_limit.has_limit() and
+                    not kwargs.get("gateway_limits_present", False)):
+                log.debug("No rate limits for device, setting max_queued_messages to 50000")
+                self.max_queued_messages_set(50000)
+            else:
+                log.debug("Rate limits for device, setting max_queued_messages to %r", max_inflight_messages)
+                self.max_queued_messages_set(max_inflight_messages)
+
         if service_config.get('maxPayloadSize'):
             self.max_payload_size = int(int(service_config.get('maxPayloadSize')) * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
         log.info("Service configuration was successfully retrieved and applied.")
@@ -968,9 +977,6 @@ class TBDeviceMqttClient:
                     )
                     previous_notification_time = int(monotonic())
 
-                if not self.is_connected():
-                    with self._client._out_message_mutex:
-                        self._client._out_messages.clear()
                     connection_was_lost = True
 
                 if current_out_messages >= max_inflight_messages:
@@ -1098,11 +1104,10 @@ class TBDeviceMqttClient:
             while not self.stopped and result.rc == MQTT_ERR_QUEUE_SIZE:
                 error_appear_counter += 1
                 if error_appear_counter > 78:  # 78 tries ~ totally 300 seconds for sleep 0.1
-                    # Clearing the queue and trying to send the message again
-                    log.warning("!!! Queue size exceeded, clearing the paho out queue and trying to send message again !!!")  # Possible data loss, due to issue with paho queue clearing! # noqa
-                    with self._client._out_message_mutex:
-                        self._client._out_packet.clear()
-                        self._client._out_messages.clear()
+                    log.warning("Cannot send message to platform in %i seconds, queue size exceeded, current max inflight messages: %r, max queued messages: %r.",  # noqa
+                                int(error_appear_counter * sleep_time),
+                                self._client._max_inflight_messages,
+                                self._client._max_queued_messages)
                 if int(monotonic()) - self.__error_logged > 10:
                     log.debug("Queue size exceeded, waiting for messages to be processed by paho client.")
                     self.__error_logged = int(monotonic())
@@ -1333,10 +1338,12 @@ class TBDeviceMqttClient:
 
         split_messages = []
 
-        # Handle RPC message case
         if isinstance(message_pack, dict) and message_pack.get('device') and len(message_pack) in [1, 2]:
-            return [{'data': message_pack, 'datapoints': TBDeviceMqttClient._count_datapoints_in_message(message_pack),
-                     'message': message_pack}]
+            return [{
+                'data': message_pack,
+                'datapoints': TBDeviceMqttClient._count_datapoints_in_message(message_pack),
+                'message': message_pack
+            }]
 
         if not isinstance(message_pack, list):
             message_pack = [message_pack]
@@ -1345,80 +1352,67 @@ class TBDeviceMqttClient:
 
         append_split_message = split_messages.append
 
-        final_message_item = {'data': [], 'datapoints': 0}
+        # Group cache key = (ts, metadata_repr or None)
+        ts_group_cache = {}
 
-        message_item_values_with_allowed_size = {}
-        ts = None
-        current_size = 0
+        def _get_metadata_repr(metadata):
+            if isinstance(metadata, dict):
+                return tuple(sorted(metadata.items()))
+            return None
 
-        for (message_index, message) in enumerate(message_pack):
+        def flush_ts_group(ts_key):
+            if ts_key in ts_group_cache:
+                ts, metadata_repr = ts_key
+                values, size, metadata = ts_group_cache.pop(ts_key)
+                if ts is not None:
+                    chunk = {"ts": ts, "values": values}
+                    if metadata:
+                        chunk["metadata"] = metadata
+                else:
+                    chunk = values  # Raw mode, no ts
+
+                message = {
+                    "data": [chunk],
+                    "datapoints": len(values)
+                }
+                append_split_message(message)
+
+        for message_index, message in enumerate(message_pack):
             if not isinstance(message, dict):
                 log.error("Message is not a dictionary!")
                 log.debug("Message: %s", message)
                 continue
-            old_ts = ts if ts is not None else message.get("ts")
+
             ts = message.get("ts")
-            ts_changed = ts is not None and old_ts != ts
-
             values = message.get("values", message)
-            values_data_keys = list(values)
+            metadata = message.get("metadata") if "metadata" in message and isinstance(message["metadata"],
+                                                                                       dict) else None
+            metadata_repr = _get_metadata_repr(metadata)
 
-            values_length = len(values_data_keys)
+            ts_key = (ts, metadata_repr)
 
-            if values_length == 1:
-                single_data = {'ts': ts, 'values': values} if ts else values
-                if not isinstance(single_data, list):
-                    single_data = [single_data]
-                append_split_message({'data': single_data, 'datapoints': 1})
-                continue
-
-            for current_data_key_index, data_key in enumerate(values_data_keys):
-                value = values[data_key]
+            for data_key, value in values.items():
                 data_key_size = len(data_key) + len(str(value))
 
-                if ((datapoints_max_count == 0 or len(message_item_values_with_allowed_size) < datapoints_max_count)
-                        and current_size + data_key_size < max_payload_size) and not ts_changed:
-                    message_item_values_with_allowed_size[data_key] = value
-                    current_size += data_key_size
+                if ts_key not in ts_group_cache:
+                    ts_group_cache[ts_key] = ({}, 0, metadata)
 
-                if ((TBDeviceMqttClient._datapoints_limit_reached(datapoints_max_count, len(message_item_values_with_allowed_size), current_size)) # noqa
-                        or TBDeviceMqttClient._payload_size_limit_reached(max_payload_size, current_size, data_key_size)) or ts_changed: # noqa
-                    if ts:
-                        ts_to_write = ts
-                        if old_ts is not None and old_ts != ts:
-                            ts_to_write = old_ts
-                            old_ts = ts
-                        message_chunk = {"ts": ts_to_write, "values": message_item_values_with_allowed_size.copy()}
-                        if 'metadata' in message:
-                            message_chunk['metadata'] = message['metadata']
-                        final_message_item['data'].append(message_chunk)
-                    else:
-                        final_message_item['data'].append(message_item_values_with_allowed_size.copy())
+                ts_values, current_size, current_metadata = ts_group_cache[ts_key]
 
-                    final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                    append_split_message(final_message_item.copy())
-                    final_message_item = {'data': [], 'datapoints': 0}
+                can_add = (
+                        (datapoints_max_count == 0 or len(ts_values) < datapoints_max_count)
+                        and (current_size + data_key_size < max_payload_size)
+                )
 
-                    message_item_values_with_allowed_size.clear()
-                    if ts_changed:
-                        message_item_values_with_allowed_size[data_key] = value
-                        current_size += data_key_size
-                    ts_changed = False
-                    current_size = 0
-
-            if (message_index == len(message_pack) - 1
-                    and len(message_item_values_with_allowed_size) > 0):
-                if ts:
-                    message_chunk = {"ts": ts, "values": message_item_values_with_allowed_size.copy()}
-                    if 'metadata' in message:
-                        message_chunk['metadata'] = message['metadata']
-                    final_message_item['data'].append(message_chunk)
+                if can_add:
+                    ts_values[data_key] = value
+                    ts_group_cache[ts_key] = (ts_values, current_size + data_key_size, metadata)
                 else:
-                    final_message_item['data'].append(message_item_values_with_allowed_size.copy())
+                    flush_ts_group(ts_key)
+                    ts_group_cache[ts_key] = ({data_key: value}, data_key_size, metadata)
 
-                final_message_item['datapoints'] = len(message_item_values_with_allowed_size)
-                if final_message_item['data']:
-                    append_split_message(final_message_item.copy())
+        for ts_key in list(ts_group_cache.keys()):
+            flush_ts_group(ts_key)
 
         return split_messages
 
