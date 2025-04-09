@@ -352,8 +352,9 @@ class RateLimit:
 
                     if previous_bucket:
                         previous_bucket.refill()
-                        used = previous_bucket.capacity - previous_bucket.tokens
-                        new_bucket.tokens = max(0.0, new_capacity - used)
+                        used = max(0.0, previous_bucket.capacity - previous_bucket.tokens)
+                        new_tokens = new_capacity - used
+                        new_bucket.tokens = min(new_capacity, max(0.0, new_tokens))
                         new_bucket.last_updated = monotonic()
                     else:
                         new_bucket.tokens = new_capacity
