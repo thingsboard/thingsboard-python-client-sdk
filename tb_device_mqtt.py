@@ -40,6 +40,7 @@ if not check_tb_paho_mqtt_installed():
         raise ImportError("tb-paho-mqtt-client is not installed, please install it manually.") from e
 
 import paho.mqtt.client as paho
+from paho.mqtt.enums import CallbackAPIVersion
 from math import ceil
 
 try:
@@ -395,6 +396,7 @@ class RateLimit:
         log.info("Received disconnection due to rate limit for \"%s\" rate limit, waiting for tokens in bucket for %s seconds",
                  self.name,
                  target_duration)
+        return self.__reached_limit_index, self.__reached_limit_index_time
 
     @property
     def __dict__(self):
@@ -475,7 +477,7 @@ class TBDeviceMqttClient:
             messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit) # noqa
             telemetry_rate_limit = telemetry_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', telemetry_rate_limit) # noqa
             telemetry_dp_rate_limit = telemetry_dp_rate_limit if kwargs.get('dp_rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('dp_rate_limit', telemetry_dp_rate_limit) # noqa
-        self._client = paho.Client(protocol=5, client_id=client_id)
+        self._client = paho.Client(protocol=5, client_id=client_id, callback_api_version=CallbackAPIVersion.VERSION2)
         self.quality_of_service = quality_of_service if quality_of_service is not None else 1
         self.__host = host
         self.__port = port
@@ -512,7 +514,7 @@ class TBDeviceMqttClient:
         self.__timeout_thread.daemon = True
         self.__timeout_thread.start()
         self._client.on_connect = self._on_connect
-        # self._client.on_publish = self._on_publish
+        self._client.on_publish = self._on_publish
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
         self.current_firmware_info = {
@@ -528,6 +530,8 @@ class TBDeviceMqttClient:
         self.__request_service_configuration_required = False
         self.__service_loop = Thread(target=self.__service_loop, name="Service loop", daemon=True)
         self.__service_loop.start()
+        self.__messages_limit_reached_set_time = (0,0)
+        self.__datapoints_limit_reached_set_time = (0,0)
 
     def __service_loop(self):
         while not self.stopped:
@@ -550,14 +554,25 @@ class TBDeviceMqttClient:
                 self.firmware_received = False
             sleep(0.05)
 
-    def _on_publish(self, client, userdata, mid):
-        # log.debug("Message %s was published, by client with id: %r", mid ,id(client))
-        pass
+    def _on_publish(self, client, userdata, mid, rc=None, properties=None):
+        if isinstance(rc, ReasonCodes) and rc.value != 0:
+            log.debug("Publish failed with result code %s (%s) ", str(rc.value), rc.getName())
+            if rc.value in [151, 131]:
+                if self.__messages_limit_reached_set_time[1] - monotonic() > self.__messages_limit_reached_set_time[0]:
+                    self.__messages_limit_reached_set_time = self._messages_rate_limit.reach_limit()
+                if self.__datapoints_limit_reached_set_time[1] - monotonic() > self.__datapoints_limit_reached_set_time[0]:
+                    self._telemetry_dp_rate_limit.reach_limit()
+        if rc.value == 0:
+            if self.__messages_limit_reached_set_time[0] > 0 and self.__messages_limit_reached_set_time[1] > 0:
+                self.__messages_limit_reached_set_time = (0, 0)
+            if self.__datapoints_limit_reached_set_time[0] > 0 and self.__datapoints_limit_reached_set_time[1] > 0:
+                self.__datapoints_limit_reached_set_time = (0, 0)
 
-    def _on_disconnect(self, client: paho.Client, userdata, result_code, properties=None):
+    def _on_disconnect(self, client: paho.Client, userdata, disconnect_flags, reason=None, properties=None):
         self.__is_connected = False
-        client._out_packet.clear()
-        client._out_messages.clear()
+        with self._client._out_message_mutex:
+            client._out_packet.clear()
+            client._out_messages.clear()
         client._in_messages.clear()
         self.__attr_request_number = 0
         self.__device_max_sub_id = 0
@@ -565,36 +580,48 @@ class TBDeviceMqttClient:
         self.__device_sub_dict = {}
         self.__device_client_rpc_dict = {}
         self.__attrs_request_timeout = {}
-        log.warning("MQTT client was disconnected with reason code %s (%s) ",
-                    str(result_code), TBPublishInfo.ERRORS_DESCRIPTION.get(result_code, "Description not found."))
+        result_code = reason.value
+        if disconnect_flags.is_disconnect_packet_from_server:
+            log.warning("MQTT client was disconnected by server with reason code %s (%s) ",
+                     str(result_code), reason.getName())
+        else:
+            log.info("MQTT client was disconnected by client with reason code %s (%s) ",
+                     str(result_code), reason.getName())
         log.debug("Client: %s, user data: %s, result code: %s. Description: %s",
                   str(client), str(userdata),
-                  str(result_code), TBPublishInfo.ERRORS_DESCRIPTION.get(result_code, "Description not found."))
+                  str(result_code), reason.getName())
 
-    def _on_connect(self, client, userdata, flags, result_code, *extra_params):
+    def _on_connect(self, client, userdata, connect_flags, result_code, properties, *extra_params):
         if result_code == 0:
             self.__is_connected = True
             log.info("MQTT client %r - Connected!", client)
+            if properties:
+                log.debug("MQTT client %r - CONACK Properties: %r", client, properties)
+                config = {
+                    "maxPayloadSize": int(properties.MaximumPacketSize * DEFAULT_RATE_LIMIT_PERCENTAGE / 100),
+                    "maxInflightMessages": properties.ReceiveMaximum,
+                }
+                self.on_service_configuration(None, config)
             self._subscribe_to_topic(ATTRIBUTES_TOPIC, qos=self.quality_of_service)
             self._subscribe_to_topic(ATTRIBUTES_TOPIC + "/response/+", qos=self.quality_of_service)
             self._subscribe_to_topic(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
             self._subscribe_to_topic(RPC_RESPONSE_TOPIC + '+', qos=self.quality_of_service)
             self.__request_service_configuration_required = True
         else:
-            if isinstance(result_code, int):
-                if result_code in RESULT_CODES:
-                    log.error("connection FAIL with error %s %s", result_code, RESULT_CODES[result_code])
-                else:
-                    log.error("connection FAIL with unknown error")
-            elif isinstance(result_code, ReasonCodes):
-                log.error("connection FAIL with error %s %s", result_code, result_code.getName())
+            log.error("Connection failed with result code %s (%s) ",
+                      str(result_code.value), result_code.getName())
 
         if callable(self.__connect_callback):
             sleep(.2)
             if "tb_client" in signature(self.__connect_callback).parameters:
-                self.__connect_callback(client, userdata, flags, result_code, *extra_params, tb_client=self)
+                self.__connect_callback(client, userdata, connect_flags, result_code, properties, *extra_params, tb_client=self)
             else:
-                self.__connect_callback(client, userdata, flags, result_code, *extra_params)
+                self.__connect_callback(client, userdata, connect_flags, result_code, *extra_params)
+
+        if result_code.value in [159, 151]:
+            log.debug("Connection rate limit reached, waiting before reconnecting...")
+            sleep(1) # Wait for 1 second before reconnecting, if connection rate limit is reached
+            log.debug("Reconnecting allowed...")
 
     def get_firmware_update(self):
         self._client.subscribe("v2/fw/response/+")
@@ -954,40 +981,67 @@ class TBDeviceMqttClient:
             log.debug("Rate limit released, sending data to ThingsBoard...")
 
     def _wait_until_current_queued_messages_processed(self):
-        previous_notification_time = 0
-        current_out_messages = len(self._client._out_messages) * 2
-        max_inflight_messages = self._client._max_inflight_messages if self._client._max_inflight_messages > 0 else 5
         logger = None
-        waiting_started = int(monotonic())
-        connection_was_lost = False
-        timeout_for_break = 300
 
-        if current_out_messages > 0:
-            while current_out_messages >= max_inflight_messages and not self.stopped:
-                current_out_messages = len(self._client._out_messages)
-                elapsed = monotonic() - waiting_started
-                remaining = timeout_for_break - elapsed
+        max_wait_time = 300
+        log_interval = 5
+        stuck_threshold = 15
+        polling_interval = 0.05
+        max_inflight = self._client._max_inflight_messages
 
-                if int(monotonic()) - previous_notification_time > 5 and current_out_messages > max_inflight_messages:
-                    if logger is None:
-                        logger = logging.getLogger('tb_connection')
-                    logger.debug(
-                        "Waiting for messages to be processed: current queue size: %r, max inflight: %r. "
-                        "Elapsed time: %.2f seconds, remaining timeout: %.2f seconds",
-                        current_out_messages, max_inflight_messages, elapsed, remaining
-                    )
-                    previous_notification_time = int(monotonic())
+        if len(self._client._out_messages) < max_inflight or max_inflight == 0:
+            return
 
-                    connection_was_lost = True
+        waiting_start = monotonic()
+        last_log_time = waiting_start
+        last_queue_size = len(self._client._out_messages)
+        last_queue_change_time = waiting_start
 
-                if current_out_messages >= max_inflight_messages:
-                    sleep(.01)
+        while not self.stopped:
+            now = monotonic()
+            elapsed = now - waiting_start
+            current_queue_size = len(self._client._out_messages)
 
-                if (elapsed > timeout_for_break and not connection_was_lost) or self.stopped:
-                    logger.debug("Breaking wait loop after %.2f seconds due to timeout or stop signal.", elapsed)
-                    break
+            if current_queue_size < max_inflight:
+                return
 
-                sleep(.001)
+            if current_queue_size != last_queue_size:
+                last_queue_size = current_queue_size
+                last_queue_change_time = now
+
+            if (now - last_queue_change_time > stuck_threshold
+                    and not self._client.is_connected()):
+                if logger is None:
+                    logger = logging.getLogger('tb_connection')
+                logger.warning(
+                    "MQTT out_messages queue is stuck (%d messages) and client is disconnected. "
+                    "Clearing queue after %.2f seconds.",
+                    current_queue_size, now - last_queue_change_time
+                )
+                with self._client._out_message_mutex:
+                    self._client._out_packet.clear()
+                return
+
+            if now - last_log_time >= log_interval:
+                if logger is None:
+                    logger = logging.getLogger('tb_connection')
+                logger.debug(
+                    "Waiting for MQTT queue to drain: %d messages (max inflight %d). "
+                    "Elapsed: %.2f s",
+                    current_queue_size, max_inflight, elapsed
+                )
+                last_log_time = now
+
+            if elapsed > max_wait_time:
+                if logger is None:
+                    logger = logging.getLogger('tb_connection')
+                logger.warning(
+                    "MQTT wait timeout reached (%.2f s). Queue still has %d messages.",
+                    elapsed, current_queue_size
+                )
+                return
+
+            sleep(polling_interval)
 
     def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):

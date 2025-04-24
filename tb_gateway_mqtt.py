@@ -82,8 +82,8 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
         self._gw_subscriptions = {}
         self.gateway = gateway
 
-    def _on_connect(self, client, userdata, flags, result_code, *extra_params):
-        super()._on_connect(client, userdata, flags, result_code, *extra_params)
+    def _on_connect(self, client, userdata, flags, result_code, properties, *extra_params):
+        super()._on_connect(client, userdata, flags, result_code, properties, *extra_params)
         if result_code == 0:
             gateway_attributes_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_ATTRIBUTES_TOPIC, qos=1)[1])
             self._add_or_delete_subscription(GATEWAY_ATTRIBUTES_TOPIC, gateway_attributes_topic_sub_id)
@@ -94,7 +94,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             gateway_rpc_topic_sub_id = int(self._subscribe_to_topic(GATEWAY_RPC_TOPIC, qos=1)[1])
             self._add_or_delete_subscription(GATEWAY_RPC_TOPIC, gateway_rpc_topic_sub_id)
 
-    def _on_subscribe(self, client, userdata, mid, reasoncodes, properties=None):
+    def _on_subscribe(self, client, userdata, mid, reasoncodes, properties=None, *extra_params):
         subscription = self._gw_subscriptions.get(mid)
         if subscription is not None:
             if mid == 128:
@@ -116,7 +116,7 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     @staticmethod
     def _on_unsubscribe(*args):
-        log.debug(args)
+        log.debug("Unsubscribe callback called with args: %r", args)
 
     def get_subscriptions_in_progress(self):
         return True if self._gw_subscriptions else False
