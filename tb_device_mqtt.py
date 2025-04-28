@@ -17,6 +17,9 @@ from copy import deepcopy
 from inspect import signature
 from time import sleep
 from importlib import metadata
+
+from orjson.orjson import OPT_NON_STR_KEYS
+
 from utils import install_package
 from os import environ
 
@@ -1134,7 +1137,7 @@ class TBDeviceMqttClient:
                 return rate_limited
         if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
             msg_rate_limit.increase_rate_limit_counter()
-        kwargs["payload"] = dumps(part['message'])
+        kwargs["payload"] = dumps(part['message'], option=OPT_NON_STR_KEYS)
         if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
             self._wait_until_current_queued_messages_processed()
         if not self.stopped:
@@ -1501,7 +1504,7 @@ class ProvisionClient(paho.Client):
         if rc == 0:
             log.info("[Provisioning client] Connected to ThingsBoard ")
             client.subscribe(self.PROVISION_RESPONSE_TOPIC)  # Subscribe to provisioning response topic
-            provision_request = dumps(self.__provision_request)
+            provision_request = dumps(self.__provision_request, option=OPT_NON_STR_KEYS)
             log.info("[Provisioning client] Sending provisioning request %s" % provision_request)
             client.publish(self.PROVISION_REQUEST_TOPIC, provision_request)  # Publishing provisioning request topic
         else:
