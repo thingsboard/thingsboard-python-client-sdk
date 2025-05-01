@@ -132,14 +132,14 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
                 req_id = content["id"]
                 self._devices_connected_through_gateway_messages_rate_limit.increase_rate_limit_counter(1)
                 # pop callback and use it
-                if self._attr_request_dict[req_id]:
+                if self._attr_request_dict.get(req_id):
                     callback = self._attr_request_dict.pop(req_id)
                     if isinstance(callback, tuple):
                         callback[0](content, None, callback[1])
                     else:
                         callback(content, None)
                 else:
-                    log.error("Unable to find callback to process attributes response from TB")
+                    log.error("Unable to find callback to process attributes response from platform.")
         elif message.topic == GATEWAY_ATTRIBUTES_TOPIC:
             with self._lock:
                 # callbacks for everything
@@ -178,9 +178,6 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
             log.debug("Unexpected message from topic %r, content: %r", message.topic, content)
 
     def __request_attributes(self, device, keys, callback, type_is_client=False):
-        if not keys:
-            log.error("There are no keys to request")
-            return False
 
         attr_request_number = self._add_attr_request_callback(callback)
         msg = {"keys": keys,
