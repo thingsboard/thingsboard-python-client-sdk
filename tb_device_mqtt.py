@@ -600,11 +600,13 @@ class TBDeviceMqttClient:
             log.info("MQTT client %r - Connected!", client)
             if properties:
                 log.debug("MQTT client %r - CONACK Properties: %r", client, properties)
-                config = {
-                    "maxPayloadSize": int(properties.MaximumPacketSize * DEFAULT_RATE_LIMIT_PERCENTAGE / 100),
-                    "maxInflightMessages": properties.ReceiveMaximum,
-                }
-                self.on_service_configuration(None, config)
+                config = {}
+                if hasattr(properties, 'MaximumPacketSize'):
+                    config['maxPayloadSize'] = int(properties.MaximumPacketSize * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
+                if hasattr(properties, 'ReceiveMaximum'):
+                    config['maxInflightMessages'] = properties.ReceiveMaximum
+                if config:
+                    self.on_service_configuration(None, config)
             self._subscribe_to_topic(ATTRIBUTES_TOPIC, qos=self.quality_of_service)
             self._subscribe_to_topic(ATTRIBUTES_TOPIC + "/response/+", qos=self.quality_of_service)
             self._subscribe_to_topic(RPC_REQUEST_TOPIC + '+', qos=self.quality_of_service)
