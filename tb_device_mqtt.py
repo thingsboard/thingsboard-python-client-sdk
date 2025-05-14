@@ -792,8 +792,9 @@ class TBDeviceMqttClient:
     def __get_firmware(self):
         payload = '' if not self.__chunk_size or self.__chunk_size > self.firmware_info.get(FW_SIZE_ATTR, 0) \
             else str(self.__chunk_size).encode()
-        self._publish_data(payload, f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
-                           1)
+        self._client.publish(
+            f"v2/fw/request/{self.__firmware_request_id}/chunk/{self.__current_chunk}",
+            payload=payload, qos=1)
 
     def __on_firmware_received(self, version_to):
         with open(self.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
