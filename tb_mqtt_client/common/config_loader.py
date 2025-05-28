@@ -14,7 +14,7 @@
 #
 
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 class DeviceConfig:
@@ -45,4 +45,30 @@ class DeviceConfig:
         return (f"<DeviceConfig host={self.host} port={self.port} "
                 f"auth={'token' if self.access_token else 'user/pass'} "
                 f"tls_auth={self.use_tls_auth()} "
+                f"tls={self.use_tls()}>")
+
+
+class GatewayConfig(DeviceConfig):
+    def __init__(self):
+        super().__init__()
+
+        # Gateway-specific options
+        self.gateway_name: Optional[str] = os.getenv("TB_GATEWAY_NAME")
+
+        # Rate limits for devices connected through the gateway
+        self.device_messages_rate_limit: Optional[str] = os.getenv("TB_DEVICE_MESSAGES_RATE_LIMIT")
+        self.device_telemetry_rate_limit: Optional[str] = os.getenv("TB_DEVICE_TELEMETRY_RATE_LIMIT")
+        self.device_telemetry_dp_rate_limit: Optional[str] = os.getenv("TB_DEVICE_TELEMETRY_DP_RATE_LIMIT")
+
+        # Default device type for auto-registered devices
+        self.default_device_type: Optional[str] = os.getenv("TB_DEFAULT_DEVICE_TYPE", "default")
+
+        # Whether to automatically register new devices
+        self.auto_register_devices: bool = os.getenv("TB_AUTO_REGISTER_DEVICES", "true").lower() == "true"
+
+    def __repr__(self):
+        return (f"<GatewayConfig host={self.host} port={self.port} "
+                f"auth={'token' if self.access_token else 'user/pass'} "
+                f"gateway_name={self.gateway_name} "
+                f"auto_register={self.auto_register_devices} "
                 f"tls={self.use_tls()}>")

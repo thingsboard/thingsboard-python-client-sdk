@@ -14,7 +14,10 @@
 #
 
 
+from collections import defaultdict
+import asyncio
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from typing import Any, Dict, Union, List, Tuple, Optional
 from orjson import dumps
 
@@ -36,7 +39,7 @@ class MessageDispatcher(ABC):
     def build_topic_payloads(
         self,
         messages: List[DeviceUplinkMessage]
-    ) -> List[Tuple[str, bytes, int]]:
+    ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string and a payload byte array.
@@ -67,47 +70,51 @@ class JsonMessageDispatcher(MessageDispatcher):
     def splitter(self) -> MessageSplitter:
         return self._splitter
 
-    def build_topic_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int]]:
-        if not messages:
-            logger.trace("No messages to process in build_topic_payloads.")
-            return []
+    def build_topic_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]]:
+        try:
+            if not messages:
+                logger.trace("No messages to process in build_topic_payloads.")
+                return []
 
-        from collections import defaultdict
+            result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]] = []
+            device_groups: Dict[str, List[DeviceUplinkMessage]] = defaultdict(list)
 
-        result: List[Tuple[str, bytes, int]] = []
-        device_groups: Dict[str, List[DeviceUplinkMessage]] = defaultdict(list)
+            for msg in messages:
+                device_name = msg.device_name
+                device_groups[device_name].append(msg)
+                logger.trace("Queued message for device='%s'", device_name)
 
-        for msg in messages:
-            device_name = msg.device_name or "<unnamed>"
-            device_groups[device_name].append(msg)
-            logger.trace("Queued message for device='%s'", device_name)
+            logger.trace("Processing %d device group(s).", len(device_groups))
 
-        logger.trace("Processing %d device group(s).", len(device_groups))
+            for device, device_msgs in device_groups.items():
+                telemetry_msgs = [m for m in device_msgs if m.has_timeseries()]
+                attr_msgs = [m for m in device_msgs if m.has_attributes()]
+                logger.trace("Device '%s' - telemetry: %d, attributes: %d",
+                             device, len(telemetry_msgs), len(attr_msgs))
 
-        for device, device_msgs in device_groups.items():
-            telemetry_msgs = [m for m in device_msgs if m.has_timeseries()]
-            attr_msgs = [m for m in device_msgs if m.has_attributes()]
-            logger.trace("Device '%s' - telemetry: %d, attributes: %d",
-                         device, len(telemetry_msgs), len(attr_msgs))
+                for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
+                    payload = self.build_payload(ts_batch)
+                    count = ts_batch.timeseries_datapoint_count()
+                    result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
+                    logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
 
-            for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
-                payload = self.build_payload(ts_batch)
-                count = ts_batch.timeseries_datapoint_count()
-                result.append((DEVICE_TELEMETRY_TOPIC, payload, count))
-                logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
+                for attr_batch in self._splitter.split_attributes(attr_msgs):
+                    payload = self.build_payload(attr_batch)
+                    count = len(attr_batch.attributes)
+                    result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
+                    logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
 
-            for attr_batch in self._splitter.split_attributes(attr_msgs):
-                payload = self.build_payload(attr_batch)
-                count = len(attr_batch.attributes)
-                result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count))
-                logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
 
-        logger.trace("Generated %d topic-payload entries.", len(result))
-        return result
+            logger.trace("Generated %d topic-payload entries.", len(result))
+
+            return result
+        except Exception as e:
+            logger.error("Error building topic-payloads: %s", str(e))
+            raise
 
     def build_payload(self, msg: DeviceUplinkMessage) -> bytes:
         result: Dict[str, Any] = {}
-        device_name = msg.device_name or "<unnamed>"
+        device_name = msg.device_name
         logger.trace("Building payload for device='%s'", device_name)
 
         if msg.device_name:
@@ -119,10 +126,10 @@ class JsonMessageDispatcher(MessageDispatcher):
                 result[msg.device_name] = self._pack_timeseries(msg)
         else:
             if msg.attributes:
-                logger.trace("Packing anonymous attributes")
+                logger.trace("Packing attributes")
                 result = self._pack_attributes(msg)
             if msg.timeseries:
-                logger.trace("Packing anonymous timeseries")
+                logger.trace("Packing timeseries")
                 result = self._pack_timeseries(msg)
 
         payload = dumps(result)
@@ -135,12 +142,15 @@ class JsonMessageDispatcher(MessageDispatcher):
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def _pack_timeseries(msg: DeviceUplinkMessage) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        logger.trace("Packing %d timeseries entry(ies)", len(msg.timeseries))
-        grouped = {}
-        for entry in msg.timeseries:
-            grouped.setdefault(entry.ts or 0, {})[entry.key] = entry.value
+    def _pack_timeseries(msg: DeviceUplinkMessage) -> List[Dict[str, Any]]:
+        logger.trace("Packing %d timeseries timestamp bucket(s)", len(msg.timeseries))
 
-        if all(ts == 0 for ts in grouped):
-            return grouped[0]
-        return [{"ts": ts, "values": values} for ts, values in grouped.items()]
+        now_ts = int(datetime.now(UTC).timestamp() * 1000)
+        packed: List[Dict[str, Any]] = []
+
+        for ts_key, entries in msg.timeseries.items():
+            resolved_ts = ts_key or now_ts
+            values = {entry.key: entry.value for entry in entries}
+            packed.append({"ts": resolved_ts, "values": values})
+
+        return packed

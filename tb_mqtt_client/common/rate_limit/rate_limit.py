@@ -107,6 +107,34 @@ class RateLimit:
                     result = (bucket.capacity, dur)
             return result
 
+    def refill(self):
+        """Force refill of all token buckets without consuming any tokens."""
+        if self._no_limit:
+            return
+        with self._lock:
+            for bucket in self._rate_buckets.values():
+                bucket.refill()
+
+    def try_consume(self, amount=1):
+        """
+        Try to consume tokens from all buckets.
+        Returns True if all buckets had enough tokens and they were consumed.
+        Returns False if any bucket didn't have enough tokens.
+        """
+        if self._no_limit:
+            return None
+
+        with self._lock:
+            for bucket in self._rate_buckets.values():
+                bucket.refill()
+                if bucket.tokens < amount:
+                    return bucket.capacity, bucket.duration
+
+            for bucket in self._rate_buckets.values():
+                bucket.tokens -= amount
+
+            return None
+
     def consume(self, amount=1):
         if self._no_limit:
             return
@@ -146,7 +174,7 @@ class RateLimit:
             self.__reached_index += 1
 
             logger.info("Rate limit reached for \"%s\". Cooldown for %s seconds", self.name, dur)
-            return self.__reached_index, self.__reached_index_time
+            return self.__reached_index, self.__reached_index_time, dur
 
     def to_dict(self):
         return {

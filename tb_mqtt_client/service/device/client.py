@@ -103,6 +103,11 @@ class DeviceClient(BaseClient):
 
         await self._on_connect()
 
+        # Initialize with default max_payload_size if not set
+        if self.max_payload_size is None:
+            self.max_payload_size = 65535
+            logger.debug("Using default max_payload_size: %d", self.max_payload_size)
+
         self._dispatcher = JsonMessageDispatcher(self.max_payload_size, self._telemetry_dp_rate_limit.minimal_limit)
         self._message_queue = MessageQueue(
             mqtt_manager=self._mqtt_manager,
@@ -123,15 +128,17 @@ class DeviceClient(BaseClient):
                                                          List[TimeseriesEntry],
                                                          List[Dict[str, Any]]]):
         message = self._build_uplink_message_for_telemetry(telemetry_data)
-        await self._message_queue.publish(topic=mqtt_topics.DEVICE_TELEMETRY_TOPIC,
-                                          payload=message,
-                                          datapoints_count=message.timeseries_datapoint_count())
+        futures = await self._message_queue.publish(topic=mqtt_topics.DEVICE_TELEMETRY_TOPIC,
+                                                    payload=message,
+                                                    datapoints_count=message.timeseries_datapoint_count())
+        return futures[0] if futures else None
 
     async def send_attributes(self, attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]]):
         message = self._build_uplink_message_for_attributes(attributes)
-        await self._message_queue.publish(topic=mqtt_topics.DEVICE_ATTRIBUTES_TOPIC,
-                                          payload=message,
-                                          datapoints_count=len(message.attributes))
+        futures = await self._message_queue.publish(topic=mqtt_topics.DEVICE_ATTRIBUTES_TOPIC,
+                                                    payload=message,
+                                                    datapoints_count=message.attributes_datapoint_count())
+        return futures[0] if futures else None
 
     async def send_rpc_response(self, response: RPCResponse):
         topic = mqtt_topics.build_device_rpc_response_topic(request_id=response.request_id)
@@ -157,7 +164,7 @@ class DeviceClient(BaseClient):
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_response)  # noqa
 
     async def _on_disconnect(self):
-        logger.warning("Device client disconnected")
+        logger.info("Device client disconnected.")
 
     async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Any:
         """
@@ -224,6 +231,21 @@ class DeviceClient(BaseClient):
 
             if "maxPayloadSize" in response:
                 self.max_payload_size = int(response["maxPayloadSize"] * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
+                # Update the dispatcher's max_payload_size if it's already initialized
+                if hasattr(self, '_dispatcher') and self._dispatcher is not None:
+                    self._dispatcher.splitter.max_payload_size = self.max_payload_size
+                    logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
+            else:
+                # If maxPayloadSize is not provided, keep the default value
+                logger.debug("No maxPayloadSize in service config, using default: %d", self.max_payload_size)
+                # Initialize with default max_payload_size if not set
+                if self.max_payload_size is None:
+                    self.max_payload_size = 65535
+                    logger.debug("Using default max_payload_size: %d", self.max_payload_size)
+                    # Update the dispatcher's max_payload_size if it's already initialized
+                    if hasattr(self, '_dispatcher') and self._dispatcher is not None:
+                        self._dispatcher.splitter.max_payload_size = self.max_payload_size
+                        logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
 
             if (not self._messages_rate_limit.has_limit()
                 and not self._telemetry_rate_limit.has_limit()
