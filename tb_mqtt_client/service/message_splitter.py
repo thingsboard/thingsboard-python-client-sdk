@@ -1,19 +1,20 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
 import asyncio
 from typing import List
+
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 
@@ -56,7 +57,7 @@ class MessageSplitter:
 
             for ts in message.timeseries.values():
                 exceeds_size = builder and size + ts.size > self._max_payload_size
-                exceeds_points = self._max_datapoints > 0 and point_count >= self._max_datapoints
+                exceeds_points = 0 < self._max_datapoints <= point_count
 
                 if not builder or exceeds_size or exceeds_points:
                     if builder:
@@ -73,7 +74,7 @@ class MessageSplitter:
                 size += ts.size
                 point_count += 1
 
-            if builder and builder._timeseries:
+            if builder and builder._timeseries:  # noqa
                 built = builder.build()
                 result.append(built)
                 batch_futures.extend(built.get_delivery_futures())
@@ -81,7 +82,7 @@ class MessageSplitter:
 
             if message.get_delivery_futures():
                 original_future = message.get_delivery_futures()[0]
-                logger.exception("Adding futures to original future: %s, futures ids: %r", id(original_future),
+                logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
                                  [id(batch_future) for batch_future in batch_futures])
 
                 async def resolve_original():
@@ -116,7 +117,7 @@ class MessageSplitter:
 
             for attr in message.attributes:
                 exceeds_size = builder and size + attr.size > self._max_payload_size
-                exceeds_points = self._max_datapoints > 0 and point_count >= self._max_datapoints
+                exceeds_points = 0 < self._max_datapoints <= point_count
 
                 if not builder or exceeds_size or exceeds_points:
                     if builder:
@@ -136,7 +137,7 @@ class MessageSplitter:
                 size += attr.size
                 point_count += 1
 
-            if builder and builder._attributes:
+            if builder and builder._attributes:  # noqa
                 built = builder.build()
                 result.append(built)
                 batch_futures.extend(built.get_delivery_futures())
@@ -144,7 +145,7 @@ class MessageSplitter:
 
             if message.get_delivery_futures():
                 original_future = message.get_delivery_futures()[0]
-                logger.exception("Adding futures to original future: %s, futures ids: %r", id(original_future),
+                logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
                                  [id(batch_future) for batch_future in batch_futures])
 
                 async def resolve_original():

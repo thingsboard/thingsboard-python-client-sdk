@@ -12,25 +12,22 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import Any
-
-from tb_mqtt_client.entities.data.data_entry import DataEntry
-
-
-class AttributeEntry(DataEntry):
-    def __init__(self, key: str, value: Any):
-        super().__init__(key, value)
+class PublishResult:
+    def __init__(self, topic: str, qos: int, message_id: int, payload_size: int, reason_code: int):
+        self.topic = topic
+        self.qos = qos
+        self.message_id = message_id
+        self.payload_size = payload_size
+        self.reason_code = reason_code
 
     def __repr__(self):
-        return f"<AttributeEntry key={self.key} value={self.value}>"
+        return f"<PublishResult(topic={self.topic}, qos={self.qos}, message_id={self.message_id}, payload_size={self.payload_size}, reason_code={self.reason_code})>"
 
     def as_dict(self) -> dict:
         return {
-            "key": self.key,
-            "value": self.value
+            "topic": self.topic,
+            "qos": self.qos,
+            "message_id": self.message_id,
+            "payload_size": self.payload_size,
+            "reason_code": self.reason_code
         }
-
-    def __eq__(self, other):
-        if not isinstance(other, AttributeEntry):
-            return False
-        return self.key == other.key and self.value == other.value

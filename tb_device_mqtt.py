@@ -1,18 +1,22 @@
-# Copyright 2025. ThingsBoard
+#  Copyright 2025 ThingsBoard
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
 #
-#  http://www.apache.org/licenses/LICENSE-2.0
+#       http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+# This file is maintained for backward compatibility with version 1 of the SDK.
+# It is recommended to use the new SDK structure in tb_mqtt_client for new projects.
 
 import logging
+import warnings
 from copy import deepcopy
 from inspect import signature
 from time import sleep
@@ -22,6 +26,14 @@ from orjson.orjson import OPT_NON_STR_KEYS
 
 from utils import install_package
 from os import environ
+
+# Show deprecation warning
+warnings.warn(
+    "The tb_device_mqtt module is deprecated and will be removed in a future version. "
+    "Please use tb_mqtt_client.service.device.client.DeviceClient instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 def check_tb_paho_mqtt_installed():
     try:

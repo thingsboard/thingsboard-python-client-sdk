@@ -1,25 +1,24 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
-
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
 import asyncio
-from typing import List, Optional, Union, OrderedDict, Dict
+from typing import List, Optional, Union, OrderedDict
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.publish_result import PublishResult
 
 logger = get_logger(__name__)
 
@@ -33,7 +32,7 @@ class DeviceUplinkMessage:
                  attributes: Optional[List[AttributeEntry]] = None,
                  timeseries: Optional[OrderedDict[int, List[TimeseriesEntry]]] = None,
                  _size: Optional[int] = None,
-                 delivery_future: List[Optional[asyncio.Future[bool]]] = None):
+                 delivery_future: List[Optional[asyncio.Future[PublishResult]]] = None):
         if _size is None:
             raise ValueError("DeviceUplinkMessage must be created using DeviceUplinkMessageBuilder")
 
@@ -71,7 +70,7 @@ class DeviceUplinkMessageBuilder:
         self._device_profile: Optional[str] = None
         self._attributes: List[AttributeEntry] = []
         self._timeseries: OrderedDict[int, List[TimeseriesEntry]] = OrderedDict()
-        self._delivery_futures: List[Optional[asyncio.Future[bool]]] = []
+        self._delivery_futures: List[Optional[asyncio.Future[PublishResult]]] = []
         self.__size = DEFAULT_FIELDS_SIZE
 
     def set_device_name(self, device_name: str) -> 'DeviceUplinkMessageBuilder':
@@ -115,12 +114,12 @@ class DeviceUplinkMessageBuilder:
             self.__size += timeseries_entry.size
         return self
 
-    def add_delivery_futures(self, future: Union[asyncio.Future[bool], List[asyncio.Future[bool]]]) -> 'DeviceUplinkMessageBuilder':
-        if not isinstance(future, list):
-            future = [future]
-        if future:
-            logger.exception("Created delivery future: %s", id(future[0]))
-            self._delivery_futures.extend(future)
+    def add_delivery_futures(self, futures: Union[asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
+        if not isinstance(futures, list):
+            futures = [futures]
+        if futures:
+            logger.debug("Created delivery futures: %r", [id(future) for future in futures])
+            self._delivery_futures.extend(futures)
         return self
 
     def build(self) -> DeviceUplinkMessage:

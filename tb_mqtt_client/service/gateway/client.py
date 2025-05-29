@@ -1,32 +1,30 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
 from asyncio import sleep
+from random import choices
+from string import ascii_uppercase, digits
 from typing import Callable, Awaitable, Optional, Dict, Any, Union, List, Set
 
 from orjson import dumps, loads
-from random import choices
-from string import ascii_uppercase, digits
 
-from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
 

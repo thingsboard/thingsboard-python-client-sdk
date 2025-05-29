@@ -1,22 +1,20 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
-
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
 import os
 import logging
-from threading import RLock
+from asyncio import Lock
 from time import monotonic
 
 logger = logging.getLogger(__name__)
@@ -66,7 +64,7 @@ class RateLimit:
         self.percentage = percentage
         self._no_limit = False
         self._rate_buckets = {}
-        self._lock = RLock()
+        self._lock = Lock()
         self._minimal_timeout = DEFAULT_TIMEOUT
         self._minimal_limit = float('inf')
         self.__reached_index = 0
@@ -95,11 +93,11 @@ class RateLimit:
 
         self._no_limit = not bool(self._rate_buckets)
 
-    def check_limit_reached(self, amount=1):
+    async def check_limit_reached(self, amount=1):
         if self._no_limit:
             return False
 
-        with self._lock:
+        async with self._lock:
             result = False
             for dur, bucket in self._rate_buckets.items():
                 bucket.refill()
@@ -107,15 +105,15 @@ class RateLimit:
                     result = (bucket.capacity, dur)
             return result
 
-    def refill(self):
+    async def refill(self):
         """Force refill of all token buckets without consuming any tokens."""
         if self._no_limit:
             return
-        with self._lock:
+        async with self._lock:
             for bucket in self._rate_buckets.values():
                 bucket.refill()
 
-    def try_consume(self, amount=1):
+    async def try_consume(self, amount=1):
         """
         Try to consume tokens from all buckets.
         Returns True if all buckets had enough tokens and they were consumed.
@@ -124,7 +122,7 @@ class RateLimit:
         if self._no_limit:
             return None
 
-        with self._lock:
+        async with self._lock:
             for bucket in self._rate_buckets.values():
                 bucket.refill()
                 if bucket.tokens < amount:
@@ -135,10 +133,10 @@ class RateLimit:
 
             return None
 
-    def consume(self, amount=1):
+    async def consume(self, amount=1):
         if self._no_limit:
             return
-        with self._lock:
+        async with self._lock:
             for bucket in self._rate_buckets.values():
                 bucket.consume(amount)
 
@@ -153,11 +151,11 @@ class RateLimit:
     def has_limit(self):
         return not self._no_limit
 
-    def reach_limit(self):
+    async def reach_limit(self):
         if self._no_limit:
-            return
+            return None
 
-        with self._lock:
+        async with self._lock:
             durations = sorted(self._rate_buckets.keys())
             now = monotonic()
 
@@ -190,8 +188,8 @@ class RateLimit:
             }
         }
 
-    def set_limit(self, rate_limit: str, percentage: int = DEFAULT_RATE_LIMIT_PERCENTAGE):
-        with self._lock:
+    async def set_limit(self, rate_limit: str, percentage: int = DEFAULT_RATE_LIMIT_PERCENTAGE):
+        async with self._lock:
             self._rate_buckets.clear()
             self._minimal_timeout = DEFAULT_TIMEOUT
             self._minimal_limit = float('inf')

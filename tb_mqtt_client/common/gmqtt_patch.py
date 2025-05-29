@@ -1,31 +1,29 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
-
-import struct
 import asyncio
-from types import MethodType
-from typing import Callable
+import struct
 from collections import defaultdict
+from typing import Callable
+
+from gmqtt.mqtt.constants import MQTTCommands
+from gmqtt.mqtt.handler import MqttPackageHandler
+from gmqtt.mqtt.property import Property
+from gmqtt.mqtt.protocol import BaseMQTTProtocol, MQTTProtocol
+from gmqtt.mqtt.utils import unpack_variable_byte_integer
 
 from tb_mqtt_client.common.logging_utils import get_logger
-from gmqtt.mqtt.property import Property
-from gmqtt.mqtt.utils import unpack_variable_byte_integer
-from gmqtt.mqtt.protocol import BaseMQTTProtocol, MQTTProtocol
-from gmqtt.mqtt.handler import MqttPackageHandler
-from gmqtt.mqtt.constants import MQTTCommands
 
 logger = get_logger(__name__)
 
@@ -86,7 +84,7 @@ def patch_mqtt_handler_disconnect():
     """
     try:
         # Store the original method
-        original_handle_disconnect = MqttPackageHandler._handle_disconnect_packet
+        original_handle_disconnect = MqttPackageHandler._handle_disconnect_packet  # noqa
 
         # Define the patched method
         def patched_handle_disconnect_packet(self, cmd, packet):
@@ -100,8 +98,8 @@ def patch_mqtt_handler_disconnect():
             if packet and len(packet) > 1:
                 try:
                     properties, _ = self._parse_properties(packet[1:])
-                except Exception as e:
-                    logger.warning("Failed to parse properties from disconnect packet: %s", e)
+                except Exception as exc:
+                    logger.warning("Failed to parse properties from disconnect packet: %s", exc)
 
             reason_desc = DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
             logger.debug("Server initiated disconnect with reason code: %s (%s)", reason_code, reason_desc)
@@ -119,6 +117,7 @@ def patch_mqtt_handler_disconnect():
 
             # Set a flag on the connection object to indicate that on_disconnect has been called
             self._connection._on_disconnect_called = True
+            original_handle_disconnect(self, cmd, packet)
 
         # Apply the patch
         MqttPackageHandler._handle_disconnect_packet = patched_handle_disconnect_packet
@@ -133,7 +132,7 @@ def patch_gmqtt_protocol_connection_lost():
     Monkey-patch gmqtt.mqtt.protocol.BaseMQTTProtocol.connection_lost to suppress the
     default "[CONN CLOSE NORMALLY]" log message, as we handle disconnect logging in our code.
 
-    Also patch MQTTProtocol.connection_lost to include the reason code in the DISCONNECT package
+    Also, patch MQTTProtocol.connection_lost to include the reason code in the DISCONNECT package
     and pass the exception to the handler.
     """
     try:
@@ -150,7 +149,7 @@ def patch_gmqtt_protocol_connection_lost():
             properties = {}
 
             if exc:
-                # Determine reason code based on exception type
+                # Determine reason code based on an exception type
                 if isinstance(exc, ConnectionRefusedError):
                     reason_code = 135  # Keep Alive timeout
                 elif isinstance(exc, TimeoutError):
@@ -166,7 +165,7 @@ def patch_gmqtt_protocol_connection_lost():
                 else:
                     reason_code = 131  # Implementation specific error
 
-                # Add exception message to properties if available
+                # Add an exception message to properties if available
                 if hasattr(exc, 'args') and exc.args:
                     properties['reason_string'] = [str(exc.args[0])]
 
@@ -205,18 +204,19 @@ def patch_gmqtt_protocol_connection_lost():
                     exc = getattr(self._connection, '_disconnect_exc', None)
 
                     # Check if on_disconnect has already been called
-                    if not hasattr(self._connection, '_on_disconnect_called') or not self._connection._on_disconnect_called:
+                    if (not hasattr(self._connection, '_on_disconnect_called')
+                            or not self._connection._on_disconnect_called):  # noqa
                         # Call on_disconnect with the extracted values
                         self._clear_topics_aliases()
                         future = asyncio.ensure_future(self.reconnect(delay=True))
                         future.add_done_callback(self._handle_exception_in_future)
                         self.on_disconnect(self, reason_code, properties, exc)
-                    return
+                    return None
 
                 # For other commands, call the original method
                 return original_call(self, cmd, packet)
-            except Exception as e:
-                logger.error('[ERROR HANDLE PKG]', exc_info=e)
+            except Exception as exception:
+                logger.error('[ERROR HANDLE PKG]', exc_info=exception)
                 return None
 
         MqttPackageHandler.__call__ = patched_call
@@ -244,14 +244,13 @@ def patch_gmqtt_puback(client, on_puback_with_reason_and_properties: Callable[[i
 
     def _parse_properties(packet: bytes) -> dict:
         """
-        Parse MQTT 5.0 properties from packet.
+        Parse MQTT 5.0 properties from a packet.
         """
         properties_dict = defaultdict(list)
 
         try:
-            properties_len, packet = unpack_variable_byte_integer(packet)
+            properties_len, _ = unpack_variable_byte_integer(packet)
             props = packet[:properties_len]
-            packet = packet[properties_len:]
 
             while props:
                 property_identifier = props[0]
@@ -288,4 +287,3 @@ def patch_gmqtt_puback(client, on_puback_with_reason_and_properties: Callable[[i
         return base_method(self, cmd, packet)
 
     MqttPackageHandler._handle_puback_packet = wrapped_handle_puback
-    # client._handle_puback_packet = MethodType(wrapped_handle_puback, client)

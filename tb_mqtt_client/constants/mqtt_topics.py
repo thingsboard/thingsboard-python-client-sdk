@@ -1,22 +1,20 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
-#
-
-
 WILDCARD = "+"
 REQUEST_TOPIC_SUFFIX = "/request"
 RESPONSE_TOPIC_SUFFIX = "/response"
+#  Copyright 2025 ThingsBoard
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
 # V1 Topics for Device API
 DEVICE_TELEMETRY_TOPIC = "v1/devices/me/telemetry"
 DEVICE_ATTRIBUTES_TOPIC = "v1/devices/me/attributes"
@@ -26,6 +24,7 @@ DEVICE_RPC_TOPIC = "v1/devices/me/rpc"
 # Device RPC topics
 DEVICE_RPC_REQUEST_TOPIC = DEVICE_RPC_TOPIC + REQUEST_TOPIC_SUFFIX + "/"
 DEVICE_RPC_RESPONSE_TOPIC = DEVICE_RPC_TOPIC + RESPONSE_TOPIC_SUFFIX + "/"
+# Device RPC topics for subscription
 DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION = DEVICE_RPC_TOPIC + REQUEST_TOPIC_SUFFIX + "/" + WILDCARD
 DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION = DEVICE_RPC_TOPIC + RESPONSE_TOPIC_SUFFIX + "/" + WILDCARD
 

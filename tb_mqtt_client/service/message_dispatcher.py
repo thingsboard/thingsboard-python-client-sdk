@@ -1,30 +1,36 @@
-#      Copyright 2025. ThingsBoard
-#  #
-#      Licensed under the Apache License, Version 2.0 (the "License");
-#      you may not use this file except in compliance with the License.
-#      You may obtain a copy of the License at
-#  #
-#          http://www.apache.org/licenses/LICENSE-2.0
-#  #
-#      Unless required by applicable law or agreed to in writing, software
-#      distributed under the License is distributed on an "AS IS" BASIS,
-#      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#      See the License for the specific language governing permissions and
-#      limitations under the License.
+#  Copyright 2025 ThingsBoard
 #
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
-
-from collections import defaultdict
 import asyncio
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any, Dict, Union, List, Tuple, Optional
-from orjson import dumps
+from typing import Any, Dict, List, Tuple, Optional, Union
 
-from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
-from tb_mqtt_client.service.message_splitter import MessageSplitter
+from orjson import dumps, loads
+
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.constants import mqtt_topics
+from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
+from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
+from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
+from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.data.rpc_request import RPCRequest
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 logger = get_logger(__name__)
 
@@ -36,10 +42,10 @@ class MessageDispatcher(ABC):
                      max_payload_size, max_datapoints)
 
     @abstractmethod
-    def build_topic_payloads(
+    def build_uplink_payloads(
         self,
         messages: List[DeviceUplinkMessage]
-    ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]]:
+    ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string and a payload byte array.
@@ -47,9 +53,18 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def build_payload(self, msg: DeviceUplinkMessage) -> bytes:
+    def build_attribute_request_payload(self, request: AttributeRequest) -> bytes:
         """
-        Build a JSON payload for a single DeviceUplinkMessage.
+        Build the payload for an attribute request response.
+        This method should return a tuple of topic and payload bytes.
+        """
+        pass
+
+    @abstractmethod
+    def build_rpc_response_payload(self, rpc_response: RPCResponse):
+        """
+        Build the payload for an RPC response.
+        This method should return a tuple of topic and payload bytes.
         """
         pass
 
@@ -60,23 +75,98 @@ class MessageDispatcher(ABC):
         """
         pass
 
+    @abstractmethod
+    def parse_attribute_request_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
+        """
+        Parse the attribute request response payload into an AttributeRequestResponse.
+        This method should be implemented to handle the specific format of the topic and payload.
+        """
+        pass
+
+    @abstractmethod
+    def parse_attribute_update(self, payload: bytes) -> AttributeUpdate:
+        """
+        Parse the attribute update payload into an AttributeUpdate.
+        This method should be implemented to handle the specific format of the payload.
+        """
+        pass
+
+    @abstractmethod
+    def parse_rpc_request(self, topic: str, payload: bytes) -> RPCRequest:
+        """
+        Parse the RPC request from the given topic and payload.
+        This method should be implemented to handle the specific format of the RPC request.
+        """
+        pass
+
 
 class JsonMessageDispatcher(MessageDispatcher):
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         super().__init__(max_payload_size, max_datapoints)
         logger.trace("JsonMessageDispatcher created.")
 
+    def parse_attribute_request_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
+        """
+        Parse the attribute request response payload into a RequestedAttributeResponse.
+        :param topic: The MQTT topic of the requested attribute response.
+        :param payload: The raw bytes of the payload.
+        :return: An instance of RequestedAttributeResponse.
+        """
+        try:
+            request_id = int(topic.split("/")[-1])
+            data = loads(payload)
+            logger.trace("Parsing attribute request response from payload: %s", data)
+            if not isinstance(data, dict):
+                logger.error("Invalid requested attribute response format: expected dict, got %s", type(data).__name__)
+                raise ValueError("Invalid requested attribute response format")
+            data["request_id"] = request_id  # Add request_id to the data dictionary
+            return RequestedAttributeResponse.from_dict(data)
+        except Exception as e:
+            logger.error("Failed to parse attribute request response: %s", str(e))
+            raise ValueError("Invalid attribute request response format") from e
+
+    def parse_attribute_update(self, payload: bytes) -> AttributeUpdate:
+        """
+        Parse the attribute update payload into an AttributeUpdate.
+        :param payload: The raw bytes of the payload.
+        :return: An instance of AttributeUpdate.
+        """
+        try:
+            data = loads(payload)
+            logger.trace("Parsing attribute update from payload: %s", data)
+            return AttributeUpdate.from_dict(data)
+        except Exception as e:
+            logger.error("Failed to parse attribute update: %s", str(e))
+            raise ValueError("Invalid attribute update format") from e
+
+    def parse_rpc_request(self, topic: str, payload: bytes) -> RPCRequest:
+        """
+        Parse the RPC request from the given topic and payload.
+        :param topic: The MQTT topic of the RPC request.
+        :param payload: The raw bytes of the payload.
+        :return: An instance of RPCRequest.
+        """
+        try:
+            request_id = int(topic.split("/")[-1])
+            parsed = loads(payload)
+            parsed["id"] = request_id
+            data = RPCRequest.from_dict(parsed)
+            return data
+        except Exception as e:
+            logger.error("Failed to parse RPC request: %s", str(e))
+            raise ValueError("Invalid RPC request format") from e
+
     @property
     def splitter(self) -> MessageSplitter:
         return self._splitter
 
-    def build_topic_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]]:
+    def build_uplink_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         try:
             if not messages:
                 logger.trace("No messages to process in build_topic_payloads.")
                 return []
 
-            result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[bool]]]]] = []
+            result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]] = []
             device_groups: Dict[str, List[DeviceUplinkMessage]] = defaultdict(list)
 
             for msg in messages:
@@ -93,13 +183,13 @@ class JsonMessageDispatcher(MessageDispatcher):
                              device, len(telemetry_msgs), len(attr_msgs))
 
                 for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
-                    payload = self.build_payload(ts_batch)
+                    payload = JsonMessageDispatcher.build_payload(ts_batch, True)
                     count = ts_batch.timeseries_datapoint_count()
                     result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
                     logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
 
                 for attr_batch in self._splitter.split_attributes(attr_msgs):
-                    payload = self.build_payload(attr_batch)
+                    payload = JsonMessageDispatcher.build_payload(attr_batch, False)
                     count = len(attr_batch.attributes)
                     result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
                     logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
@@ -112,37 +202,65 @@ class JsonMessageDispatcher(MessageDispatcher):
             logger.error("Error building topic-payloads: %s", str(e))
             raise
 
-    def build_payload(self, msg: DeviceUplinkMessage) -> bytes:
-        result: Dict[str, Any] = {}
+    def build_attribute_request_payload(self, request: AttributeRequest) -> bytes:
+        """
+        Build the payload for an attribute request response.
+        :param request: The AttributeRequest to build the payload for.
+        :return: A tuple of topic and payload bytes.
+        """
+        if not request.id:
+            raise ValueError("AttributeRequest must have a valid ID.")
+
+        payload = dumps(request.to_payload_format())
+        logger.trace("Built attribute request payload for request: %r", request)
+        return payload
+
+    def build_rpc_response_payload(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
+            """
+            Build the payload for an RPC response.
+            :param rpc_response: The RPC response to build the payload for.
+            :return: A tuple of topic and payload bytes.
+            """
+            if not rpc_response.request_id:
+                raise ValueError("RPCResponse must have a valid request ID.")
+
+            payload = dumps(rpc_response.to_payload_format())
+            topic = mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC + str(rpc_response.request_id)
+            logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
+            return topic, payload
+
+    @staticmethod
+    def build_payload(msg: DeviceUplinkMessage, build_timeseries_payload) -> bytes:
+        result: Union[Dict[str, Any], List[Dict[str, Any]]] = {}
         device_name = msg.device_name
         logger.trace("Building payload for device='%s'", device_name)
 
         if msg.device_name:
-            if msg.attributes:
-                logger.trace("Packing attributes for device='%s'", device_name)
-                result[msg.device_name] = self._pack_attributes(msg)
-            if msg.timeseries:
+            if build_timeseries_payload:
                 logger.trace("Packing timeseries for device='%s'", device_name)
-                result[msg.device_name] = self._pack_timeseries(msg)
+                result[msg.device_name] = JsonMessageDispatcher.pack_timeseries(msg)
+            else:
+                logger.trace("Packing attributes for device='%s'", device_name)
+                result[msg.device_name] = JsonMessageDispatcher.pack_attributes(msg)
         else:
-            if msg.attributes:
-                logger.trace("Packing attributes")
-                result = self._pack_attributes(msg)
-            if msg.timeseries:
+            if build_timeseries_payload:
                 logger.trace("Packing timeseries")
-                result = self._pack_timeseries(msg)
+                result = JsonMessageDispatcher.pack_timeseries(msg)
+            else:
+                logger.trace("Packing attributes")
+                result = JsonMessageDispatcher.pack_attributes(msg)
 
         payload = dumps(result)
         logger.trace("Built payload size: %d bytes", len(payload))
         return payload
 
     @staticmethod
-    def _pack_attributes(msg: DeviceUplinkMessage) -> Dict[str, Any]:
+    def pack_attributes(msg: DeviceUplinkMessage) -> Dict[str, Any]:
         logger.trace("Packing %d attribute(s)", len(msg.attributes))
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def _pack_timeseries(msg: DeviceUplinkMessage) -> List[Dict[str, Any]]:
+    def pack_timeseries(msg: DeviceUplinkMessage) -> List[Dict[str, Any]]:
         logger.trace("Packing %d timeseries timestamp bucket(s)", len(msg.timeseries))
 
         now_ts = int(datetime.now(UTC).timestamp() * 1000)
