@@ -15,6 +15,7 @@
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility
 
 
 @dataclass(slots=True, frozen=True)
@@ -31,13 +32,15 @@ class AttributeRequest:
         raise TypeError("Direct instantiation of AttributeRequest is not allowed. Use 'await AttributeRequest.build(...)'.")
 
     def __repr__(self) -> str:
-        return f"<AttributeRequest(id={self.request_id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})>"
+        return f"AttributeRequest(id={self.request_id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})"
 
     @classmethod
     async def build(cls, shared_keys: Optional[List[str]] = None, client_keys: Optional[List[str]] = None) -> 'AttributeRequest':
         """
         Build a new AttributeRequest with a unique request ID, using the global ID generator.
         """
+        validate_json_compatibility(shared_keys)
+        validate_json_compatibility(client_keys)
         request_id = await AttributeRequestIdProducer.get_next()
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)

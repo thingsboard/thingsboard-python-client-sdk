@@ -41,10 +41,10 @@ class DeviceConfig:
         return self.ca_cert is not None
 
     def __repr__(self):
-        return (f"<DeviceConfig host={self.host} port={self.port} "
+        return (f"DeviceConfig(host={self.host}, port={self.port}, "
                 f"auth={'token' if self.access_token else 'user/pass'} "
-                f"tls_auth={self.use_tls_auth()} "
-                f"tls={self.use_tls()}>")
+                f"client_id={self.client_id} "
+                f"tls={self.use_tls()})")
 
 
 class GatewayConfig(DeviceConfig):

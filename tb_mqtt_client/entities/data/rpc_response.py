@@ -15,6 +15,8 @@
 from dataclasses import dataclass
 from typing import Union, Optional, Dict, Any
 
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+
 
 @dataclass(slots=True, frozen=True)
 class RPCResponse:
@@ -43,7 +45,9 @@ class RPCResponse:
         """
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)
+        validate_json_compatibility(result)
         object.__setattr__(self, 'result', result)
+        validate_json_compatibility(error)
         object.__setattr__(self, 'error', error)
         return self
 

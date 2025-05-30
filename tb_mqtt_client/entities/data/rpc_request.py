@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Union, Optional, Dict, Any
 
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility
 
 
 @dataclass(slots=True, frozen=True)
@@ -28,7 +29,7 @@ class RPCRequest:
         raise TypeError("Direct instantiation of RPCRequest is not allowed. Use 'await RPCRequest.build(...)'.")
 
     def __repr__(self):
-        return f"<RPCRequest(id={self.request_id}, method={self.method}, params={self.params})>"
+        return f"RPCRequest(id={self.request_id}, method={self.method}, params={self.params})"
 
     @classmethod
     def _deserialize_from_dict(cls, request_id: int, data: Dict[str, Any]) -> 'RPCRequest':
@@ -56,6 +57,8 @@ class RPCRequest:
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)
         object.__setattr__(self, 'method', method)
+        if params is not None:
+            validate_json_compatibility(params)
         object.__setattr__(self, 'params', params)
         return self
 

@@ -24,6 +24,8 @@ from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER, TELEMETRY_VALUES_PARAMETER
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
@@ -332,11 +334,32 @@ class DeviceClient(BaseClient):
                                                            List[TimeseriesEntry],
                                                            List[Dict[str, Any]]]) -> DeviceUplinkMessage:
         if isinstance(payload, dict):
+            if TELEMETRY_TIMESTAMP_PARAMETER in payload:
+                ts = payload.pop(TELEMETRY_TIMESTAMP_PARAMETER)
+                values = payload.pop(TELEMETRY_VALUES_PARAMETER, {})
+            else:
+                ts = None
             payload = [TimeseriesEntry(k, v) for k, v in payload.items()]
 
         builder = DeviceUplinkMessageBuilder()
         builder.add_telemetry(payload)
         return builder.build()
+
+    @staticmethod
+    def __build_timeseries_entry_from_dict(data: Dict[str, Any]) -> TimeseriesEntry:
+        if TELEMETRY_TIMESTAMP_PARAMETER in data:
+            ts = data.pop(TELEMETRY_TIMESTAMP_PARAMETER)
+            values = data.pop(TELEMETRY_VALUES_PARAMETER, {})
+            if not isinstance(values, dict):
+                raise ValueError(f"Expected {TELEMETRY_VALUES_PARAMETER} to be a dict, got {type(values).__name__}")
+            values
+        else:
+            ts = None
+            values = data
+        for key, value in values.items():
+            if not isinstance(key, str):
+                raise ValueError(f"Expected keys in {TELEMETRY_VALUES_PARAMETER} to be strings, got {type(key).__name__}")
+        return TimeseriesEntry(values, ts=ts)
 
     @staticmethod
     def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],

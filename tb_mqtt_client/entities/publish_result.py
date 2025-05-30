@@ -21,7 +21,7 @@ class PublishResult:
         self.reason_code = reason_code
 
     def __repr__(self):
-        return f"<PublishResult(topic={self.topic}, qos={self.qos}, message_id={self.message_id}, payload_size={self.payload_size}, reason_code={self.reason_code})>"
+        return f"PublishResult(topic={self.topic}, qos={self.qos}, message_id={self.message_id}, payload_size={self.payload_size}, reason_code={self.reason_code})"
 
     def as_dict(self) -> dict:
         return {

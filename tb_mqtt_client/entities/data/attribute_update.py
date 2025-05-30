@@ -23,7 +23,7 @@ class AttributeUpdate:
     entries: List[AttributeEntry]
 
     def __repr__(self):
-        return f"<AttributeUpdate entries={self.entries}>"
+        return f"AttributeUpdate(entries={self.entries})"
 
     def get(self, key: str, default=None):
         for entry in self.entries:

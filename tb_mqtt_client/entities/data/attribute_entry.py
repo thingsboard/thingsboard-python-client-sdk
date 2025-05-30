@@ -14,15 +14,16 @@
 
 from typing import Any
 
+from tb_mqtt_client.constants.json_typing import JSONCompatibleType
 from tb_mqtt_client.entities.data.data_entry import DataEntry
 
 
 class AttributeEntry(DataEntry):
-    def __init__(self, key: str, value: Any):
+    def __init__(self, key: str, value: JSONCompatibleType):
         super().__init__(key, value)
 
     def __repr__(self):
-        return f"<AttributeEntry key={self.key} value={self.value}>"
+        return f"AttributeEntry(key={self.key}, value={self.value})"
 
     def as_dict(self) -> dict:
         return {

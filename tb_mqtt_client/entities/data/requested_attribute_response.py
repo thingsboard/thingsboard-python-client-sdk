@@ -26,7 +26,7 @@ class RequestedAttributeResponse:
     client: List[AttributeEntry]
 
     def __repr__(self):
-        return f"<AttributeResponse(shared={self.shared}, client={self.client})>"
+        return f"RequestedAttributeResponse(request_id={self.request_id}, shared={self.shared}, client={self.client})"
 
     def __getitem__(self, item):
         """

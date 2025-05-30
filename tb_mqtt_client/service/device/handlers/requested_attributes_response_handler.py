@@ -15,7 +15,6 @@
 from typing import Dict, Tuple, Awaitable, Callable
 
 from tb_mqtt_client.common.logging_utils import get_logger
-from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
@@ -70,7 +69,7 @@ class RequestedAttributeResponseHandler:
             if not self._message_dispatcher:
                 logger.error("Message dispatcher is not initialized. Cannot handle attribute response.")
                 request_id = topic.split('/')[-1]  # Assuming request ID is in the topic
-                self._pending_attribute_requests.pop(int(request_id), (None, None, None))
+                self._pending_attribute_requests.pop(int(request_id), None)
                 return
 
             requested_attribute_response = self._message_dispatcher.parse_attribute_request_response(topic, payload)
@@ -82,7 +81,7 @@ class RequestedAttributeResponseHandler:
             request, callback = pending_request_details
 
             if callback:
-                logger.debug("Invoking callback for requested attribute response with ID %s", requested_attribute_response.request_id)
+                logger.trace("Invoking callback for requested attribute response with ID %s", requested_attribute_response.request_id)
                 await callback(requested_attribute_response)
             else:
                 logger.error("No callback registered for requested attribute response with ID %s", requested_attribute_response.request_id)

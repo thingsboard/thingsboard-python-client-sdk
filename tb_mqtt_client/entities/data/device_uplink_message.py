@@ -13,7 +13,9 @@
 #  limitations under the License.
 
 import asyncio
-from typing import List, Optional, Union, OrderedDict
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
@@ -25,27 +27,48 @@ logger = get_logger(__name__)
 DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":"","timeseries":""}'.encode('utf-8'))
 
 
+@dataclass(slots=True, frozen=True)
 class DeviceUplinkMessage:
-    def __init__(self,
-                 device_name: Optional[str] = None,
-                 device_profile: Optional[str] = None,
-                 attributes: Optional[List[AttributeEntry]] = None,
-                 timeseries: Optional[OrderedDict[int, List[TimeseriesEntry]]] = None,
-                 _size: Optional[int] = None,
-                 delivery_future: List[Optional[asyncio.Future[PublishResult]]] = None):
-        if _size is None:
-            raise ValueError("DeviceUplinkMessage must be created using DeviceUplinkMessageBuilder")
+    device_name: Optional[str]
+    device_profile: Optional[str]
+    attributes: Tuple[AttributeEntry, ...]
+    timeseries: Mapping[int, Tuple[TimeseriesEntry, ...]]
+    delivery_futures: Tuple[Optional[asyncio.Future], ...]
+    _size: int
 
-        self.device_name = device_name
-        self.device_profile = device_profile
-        self.attributes = attributes or []
-        self.timeseries = timeseries or []
-        self.__size = _size
-        self.delivery_futures = delivery_future or []
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
 
+    def __repr__(self):
+        return (f"DeviceUplinkMessage(device_name={self.device_name}, "
+                f"device_profile={self.device_profile}, "
+                f"attributes={self.attributes}, "
+                f"timeseries={self.timeseries}, "
+                f"delivery_futures={self.delivery_futures})")
+
+    @classmethod
+    def build(cls,
+              device_name: Optional[str],
+              device_profile: Optional[str],
+              attributes: List[AttributeEntry],
+              timeseries: Mapping[int, List[TimeseriesEntry]],
+              delivery_futures: List[Optional[asyncio.Future]],
+              size: int) -> 'DeviceUplinkMessage':
+        self = object.__new__(cls)
+        object.__setattr__(self, 'device_name', device_name)
+        object.__setattr__(self, 'device_profile', device_profile)
+        object.__setattr__(self, 'attributes', tuple(attributes))
+        object.__setattr__(self, 'timeseries', MappingProxyType({ts: tuple(entries) for ts, entries in timeseries.items()}))
+        object.__setattr__(self, 'delivery_futures', tuple(delivery_futures))
+        object.__setattr__(self, '_size', size)
+        return self
+
+    @property
+    def size(self) -> int:
+        return self._size
 
     def timeseries_datapoint_count(self) -> int:
-        return len(self.timeseries)
+        return sum(len(entries) for entries in self.timeseries.values())
 
     def attributes_datapoint_count(self) -> int:
         return len(self.attributes)
@@ -56,12 +79,8 @@ class DeviceUplinkMessage:
     def has_timeseries(self) -> bool:
         return bool(self.timeseries)
 
-    def get_delivery_futures(self):
+    def get_delivery_futures(self) -> Tuple[Optional[asyncio.Future], ...]:
         return self.delivery_futures
-
-    @property
-    def size(self) -> int:
-        return self.__size
 
 
 class DeviceUplinkMessageBuilder:
@@ -125,11 +144,11 @@ class DeviceUplinkMessageBuilder:
     def build(self) -> DeviceUplinkMessage:
         if not self._delivery_futures:
             self._delivery_futures = [asyncio.get_event_loop().create_future()]
-        return DeviceUplinkMessage(
+        return DeviceUplinkMessage.build(
             device_name=self._device_name,
             device_profile=self._device_profile,
             attributes=self._attributes,
             timeseries=self._timeseries,
-            _size=self.__size,
-            delivery_future=self._delivery_futures
+            delivery_futures=self._delivery_futures,
+            size=self.__size
         )

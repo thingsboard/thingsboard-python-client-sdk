@@ -71,7 +71,7 @@ async def attribute_request_callback(requested_attributes_response: RequestedAtt
     Callback function to handle requested attributes.
     :param requested_attributes_response: The requested attribute response object.
     """
-    logger.info("Received requested attributes response: %s", requested_attributes_response.as_dict())
+    logger.info("Received requested attributes response: %r", requested_attributes_response)
 
 
 async def main():
@@ -124,7 +124,7 @@ async def main():
         else:
             logger.warning("Delivery future is None, raw attributes may not be sent.")
 
-        # logger.info(f"Raw attributes sent: {raw_dict}")
+        logger.info(f"Raw attributes sent: {raw_dict}")
 
         # 2. Single AttributeEntry
         single_entry = AttributeEntry("mode", "normal")
@@ -236,6 +236,8 @@ async def main():
         else:
             logger.warning("Delivery future is None, list of telemetry may not be sent.")
 
+        # --- Attribute Request ---
+
         logger.info("Requesting attributes...")
 
         attribute_request = await AttributeRequest.build(["uno"], ["client"])
@@ -243,6 +245,8 @@ async def main():
         logger.info("Sending attribute request: %r", attribute_request)
 
         await client.send_attribute_request(attribute_request, attribute_request_callback)
+
+        # --- Client-side RPC ---
 
         logger.info("Sending client side RPC request...")
 

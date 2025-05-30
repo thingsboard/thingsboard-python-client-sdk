@@ -15,13 +15,19 @@
 from typing import Any, Optional
 from orjson import dumps
 
+from tb_mqtt_client.constants.json_typing import JSONCompatibleType, validate_json_compatibility
+
 
 class DataEntry:
-    def __init__(self, key: str, value: Any, ts: Optional[int] = None):
+    def __init__(self, key: str, value: JSONCompatibleType, ts: Optional[int] = None):
+        validate_json_compatibility(value)
         self.__key = key
         self.__value = value
         self.__ts = ts
         self.__size = self.__estimate_size()
+
+    def __repr__(self):
+        return f"DataEntry(key={self.key}, value={self.value}, ts={self.ts})"
 
     def __estimate_size(self) -> int:
         if self.ts is not None:
