@@ -13,12 +13,11 @@
 #  limitations under the License.
 
 import asyncio
-from typing import Dict, Union
-
-from orjson import loads
+from typing import Dict, Union, Awaitable, Callable, Optional, Tuple
 
 from tb_mqtt_client.common.logging_utils import get_logger
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.service.message_dispatcher import MessageDispatcher, JsonMessageDispatcher
 
 logger = get_logger(__name__)
 
@@ -30,8 +29,10 @@ class RPCResponseHandler:
     """
 
     def __init__(self):
-        self._message_dispatcher = None
-        self._pending_rpc_requests: Dict[Union[str, int], asyncio.Future] = {}
+        self._message_dispatcher: Optional[MessageDispatcher] = None
+        self._pending_rpc_requests: Dict[Union[str, int],
+                                         Tuple[asyncio.Future[RPCResponse],
+                                               Optional[Callable[[RPCResponse], Awaitable[None]]]]] = {}
 
     def set_message_dispatcher(self, message_dispatcher: MessageDispatcher):
         """
@@ -44,14 +45,15 @@ class RPCResponseHandler:
         self._message_dispatcher = message_dispatcher
         logger.debug("Message dispatcher set for RPCResponseHandler.")
 
-    def register_request(self, request_id: Union[str, int]) -> asyncio.Future:
+    def register_request(self, request_id: Union[str, int],
+                         callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> asyncio.Future[RPCResponse]:
         """
         Called when a request is sent to the platform and a response is awaited.
         """
         if request_id in self._pending_rpc_requests:
             raise RuntimeError(f"Request ID {request_id} is already registered.")
         future = asyncio.get_event_loop().create_future()
-        self._pending_rpc_requests[request_id] = future
+        self._pending_rpc_requests[request_id] = future, callback
         return future
 
     async def handle(self, topic: str, payload: bytes):
@@ -60,19 +62,33 @@ class RPCResponseHandler:
         The topic is expected to be: v1/devices/me/rpc/response/{request_id}
         """
         try:
-            # TODO: Use MessageDispatcher to parse the topic and payload
-            request_id = topic.split("/")[-1]
-            response_data = loads(payload)
-
-            future = self._pending_rpc_requests.pop(request_id, None)
-            if not future:
-                logger.warning("No future awaiting request ID %s. Ignoring.", request_id)
-                return
-
-            if isinstance(response_data, dict) and "error" in response_data:
-                future.set_exception(Exception(response_data["error"]))
+            if not self._message_dispatcher:
+                dummy_dispatcher = JsonMessageDispatcher()
+                rpc_response = dummy_dispatcher.parse_rpc_response(topic, payload)
             else:
-                future.set_result(response_data)
+                rpc_response = self._message_dispatcher.parse_rpc_response(topic, payload)
+
+            request_details = self._pending_rpc_requests.pop(rpc_response.request_id, None)
+            if not request_details:
+                logger.warning("No pending request found for request ID %s. Ignoring response.",
+                               rpc_response.request_id)
+                return
+            future, callback = request_details
+            if not future:
+                logger.warning("No future awaiting request ID %s. Ignoring.", rpc_response.request_id)
+                return
+            if callback:
+                try:
+                    await callback(rpc_response)
+                except Exception as e:
+                    logger.exception("Error in callback for request ID %s: %s", rpc_response.request_id, e)
+                    future.set_exception(e)
+                    return
+
+            if rpc_response.error:
+                future.set_exception(Exception(rpc_response.error))
+            else:
+                future.set_result(rpc_response)
 
         except Exception as e:
             logger.exception("Failed to handle RPC response: %s", e)
@@ -81,7 +97,7 @@ class RPCResponseHandler:
         """
         Clears all pending futures (e.g., on disconnect).
         """
-        for fut in self._pending_rpc_requests.values():
+        for fut, _ in self._pending_rpc_requests.values():
             if not fut.done():
                 fut.cancel()
         self._pending_rpc_requests.clear()

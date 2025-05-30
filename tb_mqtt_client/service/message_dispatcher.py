@@ -48,12 +48,13 @@ class MessageDispatcher(ABC):
     ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
-        Each pair consists of a topic string and a payload byte array.
+        Each pair consists of a topic string, payload bytes, the number of datapoints,
+        and a list of futures for delivery confirmation.
         """
         pass
 
     @abstractmethod
-    def build_attribute_request_payload(self, request: AttributeRequest) -> bytes:
+    def build_attribute_request_payload(self, request: AttributeRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an attribute request response.
         This method should return a tuple of topic and payload bytes.
@@ -61,7 +62,15 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def build_rpc_response_payload(self, rpc_response: RPCResponse):
+    def build_rpc_request_payload(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+        """
+        Build the payload for an RPC request.
+        This method should return a tuple of topic and payload bytes.
+        """
+        pass
+
+    @abstractmethod
+    def build_rpc_response_payload(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
         """
         Build the payload for an RPC response.
         This method should return a tuple of topic and payload bytes.
@@ -99,8 +108,19 @@ class MessageDispatcher(ABC):
         """
         pass
 
+    @abstractmethod
+    def parse_rpc_response(self, topic: str, payload: bytes) -> RPCResponse:
+        """
+        Parse the RPC response from the given topic and payload.
+        This method should be implemented to handle the specific format of the RPC response.
+        """
+        pass
+
 
 class JsonMessageDispatcher(MessageDispatcher):
+    """
+    A concrete implementation of MessageDispatcher that operates with JSON payloads.
+    """
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         super().__init__(max_payload_size, max_datapoints)
         logger.trace("JsonMessageDispatcher created.")
@@ -134,7 +154,7 @@ class JsonMessageDispatcher(MessageDispatcher):
         try:
             data = loads(payload)
             logger.trace("Parsing attribute update from payload: %s", data)
-            return AttributeUpdate.from_dict(data)
+            return AttributeUpdate._deserialize_from_dict(data)
         except Exception as e:
             logger.error("Failed to parse attribute update: %s", str(e))
             raise ValueError("Invalid attribute update format") from e
@@ -149,18 +169,38 @@ class JsonMessageDispatcher(MessageDispatcher):
         try:
             request_id = int(topic.split("/")[-1])
             parsed = loads(payload)
-            parsed["id"] = request_id
-            data = RPCRequest.from_dict(parsed)
+            data = RPCRequest._deserialize_from_dict(request_id, parsed)  # noqa
             return data
         except Exception as e:
             logger.error("Failed to parse RPC request: %s", str(e))
             raise ValueError("Invalid RPC request format") from e
+
+    def parse_rpc_response(self, topic: str, payload: bytes) -> RPCResponse:
+        """
+        Parse the RPC response from the given topic and payload.
+        :param topic: The MQTT topic of the RPC response.
+        :param payload: The raw bytes of the payload.
+        :return: An instance of RPCResponse.
+        """
+        try:
+            request_id = int(topic.split("/")[-1])
+            parsed = loads(payload)
+            data = RPCResponse.build(request_id, parsed)  # noqa
+            return data
+        except Exception as e:
+            logger.error("Failed to parse RPC response: %s", str(e))
+            raise ValueError("Invalid RPC response format") from e
 
     @property
     def splitter(self) -> MessageSplitter:
         return self._splitter
 
     def build_uplink_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
+        """
+        Build a list of topic-payload pairs from the given messages.
+        Each pair consists of a topic string, payload bytes, the number of datapoints,
+        and a list of futures for delivery confirmation.
+        """
         try:
             if not messages:
                 logger.trace("No messages to process in build_topic_payloads.")
@@ -194,26 +234,43 @@ class JsonMessageDispatcher(MessageDispatcher):
                     result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
                     logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
 
-
             logger.trace("Generated %d topic-payload entries.", len(result))
 
             return result
         except Exception as e:
             logger.error("Error building topic-payloads: %s", str(e))
+            logger.debug("Exception details: %s", e, exc_info=True)
             raise
 
-    def build_attribute_request_payload(self, request: AttributeRequest) -> bytes:
+    def build_attribute_request_payload(self, request: AttributeRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an attribute request response.
         :param request: The AttributeRequest to build the payload for.
         :return: A tuple of topic and payload bytes.
         """
-        if not request.id:
+        if not request.request_id:
             raise ValueError("AttributeRequest must have a valid ID.")
 
+        topic = mqtt_topics.build_device_attributes_request_topic(request.request_id)
         payload = dumps(request.to_payload_format())
         logger.trace("Built attribute request payload for request: %r", request)
-        return payload
+        return topic, payload
+
+    def build_rpc_request_payload(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+        """
+        Build the payload for an RPC request.
+        :param rpc_request: The RPC request to build the payload for.
+        :return: A tuple of topic and payload bytes.
+        """
+        if not rpc_request.request_id:
+            raise ValueError("RPCRequest must have a valid ID.")
+
+        payload = dumps(rpc_request.to_payload_format())
+        topic = mqtt_topics.DEVICE_RPC_REQUEST_TOPIC + str(rpc_request.request_id)
+        logger.trace("Built RPC request payload for request ID=%d with payload: %r",
+                     rpc_request.request_id, payload)
+        return topic, payload
+
 
     def build_rpc_response_payload(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
             """

@@ -63,7 +63,7 @@ class DeviceClient(BaseClient):
         super().__init__(self._config.host, self._config.port, client_id)
 
         self._message_queue: Optional[MessageQueue] = None
-        self._message_dispatcher: Optional[MessageDispatcher] = None
+        self._message_dispatcher: MessageDispatcher = JsonMessageDispatcher(1000, 1)  # Will be updated after connection established
 
         self._messages_rate_limit = RateLimit("0:0,", name="messages")
         self._telemetry_rate_limit = RateLimit("0:0,", name="telemetry")
@@ -77,6 +77,7 @@ class DeviceClient(BaseClient):
 
         self._mqtt_manager = MQTTManager(client_id=self._client_id,
                                          main_stop_event=self._stop_event,
+                                         message_dispatcher=self._message_dispatcher,
                                          on_connect=self._on_connect,
                                          on_disconnect=self._on_disconnect,
                                          rate_limits_handler=self._handle_rate_limit_response,
@@ -116,7 +117,8 @@ class DeviceClient(BaseClient):
             self.max_payload_size = 65535
             logger.debug("Using default max_payload_size: %d", self.max_payload_size)
 
-        self._message_dispatcher = JsonMessageDispatcher(self.max_payload_size, self._telemetry_dp_rate_limit.minimal_limit)
+        self._message_dispatcher = JsonMessageDispatcher(self.max_payload_size,
+                                                         self._telemetry_dp_rate_limit.minimal_limit)
         self._message_queue = MessageQueue(
             mqtt_manager=self._mqtt_manager,
             main_stop_event=self._stop_event,
@@ -132,14 +134,14 @@ class DeviceClient(BaseClient):
         self._rpc_requests_handler.set_message_dispatcher(self._message_dispatcher)
         self._rpc_response_handler.set_message_dispatcher(self._message_dispatcher)
 
-    def stop(self):
+    async def stop(self):
         """
         Stops the client and disconnects from the MQTT broker.
         """
         logger.info("Stopping DeviceClient...")
         self._stop_event.set()
         if self._mqtt_manager.is_connected():
-            self._mqtt_manager.disconnect()
+            await self._mqtt_manager.disconnect()
         logger.info("DeviceClient stopped.")
 
     async def disconnect(self):
@@ -165,18 +167,30 @@ class DeviceClient(BaseClient):
                                                     datapoints_count=message.attributes_datapoint_count())
         return futures[0] if futures else None
 
+    async def send_rpc_request(self, rpc_request: RPCRequest,
+                               callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> Awaitable[RPCResponse]:
+        request_id = rpc_request.request_id or await RPCRequestIdProducer.get_next()
+        topic, payload = self._message_dispatcher.build_rpc_request_payload(rpc_request)
+
+        response_future = self._rpc_response_handler.register_request(request_id, callback)
+
+        await self._message_queue.publish(topic=topic,
+                                          payload=payload,
+                                          datapoints_count=0)
+        return response_future
+
     async def send_rpc_response(self, response: RPCResponse):
-        topic = mqtt_topics.build_device_rpc_response_topic(request_id=response.request_id)
-        payload = self._message_dispatcher.build_rpc_response_payload(response)
+        topic, payload = self._message_dispatcher.build_rpc_response_payload(response)
         await self._message_queue.publish(topic=topic,
                                           payload=payload,
                                           datapoints_count=0)
 
-    async def send_attribute_request(self, attribute_request: AttributeRequest, callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
+    async def send_attribute_request(self,
+                                     attribute_request: AttributeRequest,
+                                     callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
         await self._requested_attribute_response_handler.register_request(attribute_request, callback)
 
-        topic = mqtt_topics.build_device_attributes_request_topic(attribute_request.id)
-        payload = self._message_dispatcher.build_attribute_request_payload(attribute_request)
+        topic, payload = self._message_dispatcher.build_attribute_request_payload(attribute_request)
 
         await self._message_queue.publish(topic=topic,
                                           payload=payload,
@@ -198,8 +212,8 @@ class DeviceClient(BaseClient):
 
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_TOPIC, self._handle_attribute_update)
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_request)  # noqa
-        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_response)  # noqa
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_RESPONSE_TOPIC, self._handle_requested_attribute_response)  # noqa
+        # RPC responses are handled by the RPCResponseHandler, which is already registered
 
     async def _on_disconnect(self):
         logger.info("Device client disconnected.")
@@ -243,22 +257,21 @@ class DeviceClient(BaseClient):
     async def _handle_requested_attribute_response(self, topic: str, payload: bytes):
         await self._requested_attribute_response_handler.handle(topic, payload)
 
-    async def _handle_rate_limit_response(self, topic: str, payload: bytes):  # noqa
+    async def _handle_rate_limit_response(self, response: RPCResponse):  # noqa
         try:
-            response = loads(payload.decode("utf-8"))
             logger.debug("Received rate limit response payload: %s", response)
 
-            if not isinstance(response, dict) or 'rateLimits' not in response:
+            if not isinstance(response.result, dict) or 'rateLimits' not in response.result:
                 logger.warning("Invalid rate limit response: %r", response)
                 return None
 
-            rate_limits = response.get('rateLimits', {})
+            rate_limits = response.result.get('rateLimits', {})
 
             await self._messages_rate_limit.set_limit(rate_limits.get("messages", "0:0,"))
             await self._telemetry_rate_limit.set_limit(rate_limits.get("telemetryMessages", "0:0,"))
             await self._telemetry_dp_rate_limit.set_limit(rate_limits.get("telemetryDataPoints", "0:0,"))
 
-            server_inflight = int(response.get("maxInflightMessages", 100))
+            server_inflight = int(response.result.get("maxInflightMessages", 100))
             limits = [rl.minimal_limit for rl in [
                 self._messages_rate_limit,
                 self._telemetry_rate_limit
@@ -272,8 +285,8 @@ class DeviceClient(BaseClient):
                 if self._max_inflight_messages == 0:
                     self._max_inflight_messages = 10000
 
-            if "maxPayloadSize" in response:
-                self.max_payload_size = int(response["maxPayloadSize"] * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
+            if "maxPayloadSize" in response.result:
+                self.max_payload_size = int(response.result["maxPayloadSize"] * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
                 # Update the dispatcher's max_payload_size if it's already initialized
                 if hasattr(self, '_dispatcher') and self._message_dispatcher is not None:
                     self._message_dispatcher.splitter.max_payload_size = self.max_payload_size

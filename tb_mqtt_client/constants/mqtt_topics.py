@@ -1,6 +1,3 @@
-WILDCARD = "+"
-REQUEST_TOPIC_SUFFIX = "/request"
-RESPONSE_TOPIC_SUFFIX = "/response"
 #  Copyright 2025 ThingsBoard
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +11,10 @@ RESPONSE_TOPIC_SUFFIX = "/response"
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+
+WILDCARD = "+"
+REQUEST_TOPIC_SUFFIX = "/request"
+RESPONSE_TOPIC_SUFFIX = "/response"
 
 # V1 Topics for Device API
 DEVICE_TELEMETRY_TOPIC = "v1/devices/me/telemetry"

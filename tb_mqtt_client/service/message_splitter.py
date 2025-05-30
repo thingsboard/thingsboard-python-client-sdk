@@ -37,9 +37,9 @@ class MessageSplitter:
 
     def split_timeseries(self, messages: List[DeviceUplinkMessage]) -> List[DeviceUplinkMessage]:
         logger.trace("Splitting timeseries for %d messages", len(messages))
-        if (len(messages) == 1 and
-            messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count() <= self._max_datapoints and
-            messages[0].size <= self._max_payload_size) or self._max_datapoints == 0:
+        if (len(messages) == 1
+                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and messages[0].size <= self._max_payload_size):
             return messages
 
         result: List[DeviceUplinkMessage] = []
@@ -55,24 +55,25 @@ class MessageSplitter:
             point_count = 0
             batch_futures = []
 
-            for ts in message.timeseries.values():
-                exceeds_size = builder and size + ts.size > self._max_payload_size
-                exceeds_points = 0 < self._max_datapoints <= point_count
+            for grouped_ts in message.timeseries.values():
+                for ts in grouped_ts:
+                    exceeds_size = builder and size + ts.size > self._max_payload_size
+                    exceeds_points = 0 < self._max_datapoints <= point_count
 
-                if not builder or exceeds_size or exceeds_points:
-                    if builder:
-                        built = builder.build()
-                        result.append(built)
-                        batch_futures.extend(built.get_delivery_futures())
-                        logger.trace("Flushed batch with %d points (size=%d)", len(built.timeseries), size)
-                    builder = DeviceUplinkMessageBuilder().set_device_name(message.device_name).set_device_profile(
-                        message.device_profile)
-                    size = 0
-                    point_count = 0
+                    if not builder or exceeds_size or exceeds_points:
+                        if builder:
+                            built = builder.build()
+                            result.append(built)
+                            batch_futures.extend(built.get_delivery_futures())
+                            logger.trace("Flushed batch with %d points (size=%d)", len(built.timeseries), size)
+                        builder = DeviceUplinkMessageBuilder().set_device_name(message.device_name).set_device_profile(
+                            message.device_profile)
+                        size = 0
+                        point_count = 0
 
-                builder.add_telemetry(ts)
-                size += ts.size
-                point_count += 1
+                    builder.add_telemetry(ts)
+                    size += ts.size
+                    point_count += 1
 
             if builder and builder._timeseries:  # noqa
                 built = builder.build()
@@ -86,7 +87,8 @@ class MessageSplitter:
                                  [id(batch_future) for batch_future in batch_futures])
 
                 async def resolve_original():
-                    logger.exception("Resolving original future with batch futures: %s", [id(f) for f in batch_futures])
+                    logger.trace("Resolving original future with batch futures: %r, %s",
+                                 batch_futures, [id(f) for f in batch_futures])
                     results = await asyncio.gather(*batch_futures, return_exceptions=False)
                     original_future.set_result(all(results))
 
@@ -99,9 +101,9 @@ class MessageSplitter:
         logger.trace("Splitting attributes for %d messages", len(messages))
         result: List[DeviceUplinkMessage] = []
 
-        if (len(messages) == 1 and
-                messages[0].attributes_datapoint_count() <= self._max_datapoints and
-                messages[0].size <= self._max_payload_size):
+        if (len(messages) == 1
+                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and messages[0].size <= self._max_payload_size):
             return messages
 
         for message in messages:

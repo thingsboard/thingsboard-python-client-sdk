@@ -46,10 +46,10 @@ class RequestedAttributeResponseHandler:
         """
         Called when a request is sent to the platform and a response is awaited.
         """
-        request.id = await AttributeRequestIdProducer.get_next()
-        if request.id in self._pending_attribute_requests:
-            raise RuntimeError(f"Request ID {request.id} is already registered.")
-        self._pending_attribute_requests[request.id] = (request, callback)
+        request_id = request.request_id
+        if request_id in self._pending_attribute_requests:
+            raise RuntimeError(f"Request ID {request.request_id} is already registered.")
+        self._pending_attribute_requests[request.request_id] = (request, callback)
 
     def unregister_request(self, request_id: int):
         """

@@ -44,7 +44,7 @@ class AttributeUpdate:
         return {entry.key: entry.value for entry in self.entries}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AttributeUpdate':
+    def _deserialize_from_dict(cls, data: Dict[str, Any]) -> 'AttributeUpdate':
         """
         Deserialize dictionary into AttributeUpdate object.
         :param data: Dictionary of attribute key-value pairs.

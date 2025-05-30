@@ -19,7 +19,7 @@ from typing import Union, Optional, Dict, Any
 @dataclass(slots=True, frozen=True)
 class RPCResponse:
     """
-    Represents a response to a device-side RPC call.
+    Represents a response to the RPC call.
 
     Attributes:
         request_id: Unique identifier of the request being responded to.
@@ -29,6 +29,23 @@ class RPCResponse:
     request_id: Union[int, str]
     result: Optional[Any] = None
     error: Optional[Union[str, Dict[str, Any]]] = None
+
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("Direct instantiation of RPCResponse is not allowed. Use RPCResponse.build(request_id, result, error).")
+
+    def __repr__(self) -> str:
+        return f"RPCResponse(request_id={self.request_id}, result={self.result}, error={self.error})"
+
+    @classmethod
+    def build(cls, request_id: Union[int, str], result: Optional[Any] = None, error: Optional[Union[str, Dict[str, Any]]] = None) -> 'RPCResponse':
+        """
+        Constructs an RPCResponse explicitly.
+        """
+        self = object.__new__(cls)
+        object.__setattr__(self, 'request_id', request_id)
+        object.__setattr__(self, 'result', result)
+        object.__setattr__(self, 'error', error)
+        return self
 
     def to_payload_format(self) -> Dict[str, Any]:
         """Serializes the RPC response for publishing."""

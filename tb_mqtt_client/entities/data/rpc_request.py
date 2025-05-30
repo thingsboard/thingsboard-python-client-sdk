@@ -15,6 +15,8 @@
 from dataclasses import dataclass
 from typing import Union, Optional, Dict, Any
 
+from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
+
 
 @dataclass(slots=True, frozen=True)
 class RPCRequest:
@@ -22,24 +24,50 @@ class RPCRequest:
     method: str
     params: Optional[Any] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        result = {
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("Direct instantiation of RPCRequest is not allowed. Use 'await RPCRequest.build(...)'.")
+
+    def __repr__(self):
+        return f"<RPCRequest(id={self.request_id}, method={self.method}, params={self.params})>"
+
+    @classmethod
+    def _deserialize_from_dict(cls, request_id: int, data: Dict[str, Any]) -> 'RPCRequest':
+        """
+        Constructs an RPCRequest, should be used only for deserialization request from the platform.
+        """
+        if not isinstance(request_id, (int, str)):
+            raise ValueError("Missing request id in RPC request")
+        if "method" not in data:
+            raise ValueError("Missing 'method' in RPC request")
+
+        self = object.__new__(cls)
+        object.__setattr__(self, 'request_id', request_id)
+        object.__setattr__(self, 'method', data["method"])
+        object.__setattr__(self, 'params', data.get("params"))
+        return self
+
+    @classmethod
+    async def build(cls, method: str, params: Optional[Any] = None) -> 'RPCRequest':
+        """
+        Constructs an RPCRequest with a unique request ID,
+        using the RPCRequestIdProducer to ensure thread-safe ID generation.
+        """
+        request_id = await RPCRequestIdProducer.get_next()
+        self = object.__new__(cls)
+        object.__setattr__(self, 'request_id', request_id)
+        object.__setattr__(self, 'method', method)
+        object.__setattr__(self, 'params', params)
+        return self
+
+    def to_payload_format(self) -> Dict[str, Any]:
+        """
+        Serializes the RPC request for publishing.
+        Converts the request to a dictionary format suitable for MQTT payload.
+        """
+        data = {
             "id": self.request_id,
             "method": self.method
         }
         if self.params is not None:
-            result["params"] = self.params
-        return result
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'RPCRequest':
-        if "id" not in data:
-            raise ValueError("Missing 'id' in RPC request")
-        if "method" not in data:
-            raise ValueError("Missing 'method' in RPC request")
-
-        return cls(
-            request_id=data["id"],
-            method=data["method"],
-            params=data.get("params")
-        )
+            data["params"] = self.params
+        return data

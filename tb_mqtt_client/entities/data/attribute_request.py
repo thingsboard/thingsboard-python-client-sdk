@@ -12,53 +12,46 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import Union
+from dataclasses import dataclass
+from typing import Optional, List, Dict
+from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
 
 
+@dataclass(slots=True, frozen=True)
 class AttributeRequest:
     """
-    Represents a request for attributes, including shared and client attributes.
-    This class is used to encapsulate the details of an attribute request.
-    If some scope is not needed, it can be set to None.
-    shared: list
-        A list of shared attribute keys to the request. If empty - all shared attributes will be requested.
-    client: list
-        A list of client attribute keys to the request. If empty - all client attributes will be requested.
+    Represents a request for device attributes, with optional client and shared attribute keys.
+    Automatically assigns a unique request ID via the build() method.
     """
+    request_id: int
+    shared_keys: Optional[List[str]] = None
+    client_keys: Optional[List[str]] = None
 
-    def __init__(self, shared: list, client: list):
-        self._id: Union[int, None] = None
-        self.shared_keys = shared
-        self.client_keys = client
+    def __new__(self, *args, **kwargs):
+        raise TypeError("Direct instantiation of AttributeRequest is not allowed. Use 'await AttributeRequest.build(...)'.")
 
-    @property
-    def id(self) -> Union[int, None]:
-        """
-        Get the unique ID for this attribute request.
-        :return: Unique identifier for the request or None if not set.
-        """
-        return self._id
+    def __repr__(self) -> str:
+        return f"<AttributeRequest(id={self.request_id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})>"
 
-    @id.setter
-    def id(self, value: int):
+    @classmethod
+    async def build(cls, shared_keys: Optional[List[str]] = None, client_keys: Optional[List[str]] = None) -> 'AttributeRequest':
         """
-        Set the unique ID for this attribute request.
-        :param value: Unique identifier to set for the request.
+        Build a new AttributeRequest with a unique request ID, using the global ID generator.
         """
-        if not isinstance(value, int):
-            raise ValueError("ID must be an integer.")
-        self._id = value
+        request_id = await AttributeRequestIdProducer.get_next()
+        self = object.__new__(cls)
+        object.__setattr__(self, 'request_id', request_id)
+        object.__setattr__(self, 'shared_keys', shared_keys)
+        object.__setattr__(self, 'client_keys', client_keys)
+        return self
 
-    def __repr__(self):
-        return f"<AttributeRequest(id={self._id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})>"
-
-    def to_payload_format(self) -> dict:
+    def to_payload_format(self) -> Dict[str, str]:
         """
-        Convert the attribute request to a payload format suitable for sending over MQTT to the platform.
+        Convert the attribute request into the expected MQTT payload format.
         """
-        formatted_request = {}
+        payload = {}
         if self.shared_keys is not None:
-            formatted_request["sharedKeys"] = ','.join(self.shared_keys)
+            payload["sharedKeys"] = ','.join(self.shared_keys)
         if self.client_keys is not None:
-            formatted_request["clientKeys"] = ','.join(self.client_keys)
-        return formatted_request
+            payload["clientKeys"] = ','.join(self.client_keys)
+        return payload

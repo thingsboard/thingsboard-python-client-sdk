@@ -15,6 +15,7 @@
 import asyncio
 import ssl
 from asyncio import sleep
+from contextlib import suppress
 from time import monotonic
 from typing import Optional, Callable, Awaitable, Dict, Union, Tuple
 
@@ -29,9 +30,11 @@ from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer, Att
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT, TELEMETRY_MESSAGE_RATE_LIMIT, \
     TELEMETRY_DATAPOINTS_RATE_LIMIT
-from tb_mqtt_client.constants.service_messages import SESSION_LIMITS_REQUEST_MESSAGE
+from tb_mqtt_client.entities.data.rpc_request import RPCRequest
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
+from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
 
 logger = get_logger(__name__)
 
@@ -47,12 +50,14 @@ class MQTTManager:
         self,
         client_id: str,
         main_stop_event: asyncio.Event,
+        message_dispatcher: MessageDispatcher,
         on_connect: Optional[Callable[[], Awaitable[None]]] = None,
         on_disconnect: Optional[Callable[[], Awaitable[None]]] = None,
-        rate_limits_handler: Optional[Callable[[str, bytes], Awaitable[None]]] = None,
+        rate_limits_handler: Optional[Callable[[RPCResponse], Awaitable[None]]] = None,
         rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
         self._main_stop_event = main_stop_event
+        self._message_dispatcher = message_dispatcher
         patch_gmqtt_protocol_connection_lost()
         patch_mqtt_handler_disconnect()
 
@@ -78,6 +83,7 @@ class MQTTManager:
         self._pending_subscriptions: Dict[int, asyncio.Future] = {}
         self._pending_unsubscriptions: Dict[int, asyncio.Future] = {}
         self._rpc_response_handler = rpc_response_handler or RPCResponseHandler()
+        self.register_handler(mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION, self._rpc_response_handler.handle)
 
         self._backpressure = BackpressureController(self._main_stop_event)
         self.__rate_limits_handler = rate_limits_handler
@@ -218,6 +224,7 @@ class MQTTManager:
             await self._on_connect_callback()
 
     def _on_disconnect_internal(self, client, reason_code=None, properties=None, exc=None):  # noqa
+        self._connected_event.clear()
         if reason_code is not None:
             reason_desc = DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
             logger.info("Disconnected from platform with reason code: %s (%s)", reason_code, reason_desc)
@@ -247,7 +254,6 @@ class MQTTManager:
         AttributeRequestIdProducer.reset()
         self._rpc_response_handler.clear()
         self._handlers.clear()
-        self._connected_event.clear()
         self.__rate_limits_retrieved = False
         self.__is_waiting_for_rate_limits_publish = True
         self._rate_limits_ready_event.clear()
@@ -269,14 +275,12 @@ class MQTTManager:
             asyncio.create_task(self._on_disconnect_callback())
 
     def _on_message_internal(self, client, topic: str, payload: bytes, qos, properties):
-        logger.trace("Received message by client %r on topic %s with payload %r, qos %s, properties %s",
+        logger.trace("Received message by client %r on topic %s with payload %r, qos %r, properties %r",
                      client, topic, payload, qos, properties)
         for topic_filter, handler in self._handlers.items():
             if self._match_topic(topic_filter, topic):
                 asyncio.create_task(handler(topic, payload))
                 return
-        if topic.startswith(mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC):
-            asyncio.create_task(self._rpc_response_handler.handle(topic, payload))
 
     def _on_publish_internal(self, client, mid):
         pass
@@ -350,27 +354,14 @@ class MQTTManager:
     async def __request_rate_limits(self):
         self.__is_waiting_for_rate_limits_publish = True
 
-        request_id = await RPCRequestIdProducer.get_next()
-        request_topic = f"v1/devices/me/rpc/request/{request_id}"
-        response_topic = f"v1/devices/me/rpc/response/{request_id}"
+        logger.debug("Publishing rate limits request to server...")
 
-        logger.debug("Publishing rate limits request to: %s", request_topic)
-        response_future = self._rpc_response_handler.register_request(request_id)
-
-        async def _handler(topic: str, payload: bytes):
-            try:
-                if self.__rate_limits_handler:
-                    await self.__rate_limits_handler(topic, payload)
-                response_future.set_result(payload)
-            except Exception as e:
-                logger.debug("Error handling rate limits response: %s", e)
-                response_future.set_exception(e)
-
-        self.register_handler(response_topic, _handler)
+        request = await RPCRequest.build("getSessionLimits")
+        topic, payload = self._message_dispatcher.build_rpc_request_payload(request)
+        response_future = self._rpc_response_handler.register_request(request.request_id, self.__rate_limits_handler)
 
         try:
-            logger.debug("Requesting rate limits via RPC...")
-            await self.publish(request_topic, SESSION_LIMITS_REQUEST_MESSAGE, qos=1, force=True)
+            await self.publish(topic, payload, qos=1, force=True)
             await asyncio.wait_for(response_future, timeout=10)
             logger.info("Successfully processed rate limits.")
             self.__rate_limits_retrieved = True
@@ -380,8 +371,6 @@ class MQTTManager:
             logger.warning("Timeout while waiting for rate limits.")
             # Keep __is_waiting_for_rate_limits_publish as True to prevent publishing
             # until rate limits are retrieved
-        finally:
-            self.unregister_handler(response_topic)
 
     @property
     def backpressure(self) -> BackpressureController:
@@ -405,15 +394,24 @@ class MQTTManager:
     async def _monitor_ack_timeouts(self):
         while not self._main_stop_event.is_set():
             now = monotonic()
-            expired = []
-            for mid, (future, topic, qos, payload_size, timestamp) in list(self._pending_publishes.items()):
-                if now - timestamp > self._PUBLISH_TIMEOUT:
-                    if not future.done():
-                        logger.warning("Publish timeout: mid=%s, topic=%s", mid, topic)
-                        result = PublishResult(topic, qos, payload_size, mid, reason_code=408)
-                        future.set_result(result)
-                    expired.append(mid)
-            for mid in expired:
-                self._pending_publishes.pop(mid, None)
+            await self.check_pending_publishes(now)
             # TODO: Add logic to handle expired futures, for subscriptions, rpc responses, etc.
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
+        await self.check_pending_publishes(monotonic())
+
+    async def check_pending_publishes(self, time_to_check):
+        expired = []
+        for mid, (future, topic, qos, payload_size, timestamp) in list(self._pending_publishes.items()):
+            if self._main_stop_event.is_set():
+                with suppress(asyncio.CancelledError):
+                    future.cancel()
+                continue
+            if time_to_check - timestamp > self._PUBLISH_TIMEOUT:
+                if not future.done():
+                    logger.warning("Publish timeout: mid=%s, topic=%s", mid, topic)
+                    result = PublishResult(topic, qos, payload_size, mid, reason_code=408)
+                    future.set_result(result)
+                expired.append(mid)
+        for mid in expired:
+            self._pending_publishes.pop(mid, None)
+

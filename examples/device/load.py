@@ -41,13 +41,12 @@ FUTURE_TIMEOUT = 1.0
 
 
 async def attribute_update_callback(update: AttributeUpdate):
-    logger.info("Received attribute update: %s", update.as_dict())
+    logger.info("Received attribute update: %r", update)
 
 
 async def rpc_request_callback(request: RPCRequest):
-    logger.info("Received RPC request: %s", request.to_dict())
+    logger.info("Received RPC request: %r", request)
     return RPCResponse(request_id=request.request_id, result={"status": "ok"})
-
 
 
 async def main():
@@ -55,6 +54,7 @@ async def main():
 
     def _shutdown_handler():
         stop_event.set()
+        asyncio.get_event_loop().run_until_complete(client.stop())
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -79,7 +79,7 @@ async def main():
     delivered_datapoints = 0
     pending_futures = []
 
-    delivery_start_ts = None  # Start time of first successful delivery
+    delivery_start_ts = None  # Start time of the first successful delivery
     delivery_end_ts = None    # End time of last successful delivery
 
     try:

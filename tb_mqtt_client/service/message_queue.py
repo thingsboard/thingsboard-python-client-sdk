@@ -74,14 +74,15 @@ class MessageQueue:
             logger.error("Message queue full. Dropping message for topic %s", topic)
             for future in payload.get_delivery_futures():
                 if future:
-                    future.set_result(False)
+                    future.set_result(PublishResult(topic, self.__qos, -1, len(payload), -1))
         return delivery_futures or None
 
     async def _dequeue_loop(self):
         logger.debug("MessageQueue dequeue loop started.")
         while self._active.is_set():
             try:
-                topic, payload, delivery_futures_or_none, count = await asyncio.wait_for(asyncio.get_event_loop().create_task(self._queue.get()), timeout=self._BATCH_TIMEOUT)
+                # topic, payload, delivery_futures_or_none, count = await asyncio.wait_for(asyncio.get_event_loop().create_task(self._queue.get()), timeout=self._BATCH_TIMEOUT)
+                topic, payload, delivery_futures_or_none, count = await self._wait_for_message()
                 logger.trace("MessageQueue dequeue: topic=%s, payload=%r, count=%d",
                              topic, payload, count)
                 if isinstance(payload, bytes):
@@ -109,7 +110,7 @@ class MessageQueue:
             logger.trace("Dequeued message for batching: topic=%s, device=%s",
                          topic, getattr(payload, 'device_name', 'N/A'))
 
-            batch: List[Tuple[str, Union[bytes, DeviceUplinkMessage], asyncio.Future[PublishResult], int]] = [(topic, payload, delivery_futures_or_none, count)]
+            batch: List[Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int]] = [(topic, payload, delivery_futures_or_none, count)]
             start = asyncio.get_event_loop().time()
             batch_size = payload.size
 
@@ -189,7 +190,11 @@ class MessageQueue:
                     logger.debug("Telemetry datapoint rate limit hit for topic %s: %r per %r seconds",
                                  topic, triggered_rate_limit[0], triggered_rate_limit[1])
                     retry_delay = self._telemetry_dp_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(topic, payload, datapoints, delay=retry_delay, delivery_futures=delivery_futures_or_none)
+                    self._schedule_delayed_retry(topic=topic,
+                                                 payload=payload,
+                                                 points=datapoints,
+                                                 delay=retry_delay,
+                                                 delivery_futures=delivery_futures_or_none)
                     return
         else:
             # For non-telemetry messages, we only need to check the message rate limit
@@ -227,7 +232,11 @@ class MessageQueue:
                                          i, id(f), publish_result, id(publish_future), publish_future)
 
                 logger.trace("Adding done callback to main publish future: %r, main publish future done state: %r", id(mqtt_future), mqtt_future.done())
-                mqtt_future.add_done_callback(resolve_attached)
+                if mqtt_future.done():
+                    logger.debug("Main publish future is already done, resolving immediately.")
+                    resolve_attached(mqtt_future)
+                else:
+                    mqtt_future.add_done_callback(resolve_attached)
         except Exception as e:
             logger.warning("Failed to publish to topic %s: %s. Scheduling retry.", topic, e)
             self._schedule_delayed_retry(topic, payload, datapoints, delay=.1)
@@ -258,7 +267,7 @@ class MessageQueue:
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)
 
-    async def _wait_for_message(self) -> Tuple[str, Union[bytes, DeviceUplinkMessage], int]:
+    async def _wait_for_message(self) -> Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int]:
         while self._active.is_set():
             try:
                 if not self._queue.empty():
@@ -276,16 +285,16 @@ class MessageQueue:
                 )
 
                 for task in pending:
-                    logger.debug("Cancelling pending task: %r, it is queue_task = %r", task, queue_task==task)
+                    logger.trace("Cancelling pending task: %r, it is queue_task = %r", task, queue_task==task)
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task
 
                 if queue_task in done:
-                    logger.debug("Retrieved message from queue: %r", queue_task.result())
+                    logger.trace("Retrieved message from queue: %r", queue_task.result())
                     return queue_task.result()
 
-                await asyncio.sleep(0)
+                await asyncio.sleep(0)  # Yield control to the event loop
 
             except asyncio.CancelledError:
                 break
