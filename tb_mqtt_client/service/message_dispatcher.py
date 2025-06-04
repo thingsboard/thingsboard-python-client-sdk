@@ -54,7 +54,7 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def build_attribute_request_payload(self, request: AttributeRequest) -> Tuple[str, bytes]:
+    def build_attribute_request(self, request: AttributeRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an attribute request response.
         This method should return a tuple of topic and payload bytes.
@@ -62,7 +62,14 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def build_rpc_request_payload(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+    def build_claim_request(self, claim_request) -> Tuple[str, bytes]:
+        """
+        Build the payload for a claim request.
+        This method should return a tuple of topic and payload bytes.
+        """
+
+    @abstractmethod
+    def build_rpc_request(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an RPC request.
         This method should return a tuple of topic and payload bytes.
@@ -70,7 +77,7 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def build_rpc_response_payload(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
         """
         Build the payload for an RPC response.
         This method should return a tuple of topic and payload bytes.
@@ -242,7 +249,7 @@ class JsonMessageDispatcher(MessageDispatcher):
             logger.debug("Exception details: %s", e, exc_info=True)
             raise
 
-    def build_attribute_request_payload(self, request: AttributeRequest) -> Tuple[str, bytes]:
+    def build_attribute_request(self, request: AttributeRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an attribute request response.
         :param request: The AttributeRequest to build the payload for.
@@ -256,7 +263,21 @@ class JsonMessageDispatcher(MessageDispatcher):
         logger.trace("Built attribute request payload for request: %r", request)
         return topic, payload
 
-    def build_rpc_request_payload(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+    def build_claim_request(self, claim_request) -> Tuple[str, bytes]:
+        """
+        Build the payload for a claim request.
+        :param claim_request: The ClaimRequest to build the payload for.
+        :return: A tuple of topic and payload bytes.
+        """
+        if not claim_request.secret_key:
+            raise ValueError("ClaimRequest must have a valid secret key.")
+
+        topic = mqtt_topics.DEVICE_CLAIM_TOPIC
+        payload = dumps(claim_request.to_payload_format())
+        logger.trace("Built claim request payload: %r", claim_request)
+        return topic, payload
+
+    def build_rpc_request(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
         """
         Build the payload for an RPC request.
         :param rpc_request: The RPC request to build the payload for.
@@ -272,7 +293,7 @@ class JsonMessageDispatcher(MessageDispatcher):
         return topic, payload
 
 
-    def build_rpc_response_payload(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
             """
             Build the payload for an RPC response.
             :param rpc_response: The RPC response to build the payload for.

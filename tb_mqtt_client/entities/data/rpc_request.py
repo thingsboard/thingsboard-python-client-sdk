@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Union, Optional, Dict, Any
 
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
-from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility, JSONCompatibleType
 
 
 @dataclass(slots=True, frozen=True)
@@ -48,17 +48,18 @@ class RPCRequest:
         return self
 
     @classmethod
-    async def build(cls, method: str, params: Optional[Any] = None) -> 'RPCRequest':
+    async def build(cls, method: str, params: Optional[JSONCompatibleType] = None) -> 'RPCRequest':
         """
         Constructs an RPCRequest with a unique request ID,
         using the RPCRequestIdProducer to ensure thread-safe ID generation.
         """
+        if not isinstance(method, str):
+            raise ValueError("Method must be a string")
+        validate_json_compatibility(params)
         request_id = await RPCRequestIdProducer.get_next()
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)
         object.__setattr__(self, 'method', method)
-        if params is not None:
-            validate_json_compatibility(params)
         object.__setattr__(self, 'params', params)
         return self
 

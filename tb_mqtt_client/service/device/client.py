@@ -12,28 +12,31 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from asyncio import sleep, wait_for, TimeoutError, Event
+from asyncio import sleep, wait_for, TimeoutError, Event, Future
 from random import choices
 from string import ascii_uppercase, digits
+from time import time
 from typing import Callable, Awaitable, Optional, Dict, Any, Union, List
 
-from orjson import loads, dumps
+from orjson import dumps
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility, JSONCompatibleType
 from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER, TELEMETRY_VALUES_PARAMETER
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler
 from tb_mqtt_client.service.device.handlers.requested_attributes_response_handler import \
@@ -82,12 +85,14 @@ class DeviceClient(BaseClient):
                                          message_dispatcher=self._message_dispatcher,
                                          on_connect=self._on_connect,
                                          on_disconnect=self._on_disconnect,
+                                         on_publish_result=self.__on_publish_result,
                                          rate_limits_handler=self._handle_rate_limit_response,
-                                         rpc_response_handler=self._rpc_response_handler,)
+                                         rpc_response_handler=self._rpc_response_handler)
 
         self._requested_attribute_response_handler = RequestedAttributeResponseHandler()
         self._attribute_updates_handler = AttributeUpdatesHandler()
         self._rpc_requests_handler = RPCRequestsHandler()
+        self.__claiming_response_future: Union[Future[bool], None] = None
 
     async def connect(self):
         logger.info("Connecting to platform at %s:%s", self._host, self._port)
@@ -152,52 +157,85 @@ class DeviceClient(BaseClient):
         #     await self._message_queue.shutdown()
         # TODO: Not sure if we need to shutdown the message queue here, as it might be handled by MQTTManager
 
-    async def send_telemetry(self, telemetry_data: Union[Dict[str, Any],
-                                                         TimeseriesEntry,
-                                                         List[TimeseriesEntry],
-                                                         List[Dict[str, Any]]]):
-        message = self._build_uplink_message_for_telemetry(telemetry_data)
-        futures = await self._message_queue.publish(topic=mqtt_topics.DEVICE_TELEMETRY_TOPIC,
+    async def send_telemetry(self,
+                             data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
+                             qos: int = 1,
+                             wait_for_publish: bool = True,
+                             timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
+        message = self._build_uplink_message_for_telemetry(data)
+        topic = mqtt_topics.DEVICE_TELEMETRY_TOPIC
+        futures = await self._message_queue.publish(topic=topic,
                                                     payload=message,
-                                                    datapoints_count=message.timeseries_datapoint_count())
-        return futures[0] if futures else None
+                                                    datapoints_count=message.timeseries_datapoint_count(),
+                                                    qos=qos or self._config.qos)
+        if wait_for_publish:
+            try:
+                return await wait_for(futures[0], timeout=timeout) if futures else None
+            except TimeoutError:
+                logger.warning("Timeout while waiting for telemetry publish result")
+                return PublishResult(topic, qos, -1, message.size, -1)
+        else:
+            return futures[0] if futures else None
 
-    async def send_attributes(self, attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]]):
+    async def send_attributes(self,
+                              attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
+                              qos: int = None,
+                              wait_for_publish: bool = True,
+                              timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
         message = self._build_uplink_message_for_attributes(attributes)
         futures = await self._message_queue.publish(topic=mqtt_topics.DEVICE_ATTRIBUTES_TOPIC,
                                                     payload=message,
-                                                    datapoints_count=message.attributes_datapoint_count())
+                                                    datapoints_count=message.attributes_datapoint_count(),
+                                                    qos=qos or self._config.qos)
         return futures[0] if futures else None
 
     async def send_rpc_request(self, rpc_request: RPCRequest,
                                callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> Awaitable[RPCResponse]:
         request_id = rpc_request.request_id or await RPCRequestIdProducer.get_next()
-        topic, payload = self._message_dispatcher.build_rpc_request_payload(rpc_request)
+        topic, payload = self._message_dispatcher.build_rpc_request(rpc_request)
 
         response_future = self._rpc_response_handler.register_request(request_id, callback)
 
         await self._message_queue.publish(topic=topic,
                                           payload=payload,
-                                          datapoints_count=0)
+                                          datapoints_count=0,
+                                          qos=self._config.qos)
         return response_future
 
     async def send_rpc_response(self, response: RPCResponse):
-        topic, payload = self._message_dispatcher.build_rpc_response_payload(response)
+        topic, payload = self._message_dispatcher.build_rpc_response(response)
         await self._message_queue.publish(topic=topic,
                                           payload=payload,
-                                          datapoints_count=0)
+                                          datapoints_count=0,
+                                          qos=self._config.qos)
 
     async def send_attribute_request(self,
                                      attribute_request: AttributeRequest,
-                                     callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
+                                     callback: Callable[[RequestedAttributeResponse], Awaitable[None]],):
         await self._requested_attribute_response_handler.register_request(attribute_request, callback)
 
-        topic, payload = self._message_dispatcher.build_attribute_request_payload(attribute_request)
+        topic, payload = self._message_dispatcher.build_attribute_request(attribute_request)
 
         await self._message_queue.publish(topic=topic,
                                           payload=payload,
-                                          datapoints_count=0)
+                                          datapoints_count=0,
+                                          qos=self._config.qos)
 
+    async def claim_device(self,
+                           claim_request: ClaimRequest,
+                           wait_for_publish: bool = True,
+                           timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
+        topic, payload = self._message_dispatcher.build_claim_request(claim_request)
+        self.__claiming_response_future = Future()
+        await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
+        if wait_for_publish:
+            try:
+                return await wait_for(self.__claiming_response_future, timeout=timeout)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for telemetry publish result")
+                return PublishResult(topic, 1, -1, len(payload), -1)
+        else:
+            return self.__claiming_response_future
 
     def set_attribute_update_callback(self, callback: Callable[[AttributeUpdate], Awaitable[None]]):
         self._attribute_updates_handler.set_callback(callback)
@@ -328,38 +366,68 @@ class DeviceClient(BaseClient):
             logger.exception("Failed to parse rate limits from server response: %s", e)
             return False
 
+    async def __on_publish_result(self, publish_result: PublishResult):
+        """
+        Callback for handling publish results.
+        This can be used to handle the result of a publish operation, such as logging or updating state.
+        """
+        if mqtt_topics.DEVICE_CLAIM_TOPIC == publish_result.topic:
+            if self.__claiming_response_future and not self.__claiming_response_future.done():
+                if publish_result.is_successful():
+                    self.__claiming_response_future.set_result(True)
+                    logger.debug("Device claimed successfully.")
+                else:
+                    self.__claiming_response_future.set_exception(
+                        Exception(f"Failed to claim device: {publish_result}"))
+                    logger.error("Failed to claim device: %r", publish_result)
+            return
+        if publish_result.is_successful():
+            logger.trace("Publish successful: %r", publish_result)
+        else:
+            logger.error("Publish failed: %r", publish_result)
+
     @staticmethod
     def _build_uplink_message_for_telemetry(payload: Union[Dict[str, Any],
                                                            TimeseriesEntry,
                                                            List[TimeseriesEntry],
                                                            List[Dict[str, Any]]]) -> DeviceUplinkMessage:
-        if isinstance(payload, dict):
-            if TELEMETRY_TIMESTAMP_PARAMETER in payload:
-                ts = payload.pop(TELEMETRY_TIMESTAMP_PARAMETER)
-                values = payload.pop(TELEMETRY_VALUES_PARAMETER, {})
-            else:
-                ts = None
-            payload = [TimeseriesEntry(k, v) for k, v in payload.items()]
+        timeseries_entries = []
+        if isinstance(payload, TimeseriesEntry):
+            timeseries_entries.append(payload)
+        elif isinstance(payload, dict):
+            timeseries_entries.extend(DeviceClient.__build_timeseries_entry_from_dict(payload))
+        elif isinstance(payload, list) and len(payload) > 0:
+            for item in payload:
+                if isinstance(item, dict):
+                    timeseries_entries.extend(DeviceClient.__build_timeseries_entry_from_dict(item))
+                elif isinstance(item, TimeseriesEntry):
+                    timeseries_entries.append(item)
+                else:
+                    raise ValueError(f"Unsupported item type in telemetry list: {type(item).__name__}")
+        else:
+            raise ValueError(f"Unsupported payload type for telemetry: {type(payload).__name__}")
 
         builder = DeviceUplinkMessageBuilder()
-        builder.add_telemetry(payload)
+        builder.add_telemetry(timeseries_entries)
         return builder.build()
 
     @staticmethod
-    def __build_timeseries_entry_from_dict(data: Dict[str, Any]) -> TimeseriesEntry:
+    def __build_timeseries_entry_from_dict(data: Dict[str, JSONCompatibleType]) -> List[TimeseriesEntry]:
+        result = []
         if TELEMETRY_TIMESTAMP_PARAMETER in data:
             ts = data.pop(TELEMETRY_TIMESTAMP_PARAMETER)
             values = data.pop(TELEMETRY_VALUES_PARAMETER, {})
-            if not isinstance(values, dict):
-                raise ValueError(f"Expected {TELEMETRY_VALUES_PARAMETER} to be a dict, got {type(values).__name__}")
-            values
         else:
-            ts = None
+            ts = time() * 1000
             values = data
+
+        if not isinstance(values, dict):
+            raise ValueError(f"Expected {TELEMETRY_VALUES_PARAMETER} to be a dict, got {type(values).__name__}")
+
         for key, value in values.items():
-            if not isinstance(key, str):
-                raise ValueError(f"Expected keys in {TELEMETRY_VALUES_PARAMETER} to be strings, got {type(key).__name__}")
-        return TimeseriesEntry(values, ts=ts)
+            result.append(TimeseriesEntry(key, value, ts=ts))
+
+        return result
 
     @staticmethod
     def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],

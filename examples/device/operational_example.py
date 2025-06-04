@@ -129,7 +129,7 @@ async def main():
         # 2. Single AttributeEntry
         single_entry = AttributeEntry("mode", "normal")
         logger.info("Sending single attribute: %s", single_entry)
-        delivery_future = await client.send_attributes(single_entry)
+        delivery_future = await client.send_attributes(single_entry, wait_for_publish=True, timeout=5)
         if delivery_future:
             logger.info("Awaiting delivery future for single attribute...")
             try:

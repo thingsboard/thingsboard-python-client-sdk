@@ -31,3 +31,9 @@ class PublishResult:
             "payload_size": self.payload_size,
             "reason_code": self.reason_code
         }
+
+    def is_successful(self) -> bool:
+        """
+        Check if the publish operation was successful based on the reason code.
+        """
+        return self.reason_code == 0

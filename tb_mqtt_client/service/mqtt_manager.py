@@ -53,6 +53,7 @@ class MQTTManager:
         message_dispatcher: MessageDispatcher,
         on_connect: Optional[Callable[[], Awaitable[None]]] = None,
         on_disconnect: Optional[Callable[[], Awaitable[None]]] = None,
+        on_publish_result: Optional[Callable[[PublishResult], Awaitable[None]]] = None,
         rate_limits_handler: Optional[Callable[[RPCResponse], Awaitable[None]]] = None,
         rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
@@ -72,6 +73,7 @@ class MQTTManager:
 
         self._on_connect_callback = on_connect
         self._on_disconnect_callback = on_disconnect
+        self._on_publish_result_callback = on_publish_result
 
         self._connected_event = asyncio.Event()
         self._connect_params = None  # Will be set in connect method
@@ -92,6 +94,15 @@ class MQTTManager:
         self.__is_gateway = False  # TODO: determine if this is a gateway or not
         self.__is_waiting_for_rate_limits_publish = True  # Start with True to prevent publishing before rate limits are retrieved
         self._rate_limits_ready_event = asyncio.Event()
+        self._claiming_future = None
+
+    # TODO: In case of implementing for gateway may be better to use a handler, to discuss
+    def register_claiming_future(self, future: asyncio.Future):
+        """
+        Register a future that will be set when the claiming process is complete.
+        This is used to ensure that the MQTT client does not publish messages before the claiming process is done.
+        """
+        self._claiming_future = future
 
     async def connect(self, host: str, port: int = 1883, username: Optional[str] = None,
                       password: Optional[str] = None, tls: bool = False,
@@ -221,7 +232,7 @@ class MQTTManager:
         await self.__request_rate_limits()
 
         if self._on_connect_callback:
-            await self._on_connect_callback()
+            asyncio.create_task(self._on_connect_callback())
 
     def _on_disconnect_internal(self, client, reason_code=None, properties=None, exc=None):  # noqa
         self._connected_event.clear()
@@ -279,6 +290,9 @@ class MQTTManager:
                      client, topic, payload, qos, properties)
         for topic_filter, handler in self._handlers.items():
             if self._match_topic(topic_filter, topic):
+                # TODO
+                # TODO: Add awaiting for created task to ensure it is handled properly
+                # TODO
                 asyncio.create_task(handler(topic, payload))
                 return
 
@@ -316,6 +330,8 @@ class MQTTManager:
         elif reason_code != 0:
             logger.warning("PUBACK received with error code %s for mid=%s", reason_code, mid)
 
+        if self._on_publish_result_callback:
+            self._on_publish_result_callback(publish_result)
 
     def _on_subscribe_internal(self, client, mid, qos, properties):
         logger.trace("Received SUBACK by client %r for mid=%s with qos %s, properties %s",
@@ -357,7 +373,7 @@ class MQTTManager:
         logger.debug("Publishing rate limits request to server...")
 
         request = await RPCRequest.build("getSessionLimits")
-        topic, payload = self._message_dispatcher.build_rpc_request_payload(request)
+        topic, payload = self._message_dispatcher.build_rpc_request(request)
         response_future = self._rpc_response_handler.register_request(request.request_id, self.__rate_limits_handler)
 
         try:

@@ -34,6 +34,9 @@ class DeviceConfig:
         self.client_cert: Optional[str] = os.getenv("TB_CLIENT_CERT")
         self.private_key: Optional[str] = os.getenv("TB_PRIVATE_KEY")
 
+        # Default values
+        self.qos: int = int(os.getenv("TB_QOS", 1))
+
     def use_tls_auth(self) -> bool:
         return all([self.ca_cert, self.client_cert, self.private_key])
 

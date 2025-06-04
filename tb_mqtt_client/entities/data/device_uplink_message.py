@@ -31,9 +31,9 @@ DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":""
 class DeviceUplinkMessage:
     device_name: Optional[str]
     device_profile: Optional[str]
-    attributes: Tuple[AttributeEntry, ...]
-    timeseries: Mapping[int, Tuple[TimeseriesEntry, ...]]
-    delivery_futures: Tuple[Optional[asyncio.Future], ...]
+    attributes: Tuple[AttributeEntry]
+    timeseries: Mapping[int, Tuple[TimeseriesEntry]]
+    delivery_futures: List[Optional[asyncio.Future[PublishResult]]]
     _size: int
 
     def __new__(cls, *args, **kwargs):
@@ -79,7 +79,7 @@ class DeviceUplinkMessage:
     def has_timeseries(self) -> bool:
         return bool(self.timeseries)
 
-    def get_delivery_futures(self) -> Tuple[Optional[asyncio.Future], ...]:
+    def get_delivery_futures(self) -> List[Optional[asyncio.Future[PublishResult]]]:
         return self.delivery_futures
 
 

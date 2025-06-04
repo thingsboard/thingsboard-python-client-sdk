@@ -14,14 +14,17 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Awaitable, Dict, Any, Union
+from typing import Callable, Awaitable, Dict, Any, Union, List
 
 import uvloop
 
 from tb_mqtt_client.common.exceptions import exception_handler
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.publish_result import PublishResult
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 exception_handler.install_asyncio_handler()
@@ -29,8 +32,10 @@ exception_handler.install_asyncio_handler()
 
 class BaseClient(ABC):
     """
-    Abstract base class for ThingsBoard clients.
+    Abstract base class for clients.
     """
+
+    DEFAULT_TIMEOUT = 3
 
     def __init__(self, host: str, port: int, client_id: str):
         self._host = host
@@ -41,7 +46,7 @@ class BaseClient(ABC):
     @abstractmethod
     async def connect(self):
         """
-        Connect to the ThingsBoard platform over MQTT.
+        Connect to the platform over MQTT.
         """
         pass
 
@@ -53,20 +58,47 @@ class BaseClient(ABC):
         pass
 
     @abstractmethod
-    async def send_telemetry(self, telemetry_data: Dict[str, Any]):
+    async def send_telemetry(self, telemetry_data: Union[TimeseriesEntry,
+                                                         List[TimeseriesEntry],
+                                                         Dict[str, Any],
+                                                         List[Dict[str, Any]]],
+                             wait_for_publish: bool = True,
+                             timeout: int = DEFAULT_TIMEOUT) -> Union[asyncio.Future[PublishResult], PublishResult]:
         """
         Send telemetry data.
 
-        :param telemetry_data: Dictionary of telemetry key-values.
+        :param telemetry_data: Dictionary of telemetry data, a single TimeseriesEntry,
+                                or a list of TimeseriesEntry or dictionaries.
+        :param wait_for_publish: If True, wait for the publishing result. Default is True.
+        :param timeout: Timeout for the publish operation if `wait_for_publish` is True.
+                                In seconds, defaults to 3 seconds.
+        :return: Future or PublishResult depending on `wait_for_publish`.
         """
         pass
 
     @abstractmethod
-    async def send_attributes(self, attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]]):
+    async def send_attributes(self,
+                              attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
+                              wait_for_publish: bool = True,
+                              timeout: int = DEFAULT_TIMEOUT) -> Union[asyncio.Future[PublishResult], PublishResult]:
         """
-        Send client-side attributes.
+        Send client attributes.
 
-        :param attributes: Dictionary of attributes.
+        :param attributes: Dictionary of attributes or a single AttributeEntry or a list of AttributeEntries.
+        :param wait_for_publish: If True, wait for the publishing result. Default is True.
+        :param timeout: Timeout for the publish operation if `wait_for_publish` is True.
+                        In seconds, defaults to 3 seconds.
+        :return: Future or PublishResult depending on `wait_for_publish`.
+        """
+        pass
+
+    @abstractmethod
+    async def claim_device(self, claim_request: ClaimRequest) -> Union[asyncio.Future[PublishResult], PublishResult]:
+        """
+        Claim a device using the provided ClaimRequest.
+
+        :param claim_request: The ClaimRequest instance contains secret key and duration.
+        :return: Future or PublishResult depending on the implementation.
         """
         pass
 
