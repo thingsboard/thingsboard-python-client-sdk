@@ -84,9 +84,6 @@ class MessageQueue:
                 topic, payload, delivery_futures_or_none, datapoints, qos = await self._wait_for_message()
                 logger.trace("MessageQueue dequeue: topic=%s, payload=%r, count=%d",
                              topic, payload, datapoints)
-                if isinstance(payload, bytes):
-                    await self._try_publish(topic, payload, datapoints, delivery_futures_or_none)
-                    continue
                 logger.trace("Dequeued message: delivery_future id: %r topic=%s, type=%s, datapoints=%d",
                                  id(delivery_futures_or_none[0]) if delivery_futures_or_none else -1,
                              topic, type(payload).__name__, datapoints)
@@ -140,7 +137,7 @@ class MessageQueue:
 
             if batch:
                 logger.trace("Batching completed: %d messages, total size=%d", len(batch), batch_size)
-                messages = [device_uplink_message for _, device_uplink_message, _, _ in batch]
+                messages = [device_uplink_message for _, device_uplink_message, _, _, _ in batch]
 
                 topic_payloads = self._dispatcher.build_uplink_payloads(messages)
 
@@ -230,7 +227,7 @@ class MessageQueue:
             logger.trace("Trying to publish topic=%s, payload size=%d, attached future id=%r",
                              topic, len(payload), id(delivery_futures_or_none[0]) if delivery_futures_or_none else -1)
 
-            mqtt_future = await self._mqtt_manager.publish(message_or_topic=topic, payload=payload, qos=self.__qos)
+            mqtt_future = await self._mqtt_manager.publish(message_or_topic=topic, payload=payload, qos=qos)
 
             if delivery_futures_or_none is not None:
                 def resolve_attached(publish_future: asyncio.Future):
@@ -239,7 +236,7 @@ class MessageQueue:
                     except Exception as exc:
                         logger.warning("Publish failed with exception: %s", exc)
                         logger.debug("Resolving delivery futures with failure:", exc_info=exc)
-                        publish_result = PublishResult(topic, self.__qos, -1, len(payload), -1)
+                        publish_result = PublishResult(topic, qos, -1, len(payload), -1)
 
                     for i, f in enumerate(delivery_futures_or_none):
                         if f is not None and not f.done():
@@ -353,14 +350,6 @@ class MessageQueue:
                     future.set_result(False)
             self._queue.task_done()
         logger.debug("Message queue cleared.")
-
-    @property
-    def qos(self) -> int:
-        return self.__qos
-
-    @qos.setter
-    def qos(self, qos: int):
-        self.__qos = qos
 
     async def _rate_limit_refill_loop(self):
         try:

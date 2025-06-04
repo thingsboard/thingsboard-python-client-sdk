@@ -12,11 +12,25 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from enum import Enum
 from dataclasses import dataclass
+from traceback import format_exception
 from typing import Union, Optional, Dict, Any
 
-from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.constants.json_typing import validate_json_compatibility, JSONCompatibleType
 
+
+class RPCStatus(Enum):
+    """
+    Enum representing the status of an RPC call.
+    """
+    SUCCESS = "SUCCESS"
+    ERROR = "ERROR"
+    TIMEOUT = "TIMEOUT"
+    NOT_FOUND = "NOT_FOUND"
+
+    def __str__(self):
+        return self.value
 
 @dataclass(slots=True, frozen=True)
 class RPCResponse:
@@ -29,6 +43,7 @@ class RPCResponse:
         error: Optional error information if the RPC failed.
     """
     request_id: Union[int, str]
+    status: RPCStatus = None
     result: Optional[Any] = None
     error: Optional[Union[str, Dict[str, Any]]] = None
 
@@ -39,16 +54,38 @@ class RPCResponse:
         return f"RPCResponse(request_id={self.request_id}, result={self.result}, error={self.error})"
 
     @classmethod
-    def build(cls, request_id: Union[int, str], result: Optional[Any] = None, error: Optional[Union[str, Dict[str, Any]]] = None) -> 'RPCResponse':
+    def build(cls, request_id: Union[int, str], result: Optional[Any] = None, error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'RPCResponse':
         """
         Constructs an RPCResponse explicitly.
         """
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)
-        validate_json_compatibility(result)
+
+        if error is not None:
+            if not isinstance(error, (str, dict, BaseException)):
+                raise ValueError("Error must be a string, dictionary, or an exception instance")
+
+            object.__setattr__(self, 'status', RPCStatus.ERROR)
+
+            if isinstance(error, BaseException):
+                try:
+                    raise error
+                except BaseException as e:
+                    error = {
+                        "message": str(e),
+                        "type": type(e).__name__,
+                        "details": ''.join(format_exception(type(e), e, e.__traceback__))
+                    }
+
+            validate_json_compatibility(error)
+            object.__setattr__(self, 'error', error)
+
+        else:
+            object.__setattr__(self, 'status', RPCStatus.SUCCESS)
+            object.__setattr__(self, 'error', None)
+            validate_json_compatibility(result)
+
         object.__setattr__(self, 'result', result)
-        validate_json_compatibility(error)
-        object.__setattr__(self, 'error', error)
         return self
 
     def to_payload_format(self) -> Dict[str, Any]:

@@ -331,7 +331,7 @@ class MQTTManager:
             logger.warning("PUBACK received with error code %s for mid=%s", reason_code, mid)
 
         if self._on_publish_result_callback:
-            self._on_publish_result_callback(publish_result)
+            asyncio.create_task(self._on_publish_result_callback(publish_result))
 
     def _on_subscribe_internal(self, client, mid, qos, properties):
         logger.trace("Received SUBACK by client %r for mid=%s with qos %s, properties %s",

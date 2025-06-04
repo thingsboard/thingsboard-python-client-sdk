@@ -25,7 +25,7 @@ from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
-from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse, RPCStatus
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
 
@@ -43,19 +43,28 @@ async def attribute_update_callback(update: AttributeUpdate):
     logger.info("Received attribute update: %r", update)
 
 
-async def rpc_request_callback(request: RPCRequest):
+async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
     """
     Callback function to handle RPC requests.
     :param request: The RPC request object.
-    :return: A RPC response object.
+    :return: An RPCResponse object.
     """
     logger.info("Received RPC request: %r", request)
-    response_data = {
-        "status": "success",
-    }
-    response = RPCResponse(request_id=request.request_id,
-                           result=response_data,
-                           error=None)
+
+    if request.method == "getError":
+        # Simulate an error response for demonstration purposes
+        logger.error("Simulated error for method: %s", request.method)
+        try:
+            # Simulate some processing that raises an error
+            raise RuntimeError("Simulated processing error")
+        except RuntimeError as e:
+            return RPCResponse.build(request_id=request.request_id, error=e)
+    else:
+        response_data = {
+            "message": f"Response for method {request.method}",
+            "params": request.params or {}
+        }
+        response = RPCResponse.build(request_id=request.request_id, result=response_data)
     return response
 
 async def rpc_response_callback(response: RPCResponse):
@@ -109,42 +118,14 @@ async def main():
             "hardwareModel": "TB-SDK-Device"
         }
         logger.info("Sending attributes...")
-        delivery_future = await client.send_attributes(raw_dict)
-        if delivery_future:
-            logger.info("Awaiting delivery future for raw attributes...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("Raw attributes sent: %s, delivery result: %s", raw_dict, result)
-        else:
-            logger.warning("Delivery future is None, raw attributes may not be sent.")
-
-        logger.info(f"Raw attributes sent: {raw_dict}")
+        raw_publish_result = await client.send_attributes(raw_dict)
+        logger.info(f"Raw attributes sent: {raw_dict} with result: {raw_publish_result}")
 
         # 2. Single AttributeEntry
         single_entry = AttributeEntry("mode", "normal")
         logger.info("Sending single attribute: %s", single_entry)
-        delivery_future = await client.send_attributes(single_entry, wait_for_publish=True, timeout=5)
-        if delivery_future:
-            logger.info("Awaiting delivery future for single attribute...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("Single attribute sent: %s, delivery result: %s", single_entry, result)
-        else:
-            logger.warning("Delivery future is None, single attribute may not be sent.")
-
-        logger.info("Single attribute sent: %s", single_entry)
+        single_attribute_publish_result = await client.send_attributes(single_entry)
+        logger.info(f"Single attribute sent: {single_entry} with result: {single_attribute_publish_result}")
 
         # 3. List of AttributeEntry
         attr_entries = [
@@ -152,20 +133,8 @@ async def main():
             AttributeEntry("calibrated", True)
         ]
         logger.info("Sending list of attributes: %s", attr_entries)
-        delivery_future = await client.send_attributes(attr_entries)
-        if delivery_future:
-            logger.info("Awaiting delivery future for list of attributes...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("List of attributes sent: %s, delivery result: %s", attr_entries, result)
-        else:
-            logger.warning("Delivery future is None, list of attributes may not be sent.")
+        attributes_list_publish_result = await client.send_attributes(attr_entries)
+        logger.info("List of attributes sent: %s with result: %s", attr_entries, attributes_list_publish_result)
 
         # --- Telemetry ---
 
@@ -175,66 +144,23 @@ async def main():
             "humidity": 60
         }
         logger.info("Sending raw telemetry...")
-        delivery_future = await client.send_telemetry(raw_dict)
-        if delivery_future:
-            logger.info("Awaiting delivery future for raw telemetry...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("Raw telemetry sent: %s, delivery result: %s", raw_dict, result)
-        else:
-            logger.warning("Delivery future is None, raw telemetry may not be sent.")
-
-        logger.info(f"Raw telemetry sent: {raw_dict}")
+        raw_telemetry_publish_result = await client.send_telemetry(raw_dict)
+        logger.info(f"Raw telemetry sent: {raw_dict} with result: {raw_telemetry_publish_result}")
 
         # 2. Single TelemetryEntry (with ts)
         single_entry = TimeseriesEntry("batteryLevel", randint(0, 100))
         logger.info("Sending single telemetry: %s", single_entry)
         delivery_future = await client.send_telemetry(single_entry)
-        if delivery_future:
-            logger.info("Awaiting delivery future for single telemetry...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("Single telemetry sent: %s, delivery result: %s", single_entry, result)
-        else:
-            logger.warning("Delivery future is None, single telemetry may not be sent.")
-
-        logger.info("Single telemetry sent: %s", single_entry)
+        logger.info(f"Single telemetry sent: {single_entry} with delivery future: {delivery_future}")
 
         # 3. List of TelemetryEntry with mixed timestamps
 
         telemetry_entries = []
         for i in range(1):
             telemetry_entries.append(TimeseriesEntry("temperature", i, ts=int(datetime.now(UTC).timestamp() * 1000)-i))
-        ts_now = int(datetime.now(UTC).timestamp() * 1000)
         logger.info("Sending list of telemetry entries with mixed timestamps...")
-        delivery_future = await client.send_telemetry(telemetry_entries)
-        if delivery_future:
-            logger.info("Awaiting delivery future for list of telemetry...")
-            try:
-                result = await asyncio.wait_for(delivery_future, timeout=5)
-            except asyncio.TimeoutError:
-                logger.warning("Delivery future timed out after 5 seconds.")
-                result = False
-            except Exception as e:
-                logger.error("Error while awaiting delivery future: %s", e)
-                result = False
-            logger.info("List of telemetry sent: %s, it took %r milliseconds", len(telemetry_entries),
-                        int(datetime.now(UTC).timestamp() * 1000) - ts_now)
-            logger.info("Delivery result: %s", result)
-        else:
-            logger.warning("Delivery future is None, list of telemetry may not be sent.")
+        telemetry_list_publish_result = await client.send_telemetry(telemetry_entries)
+        logger.info("List of telemetry entries sent: %s with result: %s", telemetry_entries, telemetry_list_publish_result)
 
         # --- Attribute Request ---
 

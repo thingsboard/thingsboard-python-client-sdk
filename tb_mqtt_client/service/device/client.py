@@ -183,11 +183,19 @@ class DeviceClient(BaseClient):
                               wait_for_publish: bool = True,
                               timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
         message = self._build_uplink_message_for_attributes(attributes)
-        futures = await self._message_queue.publish(topic=mqtt_topics.DEVICE_ATTRIBUTES_TOPIC,
+        topic = mqtt_topics.DEVICE_ATTRIBUTES_TOPIC
+        futures = await self._message_queue.publish(topic=topic,
                                                     payload=message,
                                                     datapoints_count=message.attributes_datapoint_count(),
                                                     qos=qos or self._config.qos)
-        return futures[0] if futures else None
+        if wait_for_publish:
+            try:
+                return await wait_for(futures[0], timeout=timeout) if futures else None
+            except TimeoutError:
+                logger.warning("Timeout while waiting for telemetry publish result")
+                return PublishResult(topic, qos, -1, message.size, -1)
+        else:
+            return futures[0] if futures else None
 
     async def send_rpc_request(self, rpc_request: RPCRequest,
                                callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> Awaitable[RPCResponse]:
