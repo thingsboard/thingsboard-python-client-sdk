@@ -252,6 +252,9 @@ class MessageQueue:
                     mqtt_future.add_done_callback(resolve_attached)
         except Exception as e:
             logger.warning("Failed to publish to topic %s: %s. Scheduling retry.", topic, e)
+            logger.debug("Scheduling retry for topic=%s, payload size=%d, qos=%d",
+                         topic, len(payload), qos)
+            logger.debug("error details: %s", e, exc_info=True)
             self._schedule_delayed_retry(topic, payload, datapoints, qos, delay=.1)
 
     def _schedule_delayed_retry(self, topic: str, payload: bytes, datapoints: int, qos: int, delay: float,

@@ -17,7 +17,7 @@ import ssl
 from asyncio import sleep
 from contextlib import suppress
 from time import monotonic
-from typing import Optional, Callable, Awaitable, Dict, Union, Tuple
+from typing import Optional, Callable, Dict, Union, Tuple, Coroutine, Any
 
 from gmqtt import Client as GMQTTClient, Message, Subscription
 
@@ -51,10 +51,10 @@ class MQTTManager:
         client_id: str,
         main_stop_event: asyncio.Event,
         message_dispatcher: MessageDispatcher,
-        on_connect: Optional[Callable[[], Awaitable[None]]] = None,
-        on_disconnect: Optional[Callable[[], Awaitable[None]]] = None,
-        on_publish_result: Optional[Callable[[PublishResult], Awaitable[None]]] = None,
-        rate_limits_handler: Optional[Callable[[RPCResponse], Awaitable[None]]] = None,
+        on_connect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+        on_disconnect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+        on_publish_result: Optional[Callable[[PublishResult], Coroutine[Any, Any, None]]] = None,
+        rate_limits_handler: Optional[Callable[[RPCResponse], Coroutine[Any, Any, None]]] = None,
         rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
         self._main_stop_event = main_stop_event
@@ -77,7 +77,7 @@ class MQTTManager:
 
         self._connected_event = asyncio.Event()
         self._connect_params = None  # Will be set in connect method
-        self._handlers: Dict[str, Callable[[str, bytes], Awaitable[None]]] = {}
+        self._handlers: Dict[str, Callable[[str, bytes], Coroutine[Any, Any, None]]] = {}
 
         self._pending_publishes: Dict[int, Tuple[asyncio.Future[PublishResult], str, int, int, float]] = {}
         self._publish_monitor_task = asyncio.create_task(self._monitor_ack_timeouts())
@@ -205,7 +205,7 @@ class MQTTManager:
         self._pending_unsubscriptions[mid] = unsubscribe_future
         return unsubscribe_future
 
-    def register_handler(self, topic_filter: str, handler: Callable[[str, bytes], Awaitable[None]]):
+    def register_handler(self, topic_filter: str, handler: Callable[[str, bytes], Coroutine[Any, Any, None]]):
         self._handlers[topic_filter] = handler
 
     def unregister_handler(self, topic_filter: str):
@@ -290,9 +290,6 @@ class MQTTManager:
                      client, topic, payload, qos, properties)
         for topic_filter, handler in self._handlers.items():
             if self._match_topic(topic_filter, topic):
-                # TODO
-                # TODO: Add awaiting for created task to ensure it is handled properly
-                # TODO
                 asyncio.create_task(handler(topic, payload))
                 return
 
