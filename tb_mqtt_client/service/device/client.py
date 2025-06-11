@@ -36,6 +36,8 @@ from tb_mqtt_client.entities.data.requested_attribute_response import RequestedA
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.provision_client import ProvisionClient
+from tb_mqtt_client.entities.data.provision_request import ProvisionRequest
 from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler
@@ -447,3 +449,19 @@ class DeviceClient(BaseClient):
         builder = DeviceUplinkMessageBuilder()
         builder.add_attributes(payload)
         return builder.build()
+
+    @staticmethod
+    async def provision(host, provision_request: 'ProvisionRequest', port=1883, timeout=3.0):
+        provision_client = ProvisionClient(
+            host=host,
+            port=port,
+            provision_request=provision_request
+        )
+
+        device_credentials = None
+        try:
+            device_credentials = await wait_for(provision_client.provision(), timeout=timeout)
+        except TimeoutError:
+            logger.error("Provisioning timed out")
+
+        return device_credentials
