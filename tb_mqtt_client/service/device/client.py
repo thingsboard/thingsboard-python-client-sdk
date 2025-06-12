@@ -40,6 +40,7 @@ from tb_mqtt_client.entities.provision_client import ProvisionClient
 from tb_mqtt_client.entities.data.provision_request import ProvisionRequest
 from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
+from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler
 from tb_mqtt_client.service.device.handlers.requested_attributes_response_handler import \
     RequestedAttributeResponseHandler
@@ -95,6 +96,11 @@ class DeviceClient(BaseClient):
         self._attribute_updates_handler = AttributeUpdatesHandler()
         self._rpc_requests_handler = RPCRequestsHandler()
         self.__claiming_response_future: Union[Future[bool], None] = None
+
+        self._firmware_updater = FirmwareUpdater(self)
+
+    async def update_firmware(self):
+        await self._firmware_updater.update()
 
     async def connect(self):
         logger.info("Connecting to platform at %s:%s", self._host, self._port)
