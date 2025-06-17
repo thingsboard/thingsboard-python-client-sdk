@@ -1,9 +1,23 @@
+#  Copyright 2025 ThingsBoard
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.entities.data.provision_request import ProvisionRequest, ProvisioningCredentialsType
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType
 
 
 class ProvisioningResponseStatus(Enum):
@@ -27,7 +41,7 @@ class ProvisioningResponse:
         return f"ProvisioningResponse(status={self.status}, result={self.result}, error={self.error})"
 
     @classmethod
-    def build(cls, provision_request: 'ProvisionRequest', payload: dict) -> 'ProvisioningResponse':
+    def build(cls, provision_request: 'ProvisioningRequest', payload: dict) -> 'ProvisioningResponse':
         """
         Constructs a ProvisioningResponse explicitly.
         """
@@ -47,7 +61,7 @@ class ProvisioningResponse:
         return self
 
     @staticmethod
-    def _build_device_config(provision_request: 'ProvisionRequest', payload: dict):
+    def _build_device_config(provision_request: 'ProvisioningRequest', payload: dict):
         device_config = DeviceConfig()
         device_config.host = provision_request.host
         device_config.port = provision_request.port

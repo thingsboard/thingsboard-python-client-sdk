@@ -20,15 +20,15 @@ from orjson import loads
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.constants.mqtt_topics import PROVISION_RESPONSE_TOPIC
-from tb_mqtt_client.entities.data.provision_request import ProvisionRequest
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
 from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
 
 logger = get_logger(__name__)
 
 
-class ProvisionClient:
-    def __init__(self, host, port, provision_request: 'ProvisionRequest'):
+class ProvisioningClient:
+    def __init__(self, host, port, provision_request: 'ProvisioningRequest'):
         self._log = logger
         self._stop_event = Event()
         self._host = host

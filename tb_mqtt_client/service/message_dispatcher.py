@@ -26,7 +26,7 @@ from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
-from tb_mqtt_client.entities.data.provision_request import ProvisionRequest, ProvisioningCredentialsType
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
@@ -315,14 +315,14 @@ class JsonMessageDispatcher(MessageDispatcher):
         logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
         return topic, payload
 
-    def build_provision_request(self, provision_request: 'ProvisionRequest') -> Tuple[str, bytes]:
+    def build_provision_request(self, provision_request: 'ProvisioningRequest') -> Tuple[str, bytes]:
         """
         Build the payload for a device provisioning request.
-        :param provision_request: The ProvisionRequest to build the payload for.
+        :param provision_request: The ProvisioningRequest to build the payload for.
         :return: A tuple of topic and payload bytes.
         """
         if not provision_request.credentials.provision_device_key or not provision_request.credentials.provision_device_secret:
-            raise ValueError("ProvisionRequest must have valid device key and secret.")
+            raise ValueError("ProvisioningRequest must have valid device key and secret.")
 
         topic = mqtt_topics.PROVISION_REQUEST_TOPIC
         request = {}

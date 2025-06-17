@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Optional
 
 
-class ProvisionRequest:
+class ProvisioningRequest:
     def __init__(self, host, credentials: 'ProvisioningCredentials', port: str = "1883",
                  device_name: Optional[str] = None, gateway: Optional[bool] = False):
         self.host = host
@@ -39,14 +39,14 @@ class ProvisioningCredentials:
         self.credentials_type = None
 
 
-class AccessTokenProvisionCredentials(ProvisioningCredentials):
+class AccessTokenProvisioningCredentials(ProvisioningCredentials):
     def __init__(self, provision_device_key: str, provision_device_secret: str, access_token: str):
         super().__init__(provision_device_key, provision_device_secret)
         self.access_token = access_token
         self.credentials_type = ProvisioningCredentialsType.ACCESS_TOKEN
 
 
-class BasicProvisionCredentials(ProvisioningCredentials):
+class BasicProvisioningCredentials(ProvisioningCredentials):
     def __init__(self, provision_device_key, provision_device_secret,
                  client_id: Optional[str] = None, username: Optional[str] = None, password: Optional[str] = None):
         super().__init__(provision_device_key, provision_device_secret)
@@ -56,7 +56,7 @@ class BasicProvisionCredentials(ProvisioningCredentials):
         self.credentials_type = ProvisioningCredentialsType.MQTT_BASIC
 
 
-class X509ProvisionCredentials(ProvisioningCredentials):
+class X509ProvisioningCredentials(ProvisioningCredentials):
     def __init__(self, provision_device_key, provision_device_secret,
                  private_key_path: str, public_cert_path: str, ca_cert_path: str):
         super().__init__(provision_device_key, provision_device_secret)

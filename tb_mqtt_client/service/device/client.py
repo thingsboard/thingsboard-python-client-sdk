@@ -36,8 +36,8 @@ from tb_mqtt_client.entities.data.requested_attribute_response import RequestedA
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.provision_client import ProvisionClient
-from tb_mqtt_client.entities.data.provision_request import ProvisionRequest
+from tb_mqtt_client.entities.provisioning_client import ProvisioningClient
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
@@ -457,8 +457,8 @@ class DeviceClient(BaseClient):
         return builder.build()
 
     @staticmethod
-    async def provision(provision_request: 'ProvisionRequest', timeout=3.0):
-        provision_client = ProvisionClient(
+    async def provision(provision_request: 'ProvisioningRequest', timeout=3.0):
+        provision_client = ProvisioningClient(
             host=provision_request.host,
             port=provision_request.port,
             provision_request=provision_request
