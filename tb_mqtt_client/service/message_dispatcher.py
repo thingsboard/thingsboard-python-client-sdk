@@ -26,6 +26,7 @@ from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
+from tb_mqtt_client.entities.data.provision_request import ProvisionRequest, ProvisioningCredentialsType
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
@@ -80,6 +81,14 @@ class MessageDispatcher(ABC):
     def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
         """
         Build the payload for an RPC response.
+        This method should return a tuple of topic and payload bytes.
+        """
+        pass
+
+    @abstractmethod
+    def build_provision_request(self, provision_request) -> Tuple[str, bytes]:
+        """
+        Build the payload for a device provisioning request.
         This method should return a tuple of topic and payload bytes.
         """
         pass
@@ -292,20 +301,58 @@ class JsonMessageDispatcher(MessageDispatcher):
                      rpc_request.request_id, payload)
         return topic, payload
 
-
     def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
-            """
-            Build the payload for an RPC response.
-            :param rpc_response: The RPC response to build the payload for.
-            :return: A tuple of topic and payload bytes.
-            """
-            if not rpc_response.request_id:
-                raise ValueError("RPCResponse must have a valid request ID.")
+        """
+        Build the payload for an RPC response.
+        :param rpc_response: The RPC response to build the payload for.
+        :return: A tuple of topic and payload bytes.
+        """
+        if not rpc_response.request_id:
+            raise ValueError("RPCResponse must have a valid request ID.")
 
-            payload = dumps(rpc_response.to_payload_format())
-            topic = mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC + str(rpc_response.request_id)
-            logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
-            return topic, payload
+        payload = dumps(rpc_response.to_payload_format())
+        topic = mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC + str(rpc_response.request_id)
+        logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
+        return topic, payload
+
+    def build_provision_request(self, provision_request: 'ProvisionRequest') -> Tuple[str, bytes]:
+        """
+        Build the payload for a device provisioning request.
+        :param provision_request: The ProvisionRequest to build the payload for.
+        :return: A tuple of topic and payload bytes.
+        """
+        if not provision_request.credentials.provision_device_key or not provision_request.credentials.provision_device_secret:
+            raise ValueError("ProvisionRequest must have valid device key and secret.")
+
+        topic = mqtt_topics.PROVISION_REQUEST_TOPIC
+        request = {}
+        request["provisionDeviceKey"] = provision_request.credentials.provision_device_key
+        request["provisionDeviceSecret"] = provision_request.credentials.provision_device_secret
+
+        if provision_request.device_name:
+            request["deviceName"] = provision_request.device_name
+
+        if provision_request.gateway:
+            request["gateway"] = provision_request.gateway
+
+        if provision_request.credentials.credentials_type and \
+                provision_request.credentials.credentials_type == ProvisioningCredentialsType.ACCESS_TOKEN:
+            request["token"] = provision_request.credentials.access_token
+            request["credentialsType"] = provision_request.credentials.credentials_type.value
+
+        if provision_request.credentials.credentials_type == ProvisioningCredentialsType.MQTT_BASIC:
+            request["username"] = provision_request.credentials.username
+            request["password"] = provision_request.credentials.password
+            request["clientId"] = provision_request.credentials.client_id
+            request["credentialsType"] = provision_request.credentials.credentials_type.value
+
+        if provision_request.credentials.credentials_type == ProvisioningCredentialsType.X509_CERTIFICATE:
+            request["hash"] = provision_request.credentials.public_cert
+            request["credentialsType"] = provision_request.credentials.credentials_type.value
+
+        payload = dumps(request)
+        logger.trace("Built provision request payload: %r", provision_request)
+        return topic, payload
 
     @staticmethod
     def build_payload(msg: DeviceUplinkMessage, build_timeseries_payload) -> bytes:

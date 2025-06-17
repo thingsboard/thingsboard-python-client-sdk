@@ -457,10 +457,10 @@ class DeviceClient(BaseClient):
         return builder.build()
 
     @staticmethod
-    async def provision(host, provision_request: 'ProvisionRequest', port=1883, timeout=3.0):
+    async def provision(provision_request: 'ProvisionRequest', timeout=3.0):
         provision_client = ProvisionClient(
-            host=host,
-            port=port,
+            host=provision_request.host,
+            port=provision_request.port,
             provision_request=provision_request
         )
 
