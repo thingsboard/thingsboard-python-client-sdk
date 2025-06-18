@@ -14,6 +14,8 @@
 
 from asyncio import sleep
 from enum import Enum
+from os.path import sep
+from typing import Awaitable, Callable, Optional
 from sdk_utils import verify_checksum
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.constants import mqtt_topics
@@ -48,6 +50,9 @@ class FirmwareUpdater:
         self._client = client
         self._client._mqtt_manager.register_handler(mqtt_topics.DEVICE_FIRMWARE_UPDATE_RESPONSE_TOPIC,
                                                     self._handle_firmware_update)
+        self._on_received_callback = None
+        self._save_firmware = True
+        self._save_path = './'
         self._firmware_request_id = 0
         self._chunk_size = 0
         self._current_chunk = 0
@@ -115,7 +120,8 @@ class FirmwareUpdater:
         await self._client.send_telemetry(self.current_firmware_info, wait_for_publish=True)
 
         try:
-            self._save_firmware()
+            if self._save_firmware:
+                self._save()
         except Exception as e:
             self._log.error('Failed to save firmware: %s', e)
             self.current_firmware_info[FirmwareUpdater.FW_STATE_ATTR] = FirmwareStates.FAILED.value
@@ -130,15 +136,26 @@ class FirmwareUpdater:
 
         await self._client.send_telemetry(self.current_firmware_info, wait_for_publish=True)
 
+        if self._on_received_callback:
+            await self._on_received_callback(self._firmware_data, self.current_firmware_info)
+
         self._log.info('Firmware is updated.')
         self._log.info('Current firmware version is: %s' % self._target_version)
 
-    def _save_firmware(self):
-        with open(self._target_title, "wb") as firmware_file:
+    def _save(self):
+        firmware_path = self._save_path + sep + self._target_title
+        with open(firmware_path, "wb") as firmware_file:
             firmware_file.write(self._firmware_data)
 
-    async def update(self):
+    async def update(self, on_received_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+                     save_firmware: bool = True, firmware_save_path: Optional[str] = None):
         self._log.info("Starting firmware update process...")
+
+        self._on_received_callback = on_received_callback
+        self._save_firmware = save_firmware
+        if firmware_save_path:
+            self._save_path = firmware_save_path
+            self._log.info("Firmware will be saved to: %s", self._save_path)
 
         sub_future = await self._client._mqtt_manager.subscribe(mqtt_topics.DEVICE_FIRMWARE_UPDATE_RESPONSE_TOPIC,
                                                                 qos=1)
@@ -151,7 +168,6 @@ class FirmwareUpdater:
         await self._client.send_attribute_request(attribute_request, callback=self._firmware_info_callback)
 
     async def _firmware_info_callback(self, response, *args, **kwargs):
-        # TODO: add logs
         if len(response.shared_keys()) == len(FirmwareUpdater.REQUIRED_SHARED_KEYS):
             fetched_firmware_info = response.as_dict()['shared']
             fetched_firmware_info = {item['key']: item['value']
@@ -184,9 +200,6 @@ class FirmwareUpdater:
 
             self.current_firmware_info[FirmwareUpdater.FW_STATE_ATTR] = FirmwareStates.FAILED.value
             await self._client.send_telemetry(self.current_firmware_info, wait_for_publish=True)
-
-    def _send_current_firmware_info(self):
-        pass
 
     def _is_different_firmware_versions(self, new_firmware_info):
         return (self.current_firmware_info['current_' + FirmwareUpdater.FW_TITLE_ATTR] != new_firmware_info[FirmwareUpdater.FW_TITLE_ATTR] or  # noqa

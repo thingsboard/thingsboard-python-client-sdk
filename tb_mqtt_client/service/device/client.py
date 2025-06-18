@@ -99,8 +99,9 @@ class DeviceClient(BaseClient):
 
         self._firmware_updater = FirmwareUpdater(self)
 
-    async def update_firmware(self):
-        await self._firmware_updater.update()
+    async def update_firmware(self, on_received_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+                              save_firmware: bool = True, firmware_save_path: Optional[str] = None):
+        await self._firmware_updater.update(on_received_callback, save_firmware, firmware_save_path)
 
     async def connect(self):
         logger.info("Connecting to platform at %s:%s", self._host, self._port)
