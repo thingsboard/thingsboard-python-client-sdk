@@ -13,25 +13,17 @@
 #  limitations under the License.
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.constants.provisioning import ProvisioningResponseStatus
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType
-
-
-class ProvisioningResponseStatus(Enum):
-    SUCCESS = "SUCCESS"
-    ERROR = "FAILURE"
-
-    def __str__(self):
-        return self.value
 
 
 @dataclass(frozen=True)
 class ProvisioningResponse:
     status: ProvisioningResponseStatus
-    result: Optional[dict] = None
+    result: Optional[DeviceConfig] = None
     error: Optional[str] = None
 
     def __new__(cls, *args, **kwargs):

@@ -12,8 +12,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from enum import Enum
+from abc import ABC, abstractmethod
 from typing import Optional
+
+from tb_mqtt_client.constants.provisioning import ProvisioningCredentialsType
 
 
 class ProvisioningRequest:
@@ -26,21 +28,16 @@ class ProvisioningRequest:
         self.gateway = gateway
 
 
-class ProvisioningCredentialsType(Enum):
-    ACCESS_TOKEN = "ACCESS_TOKEN"
-    MQTT_BASIC = "MQTT_BASIC"
-    X509_CERTIFICATE = "X509_CERTIFICATE"
-
-
-class ProvisioningCredentials:
+class ProvisioningCredentials(ABC):
+    @abstractmethod
     def __init__(self, provision_device_key: str, provision_device_secret: str):
         self.provision_device_key = provision_device_key
         self.provision_device_secret = provision_device_secret
-        self.credentials_type = None
+        self.credentials_type: ProvisioningCredentialsType
 
 
 class AccessTokenProvisioningCredentials(ProvisioningCredentials):
-    def __init__(self, provision_device_key: str, provision_device_secret: str, access_token: str):
+    def __init__(self, provision_device_key: str, provision_device_secret: str, access_token: Optional[str] = None):
         super().__init__(provision_device_key, provision_device_secret)
         self.access_token = access_token
         self.credentials_type = ProvisioningCredentialsType.ACCESS_TOKEN

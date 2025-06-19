@@ -337,13 +337,20 @@ class JsonMessageDispatcher(MessageDispatcher):
 
         if provision_request.credentials.credentials_type and \
                 provision_request.credentials.credentials_type == ProvisioningCredentialsType.ACCESS_TOKEN:
-            request["token"] = provision_request.credentials.access_token
+            if provision_request.credentials.access_token is not None:
+                request["token"] = provision_request.credentials.access_token
             request["credentialsType"] = provision_request.credentials.credentials_type.value
 
         if provision_request.credentials.credentials_type == ProvisioningCredentialsType.MQTT_BASIC:
-            request["username"] = provision_request.credentials.username
-            request["password"] = provision_request.credentials.password
-            request["clientId"] = provision_request.credentials.client_id
+            if provision_request.credentials.username is not None:
+                request["username"] = provision_request.credentials.username
+
+            if provision_request.credentials.password is not None:
+                request["password"] = provision_request.credentials.password
+
+            if provision_request.credentials.client_id is not None:
+                request["clientId"] = provision_request.credentials.client_id
+
             request["credentialsType"] = provision_request.credentials.credentials_type.value
 
         if provision_request.credentials.credentials_type == ProvisioningCredentialsType.X509_CERTIFICATE:
