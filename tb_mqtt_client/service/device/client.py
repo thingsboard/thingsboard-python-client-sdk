@@ -36,8 +36,11 @@ from tb_mqtt_client.entities.data.requested_attribute_response import RequestedA
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.provisioning_client import ProvisioningClient
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
+from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler
 from tb_mqtt_client.service.device.handlers.requested_attributes_response_handler import \
     RequestedAttributeResponseHandler
@@ -93,6 +96,12 @@ class DeviceClient(BaseClient):
         self._attribute_updates_handler = AttributeUpdatesHandler()
         self._rpc_requests_handler = RPCRequestsHandler()
         self.__claiming_response_future: Union[Future[bool], None] = None
+
+        self._firmware_updater = FirmwareUpdater(self)
+
+    async def update_firmware(self, on_received_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+                              save_firmware: bool = True, firmware_save_path: Optional[str] = None):
+        await self._firmware_updater.update(on_received_callback, save_firmware, firmware_save_path)
 
     async def connect(self):
         logger.info("Connecting to platform at %s:%s", self._host, self._port)
@@ -447,3 +456,19 @@ class DeviceClient(BaseClient):
         builder = DeviceUplinkMessageBuilder()
         builder.add_attributes(payload)
         return builder.build()
+
+    @staticmethod
+    async def provision(provision_request: 'ProvisioningRequest', timeout=3.0):
+        provision_client = ProvisioningClient(
+            host=provision_request.host,
+            port=provision_request.port,
+            provision_request=provision_request
+        )
+
+        device_credentials = None
+        try:
+            device_credentials = await wait_for(provision_client.provision(), timeout=timeout)
+        except TimeoutError:
+            logger.error("Provisioning timed out")
+
+        return device_credentials

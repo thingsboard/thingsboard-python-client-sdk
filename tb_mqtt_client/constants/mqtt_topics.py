@@ -30,6 +30,12 @@ DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION = DEVICE_RPC_TOPIC + REQUEST_TOPIC_SUF
 DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION = DEVICE_RPC_TOPIC + RESPONSE_TOPIC_SUFFIX + "/" + WILDCARD
 # Device Claim topic
 DEVICE_CLAIM_TOPIC = "v1/devices/me/claim"
+# Device Provisioning topics
+PROVISION_REQUEST_TOPIC = "/provision/request"
+PROVISION_RESPONSE_TOPIC = "/provision/response"
+# Device Firmware Update topics
+DEVICE_FIRMWARE_UPDATE_RESPONSE_TOPIC = "v2/fw/response/+/chunk/+"
+DEVICE_FIRMWARE_UPDATE_REQUEST_TOPIC = "v2/fw/request/{request_id}/chunk/{current_chunk}"
 
 # V1 Topics for Gateway API
 BASE_GATEWAY_TOPIC = "v1/gateway"
@@ -69,3 +75,7 @@ def build_gateway_device_attributes_topic() -> str:
 
 def build_gateway_rpc_topic() -> str:
     return GATEWAY_RPC_TOPIC
+
+
+def build_firmware_update_request_topic(request_id: int, current_chunk: int) -> str:
+    return DEVICE_FIRMWARE_UPDATE_REQUEST_TOPIC.format(request_id=request_id, current_chunk=current_chunk)
