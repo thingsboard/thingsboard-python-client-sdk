@@ -337,8 +337,8 @@ class MQTTManager:
         if future and not future.done():
             future.set_result(mid)
 
-    def _on_unsubscribe_internal(self, client, mid):
-        logger.trace("Received UNSUBACK by client %r for mid=%s", client, mid)
+    def _on_unsubscribe_internal(self, client, mid, properties):
+        logger.trace("Received UNSUBACK by client %r for mid=%s with properties %s", client, mid, properties)
         future = self._pending_unsubscriptions.pop(mid, None)
         if future and not future.done():
             future.set_result(mid)
