@@ -15,6 +15,7 @@
 import asyncio
 import struct
 from collections import defaultdict
+from types import MethodType
 from typing import Callable
 
 from gmqtt.mqtt.constants import MQTTCommands
@@ -27,38 +28,66 @@ from tb_mqtt_client.common.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# MQTT 5.0 Disconnect Reason Codes
-DISCONNECT_REASON_CODES = {
-    0: "Normal disconnection",
-    4: "Disconnect with Will Message",
-    128: "Unspecified error",
-    129: "Malformed Packet",
-    130: "Protocol Error",
-    131: "Implementation specific error",
-    132: "Not authorized",
-    133: "Server busy",
-    134: "Server shutting down",
-    135: "Keep Alive timeout",
-    136: "Session taken over",
-    137: "Topic Filter invalid",
-    138: "Topic Name invalid",
-    139: "Receive Maximum exceeded",
-    140: "Topic Alias invalid",
-    141: "Packet too large",
-    142: "Session taken over",
-    143: "Quota exceeded",
-    144: "Administrative action",
-    145: "Payload format invalid",
-    146: "Retain not supported",
-    147: "QoS not supported",
-    148: "Use another server",
-    149: "Server moved",
-    150: "Shared Subscriptions not supported",
-    151: "Connection rate exceeded",
-    152: "Maximum connect time",
-    153: "Subscription Identifiers not supported",
-    154: "Wildcard Subscriptions not supported"
-}
+
+class PatchUtils:
+    DISCONNECT_REASON_CODES = {
+        0: "Normal disconnection",
+        4: "Disconnect with Will Message",
+        128: "Unspecified error",
+        129: "Malformed Packet",
+        130: "Protocol Error",
+        131: "Implementation specific error",
+        132: "Not authorized",
+        133: "Server busy",
+        134: "Server shutting down",
+        135: "Keep Alive timeout",
+        136: "Session taken over",
+        137: "Topic Filter invalid",
+        138: "Topic Name invalid",
+        139: "Receive Maximum exceeded",
+        140: "Topic Alias invalid",
+        141: "Packet too large",
+        142: "Session taken over",
+        143: "Quota exceeded",
+        144: "Administrative action",
+        145: "Payload format invalid",
+        146: "Retain not supported",
+        147: "QoS not supported",
+        148: "Use another server",
+        149: "Server moved",
+        150: "Shared Subscriptions not supported",
+        151: "Connection rate exceeded",
+        152: "Maximum connect time",
+        153: "Subscription Identifiers not supported",
+        154: "Wildcard Subscriptions not supported"
+    }
+
+    @staticmethod
+    def parse_mqtt_properties(packet: bytes) -> dict:
+        """
+        Parse MQTT 5.0 properties from a packet.
+        """
+        properties_dict = defaultdict(list)
+
+        try:
+            properties_len, _ = unpack_variable_byte_integer(packet)
+            props = packet[:properties_len]
+
+            while props:
+                property_identifier = props[0]
+                property_obj = Property.factory(id_=property_identifier)
+                if property_obj is None:
+                    logger.warning(f"Unknown property id={property_identifier}")
+                    break
+
+                result, props = property_obj.loads(props[1:])
+                for k, v in result.items():
+                    properties_dict[k].append(v)
+
+        except Exception as e:
+            logger.warning("Failed to parse properties: %s", e)
+
+        return dict(properties_dict)
 
 
 def extract_reason_code(packet):
@@ -97,12 +126,12 @@ def patch_mqtt_handler_disconnect():
             properties = {}
             if packet and len(packet) > 1:
                 try:
-                    properties, _ = self._parse_properties(packet[1:])
+                    properties = PatchUtils.parse_mqtt_properties(packet[1:])
                 except Exception as exc:
                     logger.warning("Failed to parse properties from disconnect packet: %s", exc)
 
-            reason_desc = DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
-            logger.debug("Server initiated disconnect with reason code: %s (%s)", reason_code, reason_desc)
+            reason_desc = PatchUtils.DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
+            logger.trace("Server initiated disconnect with reason code: %s (%s)", reason_code, reason_desc)
 
             # Call the original method to handle reconnection
             # But don't call the on_disconnect callback, as we'll do that ourselves
@@ -122,6 +151,40 @@ def patch_mqtt_handler_disconnect():
         # Apply the patch
         MqttPackageHandler._handle_disconnect_packet = patched_handle_disconnect_packet
         logger.debug("Successfully patched gmqtt.mqtt.handler.MqttPackageHandler._handle_disconnect_packet")
+        return True
+    except (ImportError, AttributeError) as e:
+        logger.warning("Failed to patch gmqtt handler: %s", e)
+        return False
+
+def patch_handle_connack(client, on_connack_with_session_present_and_result_code: Callable[[object, int, int, dict], None]):
+    """
+    Monkey-patch gmqtt.mqtt.handler.MqttPackageHandler._handle_connack_packet to add custom handling for
+    CONNACK packets, allowing for custom callbacks with session_present, result_code, and properties.
+    """
+    try:
+        original_handler = MqttPackageHandler._handle_connack_packet
+
+        def new_handle_connack_packet(self, cmd, packet):
+            try:
+                original_handler(self, cmd, packet)
+
+                session_present, reason_code = struct.unpack("!BB", packet[:2])
+
+                if len(packet) > 2:
+                    props_payload = packet[2:]
+                    properties = PatchUtils.parse_mqtt_properties(props_payload)
+                else:
+                    properties = {}
+
+                logger.debug("CONNACK patched handler: session_present=%r, reason_code=%r, properties=%r",
+                             session_present, reason_code, properties)
+
+                on_connack_with_session_present_and_result_code(client, session_present, reason_code, properties)
+            except Exception as e:
+                logger.error("Error while handling CONNACK packet: %s", e, exc_info=True)
+
+        MqttPackageHandler._handle_connack_packet = new_handle_connack_packet
+        logger.debug("Successfully patched gmqtt.mqtt.handler._handle_connack_packet")
         return True
     except (ImportError, AttributeError) as e:
         logger.warning("Failed to patch gmqtt handler: %s", e)
@@ -235,38 +298,11 @@ def patch_gmqtt_puback(client, on_puback_with_reason_and_properties: Callable[[i
     :param client: GMQTTClient instance
     :param on_puback_with_reason_and_properties: Callback with (mid, reason_code, properties_dict)
     """
-    # Backup original method from MqttPackageHandler
-    base_method = client.__class__.__bases__[0].__dict__.get('_handle_puback_packet')
+    original_handler = MqttPackageHandler._handle_puback_packet
 
-    if base_method is None:
+    if original_handler is None:
         logger.error("Could not find _handle_puback_packet in base class.")
         return
-
-    def _parse_properties(packet: bytes) -> dict:
-        """
-        Parse MQTT 5.0 properties from a packet.
-        """
-        properties_dict = defaultdict(list)
-
-        try:
-            properties_len, _ = unpack_variable_byte_integer(packet)
-            props = packet[:properties_len]
-
-            while props:
-                property_identifier = props[0]
-                property_obj = Property.factory(id_=property_identifier)
-                if property_obj is None:
-                    logger.warning(f"Unknown PUBACK property id={property_identifier}")
-                    break
-
-                result, props = property_obj.loads(props[1:])
-                for k, v in result.items():
-                    properties_dict[k].append(v)
-
-        except Exception as e:
-            logger.warning("Failed to parse PUBACK properties: %s", e)
-
-        return dict(properties_dict)
 
     def wrapped_handle_puback(self, cmd, packet):
         try:
@@ -278,12 +314,12 @@ def patch_gmqtt_puback(client, on_puback_with_reason_and_properties: Callable[[i
                 reason_code = packet[2]
                 if len(packet) > 3:
                     props_payload = packet[3:]
-                    properties = _parse_properties(props_payload)
+                    properties = PatchUtils.parse_mqtt_properties(props_payload)
 
             on_puback_with_reason_and_properties(mid, reason_code, properties)
         except Exception as e:
             logger.exception("Error while handling PUBACK with properties: %s", e)
 
-        return base_method(self, cmd, packet)
+        return original_handler(self, cmd, packet)
 
     MqttPackageHandler._handle_puback_packet = wrapped_handle_puback
