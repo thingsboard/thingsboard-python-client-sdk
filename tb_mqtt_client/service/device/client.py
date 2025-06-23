@@ -20,12 +20,13 @@ from typing import Callable, Awaitable, Optional, Dict, Any, Union, List
 
 from orjson import dumps
 
+from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.constants.json_typing import validate_json_compatibility, JSONCompatibleType
+from tb_mqtt_client.constants.json_typing import JSONCompatibleType
 from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER, TELEMETRY_VALUES_PARAMETER
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
@@ -125,6 +126,8 @@ class DeviceClient(BaseClient):
 
         while not self._mqtt_manager.is_connected():
             await self._mqtt_manager.await_ready()
+            if self._stop_event.is_set():
+                return
 
         await self._on_connect()
 
@@ -156,8 +159,17 @@ class DeviceClient(BaseClient):
         """
         logger.info("Stopping DeviceClient...")
         self._stop_event.set()
+
+        for fut, _ in self._rpc_response_handler._pending_rpc_requests.values():
+            if not fut.done():
+                fut.cancel()
+
+        if self._message_queue:
+            await self._message_queue.shutdown()
+
         if self._mqtt_manager.is_connected():
             await self._mqtt_manager.disconnect()
+
         logger.info("DeviceClient stopped.")
 
     async def disconnect(self):
@@ -166,58 +178,105 @@ class DeviceClient(BaseClient):
         #     await self._message_queue.shutdown()
         # TODO: Not sure if we need to shutdown the message queue here, as it might be handled by MQTTManager
 
-    async def send_telemetry(self,
-                             data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-                             qos: int = 1,
-                             wait_for_publish: bool = True,
-                             timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
+    async def send_telemetry(
+            self,
+            data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
+            qos: int = 1,
+            wait_for_publish: bool = True,
+            timeout: Optional[float] = None
+    ) -> Union[PublishResult, List[PublishResult], None]:
         message = self._build_uplink_message_for_telemetry(data)
         topic = mqtt_topics.DEVICE_TELEMETRY_TOPIC
-        futures = await self._message_queue.publish(topic=topic,
-                                                    payload=message,
-                                                    datapoints_count=message.timeseries_datapoint_count(),
-                                                    qos=qos or self._config.qos)
-        if wait_for_publish:
+        futures = await self._message_queue.publish(
+            topic=topic,
+            payload=message,
+            datapoints_count=message.timeseries_datapoint_count(),
+            qos=qos or self._config.qos
+        )
+
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return None
+
+        if not wait_for_publish:
+            return None
+
+        results = []
+        for fut in futures:
             try:
-                return await wait_for(futures[0], timeout=timeout) if futures else None
+                result = await await_or_stop(fut, timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for telemetry publish result")
-                return PublishResult(topic, qos, -1, message.size, -1)
-        else:
-            return futures[0] if futures else None
+                result = PublishResult(topic, qos, -1, message.size, -1)
+            results.append(result)
 
-    async def send_attributes(self,
-                              attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
-                              qos: int = None,
-                              wait_for_publish: bool = True,
-                              timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
+        return results[0] if len(results) == 1 else results
+
+    async def send_attributes(
+            self,
+            attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
+            qos: int = None,
+            wait_for_publish: bool = True,
+            timeout: int = BaseClient.DEFAULT_TIMEOUT
+    ) -> Union[PublishResult, List[PublishResult], None]:
         message = self._build_uplink_message_for_attributes(attributes)
         topic = mqtt_topics.DEVICE_ATTRIBUTES_TOPIC
-        futures = await self._message_queue.publish(topic=topic,
-                                                    payload=message,
-                                                    datapoints_count=message.attributes_datapoint_count(),
-                                                    qos=qos or self._config.qos)
-        if wait_for_publish:
-            try:
-                return await wait_for(futures[0], timeout=timeout) if futures else None
-            except TimeoutError:
-                logger.warning("Timeout while waiting for telemetry publish result")
-                return PublishResult(topic, qos, -1, message.size, -1)
-        else:
-            return futures[0] if futures else None
+        futures = await self._message_queue.publish(
+            topic=topic,
+            payload=message,
+            datapoints_count=message.attributes_datapoint_count(),
+            qos=qos or self._config.qos
+        )
 
-    async def send_rpc_request(self, rpc_request: RPCRequest,
-                               callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> Awaitable[RPCResponse]:
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return None
+
+        if not wait_for_publish:
+            return None
+
+        results = []
+        for fut in futures:
+            try:
+                result = await await_or_stop(fut, timeout=timeout, stop_event=self._stop_event)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for attribute publish result")
+                result = PublishResult(topic, qos, -1, message.size, -1)
+            results.append(result)
+
+        return results[0] if len(results) == 1 else results
+
+    async def send_rpc_request(
+            self,
+            rpc_request: RPCRequest,
+            callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None,
+            wait_for_publish: bool = True,
+            timeout: Optional[float] = BaseClient.DEFAULT_TIMEOUT
+    ) -> Union[RPCResponse, Awaitable[RPCResponse], None]:
         request_id = rpc_request.request_id or await RPCRequestIdProducer.get_next()
         topic, payload = self._message_dispatcher.build_rpc_request(rpc_request)
 
         response_future = self._rpc_response_handler.register_request(request_id, callback)
 
-        await self._message_queue.publish(topic=topic,
-                                          payload=payload,
-                                          datapoints_count=0,
-                                          qos=self._config.qos)
-        return response_future
+        await self._message_queue.publish(
+            topic=topic,
+            payload=payload,
+            datapoints_count=0,
+            qos=self._config.qos
+        )
+
+        if not wait_for_publish:
+            return response_future
+
+        try:
+            return await await_or_stop(response_future, timeout=timeout, stop_event=self._stop_event)
+        except TimeoutError as e:
+            if not callback:
+                raise TimeoutError(f"Timed out waiting for RPC response (requestId={request_id})")
+            else:
+                logger.warning("Timed out waiting for RPC response, but callback is set. "
+                               "Callback will be called with None response.")
+                await self._rpc_response_handler.handle(mqtt_topics.build_device_rpc_response_topic(rpc_request.request_id), e)
 
     async def send_rpc_response(self, response: RPCResponse):
         topic, payload = self._message_dispatcher.build_rpc_response(response)
@@ -247,7 +306,7 @@ class DeviceClient(BaseClient):
         await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
         if wait_for_publish:
             try:
-                return await wait_for(self.__claiming_response_future, timeout=timeout)
+                return await await_or_stop(self.__claiming_response_future, timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for telemetry publish result")
                 return PublishResult(topic, 1, -1, len(payload), -1)
@@ -266,6 +325,8 @@ class DeviceClient(BaseClient):
         sub_future = await self._mqtt_manager.subscribe(mqtt_topics.DEVICE_ATTRIBUTES_TOPIC, qos=1)
         while not sub_future.done():
             await sleep(0.01)
+            if self._stop_event.is_set():
+                return
 
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_TOPIC, self._handle_attribute_update)
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_request)  # noqa
@@ -277,13 +338,13 @@ class DeviceClient(BaseClient):
         self._requested_attribute_response_handler.clear()
         self._rpc_response_handler.clear()
 
-    async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Any:
+    async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Union[RPCResponse, None]:
         """
         Initiates a client-side RPC to ThingsBoard and awaits the result.
         :param method: The RPC method to call.
         :param params: The parameters to send.
         :param timeout: Timeout for the response in seconds.
-        :return: The response result (dict, list, str, etc.).
+        :return: RPCResponse object containing the result or error.
         """
         request_id = await RPCRequestIdProducer.get_next()
         topic = mqtt_topics.build_device_rpc_request_topic(request_id)
@@ -296,7 +357,7 @@ class DeviceClient(BaseClient):
         await self._mqtt_manager.publish(topic, payload, qos=1)
 
         try:
-            return await wait_for(future, timeout=timeout)
+            return await await_or_stop(future, timeout=timeout, stop_event=self._stop_event)
         except TimeoutError:
             raise TimeoutError(f"Timed out waiting for RPC response (method={method}, id={request_id})")
 
@@ -458,7 +519,7 @@ class DeviceClient(BaseClient):
         return builder.build()
 
     @staticmethod
-    async def provision(provision_request: 'ProvisioningRequest', timeout=3.0):
+    async def provision(provision_request: 'ProvisioningRequest', timeout=BaseClient.DEFAULT_TIMEOUT):
         provision_client = ProvisioningClient(
             host=provision_request.host,
             port=provision_request.port,

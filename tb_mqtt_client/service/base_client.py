@@ -14,7 +14,7 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Awaitable, Dict, Any, Union, List
+from typing import Callable, Awaitable, Dict, Any, Union, List, Optional
 
 import uvloop
 
@@ -35,7 +35,7 @@ class BaseClient(ABC):
     Abstract base class for clients.
     """
 
-    DEFAULT_TIMEOUT = 3
+    DEFAULT_TIMEOUT = 3.0
 
     def __init__(self, host: str, port: int, client_id: str):
         self._host = host
@@ -63,7 +63,7 @@ class BaseClient(ABC):
                                                          Dict[str, Any],
                                                          List[Dict[str, Any]]],
                              wait_for_publish: bool = True,
-                             timeout: int = DEFAULT_TIMEOUT) -> Union[asyncio.Future[PublishResult], PublishResult]:
+                             timeout: Optional[float] = None) -> Union[asyncio.Future[PublishResult], PublishResult]:
         """
         Send telemetry data.
 
@@ -71,7 +71,7 @@ class BaseClient(ABC):
                                 or a list of TimeseriesEntry or dictionaries.
         :param wait_for_publish: If True, wait for the publishing result. Default is True.
         :param timeout: Timeout for the publish operation if `wait_for_publish` is True.
-                                In seconds, defaults to 3 seconds.
+                                In seconds. If less than 0 or None, wait indefinitely.
         :return: Future or PublishResult depending on `wait_for_publish`.
         """
         pass
@@ -80,14 +80,14 @@ class BaseClient(ABC):
     async def send_attributes(self,
                               attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
                               wait_for_publish: bool = True,
-                              timeout: int = DEFAULT_TIMEOUT) -> Union[asyncio.Future[PublishResult], PublishResult]:
+                              timeout: Optional[float] = None) -> Union[asyncio.Future[PublishResult], PublishResult]:
         """
         Send client attributes.
 
         :param attributes: Dictionary of attributes or a single AttributeEntry or a list of AttributeEntries.
         :param wait_for_publish: If True, wait for the publishing result. Default is True.
         :param timeout: Timeout for the publish operation if `wait_for_publish` is True.
-                        In seconds, defaults to 3 seconds.
+                                In seconds. If less than 0 or None, wait indefinitely.
         :return: Future or PublishResult depending on `wait_for_publish`.
         """
         pass

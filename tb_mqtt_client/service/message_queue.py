@@ -41,7 +41,7 @@ class MessageQueue:
                  batch_collect_max_time_ms: int = 100,
                  batch_collect_max_count: int = 500):
         self._main_stop_event = main_stop_event
-        self._batch_max_time = batch_collect_max_time_ms / 1000  # convert to seconds
+        self._batch_max_time = batch_collect_max_time_ms / 1000
         self._batch_max_count = batch_collect_max_count
         self._mqtt_manager = mqtt_manager
         self._message_rate_limit = message_rate_limit
@@ -78,7 +78,7 @@ class MessageQueue:
 
     async def _dequeue_loop(self):
         logger.debug("MessageQueue dequeue loop started.")
-        while self._active.is_set():
+        while self._active.is_set() and not self._main_stop_event.is_set():
             try:
                 # topic, payload, delivery_futures_or_none, count = await asyncio.wait_for(asyncio.get_event_loop().create_task(self._queue.get()), timeout=self._BATCH_TIMEOUT)
                 topic, payload, delivery_futures_or_none, datapoints, qos = await self._wait_for_message()
@@ -331,12 +331,15 @@ class MessageQueue:
                 logger.warning("Error while cancelling retry task: %s", e)
 
         self._loop_task.cancel()
-        self._rate_limit_refill_task.cancel()
+        if self._rate_limit_refill_task:
+            self._rate_limit_refill_task.cancel()
         with suppress(asyncio.CancelledError):
             await self._loop_task
             await self._rate_limit_refill_task
 
-        logger.debug("MessageQueue shutdown complete.")
+        logger.debug("MessageQueue shutdown complete, message queue size: %d",
+                        self._queue.qsize())
+        self.clear()
 
     def is_empty(self):
         return self._queue.empty()

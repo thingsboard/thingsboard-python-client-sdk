@@ -14,6 +14,7 @@
 
 import asyncio
 from abc import ABC, abstractmethod
+from itertools import chain
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Tuple, Optional, Union
@@ -125,7 +126,7 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def parse_rpc_response(self, topic: str, payload: bytes) -> RPCResponse:
+    def parse_rpc_response(self, topic: str, payload: Union[bytes, Exception]) -> RPCResponse:
         """
         Parse the RPC response from the given topic and payload.
         This method should be implemented to handle the specific format of the RPC response.
@@ -191,7 +192,7 @@ class JsonMessageDispatcher(MessageDispatcher):
             logger.error("Failed to parse RPC request: %s", str(e))
             raise ValueError("Invalid RPC request format") from e
 
-    def parse_rpc_response(self, topic: str, payload: bytes) -> RPCResponse:
+    def parse_rpc_response(self, topic: str, payload: Union[bytes, Exception]) -> RPCResponse:
         """
         Parse the RPC response from the given topic and payload.
         :param topic: The MQTT topic of the RPC response.
@@ -200,8 +201,11 @@ class JsonMessageDispatcher(MessageDispatcher):
         """
         try:
             request_id = int(topic.split("/")[-1])
-            parsed = loads(payload)
-            data = RPCResponse.build(request_id, parsed)  # noqa
+            if isinstance(payload, Exception):
+                data = RPCResponse.build(request_id, error=payload)
+            else:
+                parsed = loads(payload)
+                data = RPCResponse.build(request_id, parsed)  # noqa
             return data
         except Exception as e:
             logger.error("Failed to parse RPC response: %s", str(e))
@@ -392,15 +396,12 @@ class JsonMessageDispatcher(MessageDispatcher):
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def pack_timeseries(msg: DeviceUplinkMessage) -> List[Dict[str, Any]]:
-        logger.trace("Packing %d timeseries timestamp bucket(s)", len(msg.timeseries))
-
+    def pack_timeseries(msg: 'DeviceUplinkMessage') -> List[Dict[str, Any]]:
         now_ts = int(datetime.now(UTC).timestamp() * 1000)
-        packed: List[Dict[str, Any]] = []
 
-        for ts_key, entries in msg.timeseries.items():
-            resolved_ts = ts_key or now_ts
-            values = {entry.key: entry.value for entry in entries}
-            packed.append({"ts": resolved_ts, "values": values})
+        packed = [
+            {"ts": entry.ts or now_ts, "values": {entry.key: entry.value}}
+            for entry in chain.from_iterable(msg.timeseries.values())
+        ]
 
         return packed

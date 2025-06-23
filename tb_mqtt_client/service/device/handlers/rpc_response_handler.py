@@ -56,7 +56,7 @@ class RPCResponseHandler:
         self._pending_rpc_requests[request_id] = future, callback
         return future
 
-    async def handle(self, topic: str, payload: bytes):
+    async def handle(self, topic: str, payload: Union[bytes, TimeoutError]):
         """
         Handles the incoming RPC response from the platform and fulfills the corresponding future.
         The topic is expected to be: v1/devices/me/rpc/response/{request_id}

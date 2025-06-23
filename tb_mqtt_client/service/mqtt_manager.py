@@ -21,8 +21,9 @@ from typing import Optional, Callable, Dict, Union, Tuple, Coroutine, Any
 
 from gmqtt import Client as GMQTTClient, Message, Subscription
 
+from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.gmqtt_patch import patch_gmqtt_puback, patch_gmqtt_protocol_connection_lost, \
-    patch_mqtt_handler_disconnect, DISCONNECT_REASON_CODES
+    patch_mqtt_handler_disconnect, patch_handle_connack, PatchUtils
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
@@ -64,6 +65,7 @@ class MQTTManager:
 
         self._client = GMQTTClient(client_id)
         patch_gmqtt_puback(self._client, self._handle_puback_reason_code)
+        patch_handle_connack(self._client, self._on_connect_internal)
         self._client.on_connect = self._on_connect_internal
         self._client.on_disconnect = self._on_disconnect_internal
         self._client.on_message = self._on_message_internal
@@ -114,7 +116,7 @@ class MQTTManager:
         host, port, username, password, tls, keepalive, ssl_context = self._connect_params
         retry_delay = 3
 
-        while not self._client.is_connected:
+        while not self._client.is_connected and not self._main_stop_event.is_set():
             try:
                 if username:
                     self._client.set_auth_credentials(username, password)
@@ -129,7 +131,7 @@ class MQTTManager:
                 logger.info("MQTT connection initiated, waiting for on_connect...")
                 await self._connected_event.wait()
                 logger.info("MQTT connected.")
-                break  # Exit loop if connected
+                break
 
             except Exception as e:
                 logger.warning("Initial MQTT connection failed: %s. Retrying in %s seconds...", str(e), retry_delay)
@@ -162,7 +164,7 @@ class MQTTManager:
                 raise RuntimeError("Cannot publish before rate limits are retrieved.")
             try:
                 if not self._rate_limits_ready_event.is_set():
-                    await asyncio.wait_for(self._rate_limits_ready_event.wait(), timeout=10)
+                    await await_or_stop(self._rate_limits_ready_event.wait(), self._main_stop_event, timeout=10)
             except asyncio.TimeoutError:
                 raise RuntimeError("Timeout waiting for rate limits.")
 
@@ -211,9 +213,15 @@ class MQTTManager:
     def unregister_handler(self, topic_filter: str):
         self._handlers.pop(topic_filter, None)
 
-    def _on_connect_internal(self, client, flags, rc, properties):
-        logger.info("Connected to platform")
-        logger.debug("Connection flags: %s, reason code: %s, properties: %s", flags, rc, properties)
+    def _on_connect_internal(self, client, session_present, reason_code, properties):
+        if reason_code != 0:
+            logger.error("Failed to connect to platform with reason code: %s", reason_code)
+            if properties and 'reason_string' in properties:
+                logger.error("Connection reason: %s", properties['reason_string'][0])
+            self._connected_event.clear()
+            return
+        logger.info("Connected to the platform.")
+        logger.debug("Connection session_present: %s, reason code: %s, properties: %s", session_present, reason_code, properties)
         if hasattr(client, '_connection'):
             client._connection._on_disconnect_called = False  # noqa
         self._connected_event.set()
@@ -224,9 +232,13 @@ class MQTTManager:
         sub_future = await self.subscribe(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, qos=1)
         while not sub_future.done():
             await sleep(0.01)
+            if self._main_stop_event.is_set():
+                return
         sub_future = await self.subscribe(mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC_FOR_SUBSCRIPTION, qos=1)
         while not sub_future.done():
             await sleep(0.01)
+            if self._main_stop_event.is_set():
+                return
         logger.debug("Subscribing completed, sending rate limits request")
 
         await self.__request_rate_limits()
@@ -235,15 +247,19 @@ class MQTTManager:
             asyncio.create_task(self._on_connect_callback())
 
     def _on_disconnect_internal(self, client, reason_code=None, properties=None, exc=None):  # noqa
+        if isinstance(reason_code, bytes):
+            # Skipping handling due to duplication, because gmqtt triggers this cb again.
+            logger.trace("Received bytes reason code: %r", reason_code)
+            return
         self._connected_event.clear()
         if reason_code is not None:
-            reason_desc = DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
+            reason_desc = PatchUtils.DISCONNECT_REASON_CODES.get(reason_code, "Unknown reason")
             logger.info("Disconnected from platform with reason code: %s (%s)", reason_code, reason_desc)
 
             if properties and 'reason_string' in properties:
                 logger.info("Disconnect reason: %s", properties['reason_string'][0])
         else:
-            logger.info("Disconnected from platform")
+            logger.info("Disconnected from the platform.")
 
         if exc:
             logger.warning("Disconnect exception: %s", exc)
@@ -275,10 +291,10 @@ class MQTTManager:
             reached_time = 1
             for rate_limit in self.__rate_limiter.values():
                 if isinstance(rate_limit, RateLimit):
-                    reached_limit = rate_limit.reach_limit()
+                    reached_limit = asyncio.get_event_loop().run_until_complete(rate_limit.reach_limit())
                     reached_index, reached_time, reached_duration = reached_limit if reached_limit else (None, None, 1)
             self._backpressure.notify_disconnect(delay_seconds=reached_time)
-        else:
+        elif reason_code != 0:
             # Default disconnect handling
             self._backpressure.notify_disconnect(delay_seconds=15)
 
@@ -345,7 +361,7 @@ class MQTTManager:
 
     async def await_ready(self, timeout: float = 10.0):
         try:
-            await asyncio.wait_for(self._rate_limits_ready_event.wait(), timeout=timeout)
+            await await_or_stop(self._rate_limits_ready_event.wait(), self._main_stop_event, timeout=timeout)
         except asyncio.TimeoutError:
             logger.debug("Waiting for rate limits timed out.")
 
@@ -375,7 +391,7 @@ class MQTTManager:
 
         try:
             await self.publish(topic, payload, qos=1, force=True)
-            await asyncio.wait_for(response_future, timeout=10)
+            await await_or_stop(response_future, self._main_stop_event, timeout=10)
             logger.info("Successfully processed rate limits.")
             self.__rate_limits_retrieved = True
             self.__is_waiting_for_rate_limits_publish = False
@@ -427,4 +443,3 @@ class MQTTManager:
                 expired.append(mid)
         for mid in expired:
             self._pending_publishes.pop(mid, None)
-

@@ -56,8 +56,8 @@ class MessageSplitter:
             batch_futures = []
 
             for grouped_ts in message.timeseries.values():
-                for ts in grouped_ts:
-                    exceeds_size = builder and size + ts.size > self._max_payload_size
+                for ts_kv in grouped_ts:
+                    exceeds_size = builder and size + ts_kv.size > self._max_payload_size
                     exceeds_points = 0 < self._max_datapoints <= point_count
 
                     if not builder or exceeds_size or exceeds_points:
@@ -71,8 +71,8 @@ class MessageSplitter:
                         size = 0
                         point_count = 0
 
-                    builder.add_telemetry(ts)
-                    size += ts.size
+                    builder.add_telemetry(ts_kv)
+                    size += ts_kv.size
                     point_count += 1
 
             if builder and builder._timeseries:  # noqa
