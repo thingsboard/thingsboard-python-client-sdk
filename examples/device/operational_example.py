@@ -156,11 +156,13 @@ async def main():
         # 3. List of TelemetryEntry with mixed timestamps
 
         telemetry_entries = []
-        for i in range(1):
+        for i in range(100):
             telemetry_entries.append(TimeseriesEntry("temperature", i, ts=int(datetime.now(UTC).timestamp() * 1000)-i))
         logger.info("Sending list of telemetry entries with mixed timestamps...")
         telemetry_list_publish_result = await client.send_telemetry(telemetry_entries)
-        logger.info("List of telemetry entries sent: %s with result: %s", telemetry_entries, telemetry_list_publish_result)
+        logger.info("List of telemetry entries sent: %s with result: %s",
+                    len(telemetry_entries) if len(telemetry_entries) > 10 else telemetry_entries,
+                    telemetry_list_publish_result)
 
         # --- Attribute Request ---
 
@@ -180,23 +182,20 @@ async def main():
 
         logger.info("Sending RPC request: %r", rpc_request)
 
-        response_future = await client.send_rpc_request(rpc_request)
+        try:
+            rpc_response = await client.send_rpc_request(rpc_request)
+        except TimeoutError as e:
+            logger.error("Timeout while sending RPC request: %s", e)
+            rpc_response = None
 
-        if response_future:
-            logger.info("Awaiting RPC response future...")
-            try:
-                response = await asyncio.wait_for(response_future, timeout=5)
-                logger.info("RPC response received: %s", response)
-            except asyncio.TimeoutError:
-                logger.warning("RPC response future timed out after 5 seconds.")
-            except Exception as e:
-                logger.error("Error while awaiting RPC response future: %s", e)
+        if rpc_response:
+            logger.info("RPC response received: %s", rpc_response)
 
         rpc_request_2 = await RPCRequest.build("getAnotherInformation", {"param": "value"})
 
         logger.info("Sending another RPC request: %r", rpc_request_2)
 
-        await client.send_rpc_request(rpc_request_2, rpc_response_callback)
+        await client.send_rpc_request(rpc_request_2, rpc_response_callback, wait_for_publish=False)
 
         try:
             logger.info("Waiting for 1 seconds before next iteration...")
