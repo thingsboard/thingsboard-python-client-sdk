@@ -12,16 +12,21 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Example script to request attributes from ThingsBoard using the DeviceClient
+# Example script to handle RPC requests from ThingsBoard using the DeviceClient
 
 import asyncio
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
-from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.data.rpc_request import RPCRequest
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
 
-async def attribute_request_callback(response: RequestedAttributeResponse):
-    print("Received attribute response:", response)
+async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
+    print("Received RPC:", request)
+
+    if request.method == "ping":
+        return RPCResponse.build(request_id=request.request_id, result={"pong": True})
+    else:
+        return RPCResponse.build(request_id=request.request_id, result={"message": "Unknown method"})
 
 async def main():
     config = DeviceConfig()
@@ -29,14 +34,15 @@ async def main():
     config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
+    client.set_rpc_request_callback(rpc_request_callback)
+
     await client.connect()
-
-    # Request specific attributes
-    request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
-    await client.send_attribute_request(request, attribute_request_callback)
-
-    print("Attribute request sent. Waiting for response...")
-    await asyncio.sleep(5)
+    print("Waiting for RPCs... Press Ctrl+C to stop.")
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
 
     await client.stop()
 

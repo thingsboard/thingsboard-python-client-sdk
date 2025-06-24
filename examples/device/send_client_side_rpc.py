@@ -12,16 +12,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Example script to request attributes from ThingsBoard using the DeviceClient
+# Example script to send a client-side RPC request to ThingsBoard using the DeviceClient
 
 import asyncio
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
-from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.data.rpc_request import RPCRequest
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
 
-async def attribute_request_callback(response: RequestedAttributeResponse):
-    print("Received attribute response:", response)
+async def rpc_response_callback(response: RPCResponse):
+    print("Received RPC response:", response)
 
 async def main():
     config = DeviceConfig()
@@ -31,13 +31,19 @@ async def main():
     client = DeviceClient(config)
     await client.connect()
 
-    # Request specific attributes
-    request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
-    await client.send_attribute_request(request, attribute_request_callback)
+    # Send client-side RPC and wait for response
+    rpc_request = await RPCRequest.build("getTime", {})
+    try:
+        response = await client.send_rpc_request(rpc_request)
+        print("Received response:", response)
+    except TimeoutError:
+        print("RPC request timed out")
 
-    print("Attribute request sent. Waiting for response...")
+    # Send client-side RPC with callback
+    rpc_request_2 = await RPCRequest.build("getStatus", {})
+    await client.send_rpc_request(rpc_request_2, rpc_response_callback, wait_for_publish=False)
+
     await asyncio.sleep(5)
-
     await client.stop()
 
 if __name__ == "__main__":

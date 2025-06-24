@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+# Example script to send a high load of telemetry data to ThingsBoard using the DeviceClient
+
 import asyncio
 import logging
 import signal

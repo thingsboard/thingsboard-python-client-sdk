@@ -12,16 +12,13 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Example script to request attributes from ThingsBoard using the DeviceClient
+# This example demonstrates how to send telemetry data from a device to ThingsBoard using the DeviceClient.
 
 import asyncio
+from random import uniform, randint
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
-from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
-
-async def attribute_request_callback(response: RequestedAttributeResponse):
-    print("Received attribute response:", response)
 
 async def main():
     config = DeviceConfig()
@@ -31,12 +28,21 @@ async def main():
     client = DeviceClient(config)
     await client.connect()
 
-    # Request specific attributes
-    request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
-    await client.send_attribute_request(request, attribute_request_callback)
+    # Send telemetry as raw dictionary
+    await client.send_telemetry({
+        "temperature": round(uniform(20.0, 30.0), 2),
+        "humidity": randint(30, 70)
+    })
 
-    print("Attribute request sent. Waiting for response...")
-    await asyncio.sleep(5)
+    # Send single telemetry entry
+    await client.send_telemetry(TimeseriesEntry("batteryLevel", randint(0, 100)))
+
+    # Send list of telemetry entries
+    entries = [
+        TimeseriesEntry("vibration", 0.05),
+        TimeseriesEntry("speed", 123)
+    ]
+    await client.send_telemetry(entries)
 
     await client.stop()
 

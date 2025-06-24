@@ -12,16 +12,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Example script to request attributes from ThingsBoard using the DeviceClient
+# Example script to handle attribute updates from ThingsBoard using the DeviceClient
 
 import asyncio
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
-from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.service.device.client import DeviceClient
 
-async def attribute_request_callback(response: RequestedAttributeResponse):
-    print("Received attribute response:", response)
+async def attribute_update_callback(update: AttributeUpdate):
+    print("Received attribute update:", update)
 
 async def main():
     config = DeviceConfig()
@@ -29,14 +28,16 @@ async def main():
     config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
+    client.set_attribute_update_callback(attribute_update_callback)
+
     await client.connect()
+    print("Waiting for attribute updates... Press Ctrl+C to stop.")
 
-    # Request specific attributes
-    request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
-    await client.send_attribute_request(request, attribute_request_callback)
-
-    print("Attribute request sent. Waiting for response...")
-    await asyncio.sleep(5)
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
 
     await client.stop()
 
