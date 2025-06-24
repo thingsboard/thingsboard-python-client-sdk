@@ -17,6 +17,11 @@ from typing import Optional
 
 
 class DeviceConfig:
+    """
+    Configuration class for ThingsBoard device clients.
+    This class loads configuration options from environment variables, allowing for flexible deployment
+    and easy customization of device connection settings.
+    """
     def __init__(self):
         self.host: str = os.getenv("TB_HOST")
         self.port: int = int(os.getenv("TB_PORT", 1883))
@@ -51,6 +56,10 @@ class DeviceConfig:
 
 
 class GatewayConfig(DeviceConfig):
+    """
+    Configuration class for ThingsBoard gateway clients.
+    This class extends DeviceConfig to include additional options specific to gateways.
+    """
     def __init__(self):
         super().__init__()
 
