@@ -1050,13 +1050,14 @@ class TBDeviceMqttClient:
 
     def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
+        topic = kwargs['topic']
         if msg_rate_limit is None:
-            if kwargs.get('topic') == TELEMETRY_TOPIC:
+            if topic == TELEMETRY_TOPIC or topic ==ATTRIBUTES_TOPIC:
                 msg_rate_limit = self._telemetry_rate_limit
             else:
                 msg_rate_limit = self._messages_rate_limit
         if dp_rate_limit is None:
-            if kwargs.get('topic') == TELEMETRY_TOPIC:
+            if topic == TELEMETRY_TOPIC or topic ==ATTRIBUTES_TOPIC:
                 dp_rate_limit = self._telemetry_dp_rate_limit
             else:
                 dp_rate_limit = self.EMPTY_RATE_LIMIT
@@ -1101,7 +1102,7 @@ class TBDeviceMqttClient:
         data = kwargs.get("payload")
         if isinstance(data, str):
             data = loads(data)
-        topic = kwargs.get("topic", '')
+        topic = kwargs["topic"]
         attributes_format = topic.endswith('attributes')
         if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:

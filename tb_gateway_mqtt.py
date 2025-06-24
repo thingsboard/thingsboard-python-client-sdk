@@ -191,9 +191,10 @@ class TBGatewayMqttClient(TBDeviceMqttClient):
 
     def _send_device_request(self, _type, device_name, **kwargs):
         if _type == TBSendMethod.PUBLISH:
+            topic = kwargs['topic']
             device_msg_rate_limit = self._devices_connected_through_gateway_messages_rate_limit
             device_dp_rate_limit = self.EMPTY_RATE_LIMIT
-            if kwargs.get('topic') == GATEWAY_TELEMETRY_TOPIC:
+            if topic == GATEWAY_TELEMETRY_TOPIC or topic == GATEWAY_ATTRIBUTES_TOPIC:
                 device_msg_rate_limit = self._devices_connected_through_gateway_telemetry_messages_rate_limit
                 device_dp_rate_limit = self._devices_connected_through_gateway_telemetry_datapoints_rate_limit
             info = self._publish_data(**kwargs, device=device_name,
