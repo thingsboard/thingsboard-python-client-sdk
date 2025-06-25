@@ -29,6 +29,11 @@ async def main():
     )
     provisioning_request = ProvisioningRequest('localhost', credentials=provisioning_credentials)
     provisioning_response = await DeviceClient.provision(provisioning_request)
+
+    if provisioning_response.error is not None:
+        print(f"Provisioning failed: {provisioning_response.error}")
+        return
+
     print('Provisined device config: ', provisioning_response)
 
     # Create a DeviceClient instance with the provisioned device config
