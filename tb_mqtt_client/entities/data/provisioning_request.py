@@ -63,6 +63,7 @@ class X509ProvisioningCredentials(ProvisioningCredentials):
         self.public_cert = self._load_public_cert_path(public_cert_path)
         self.credentials_type = ProvisioningCredentialsType.X509_CERTIFICATE
 
+    @staticmethod
     def _load_public_cert_path(public_cert_path):
         content = ''
 
