@@ -32,7 +32,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*", "*Tests"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-asyncio_fixture_scope = "function"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.black]
 line-length = 100
