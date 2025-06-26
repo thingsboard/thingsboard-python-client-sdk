@@ -51,6 +51,7 @@ class MessageQueue:
         self._pending_ack_futures: Dict[int, asyncio.Future[PublishResult]] = {}
         self._pending_ack_callbacks: Dict[int, Callable[[bool], None]] = {}
         self._queue: asyncio.Queue[Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
+        self._pending_queue_tasks: set[asyncio.Task] = set()
         self._active = asyncio.Event()
         self._wakeup_event = asyncio.Event()
         self._retry_tasks: set[asyncio.Task] = set()
@@ -255,7 +256,7 @@ class MessageQueue:
             logger.debug("Scheduling retry for topic=%s, payload size=%d, qos=%d",
                          topic, len(payload), qos)
             logger.debug("error details: %s", e, exc_info=True)
-            self._schedule_delayed_retry(topic, payload, datapoints, qos, delay=.1)
+            self._schedule_delayed_retry(topic, payload, datapoints, qos, delay=.1, delivery_futures=delivery_futures_or_none)
 
     def _schedule_delayed_retry(self, topic: str, payload: bytes, datapoints: int, qos: int, delay: float,
                                 delivery_futures: Optional[List[Optional[asyncio.Future[PublishResult]]]] = None):
@@ -294,6 +295,8 @@ class MessageQueue:
 
                 self._wakeup_event.clear()
                 queue_task = asyncio.create_task(self._queue.get())
+                self._pending_queue_tasks.add(queue_task)
+
                 wake_task = asyncio.create_task(self._wakeup_event.wait())
 
                 done, pending = await asyncio.wait(
@@ -301,10 +304,11 @@ class MessageQueue:
                 )
 
                 for task in pending:
-                    logger.trace("Cancelling pending task: %r, it is queue_task = %r", task, queue_task==task)
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task
+
+                self._pending_queue_tasks.discard(queue_task)
 
                 if queue_task in done:
                     logger.trace("Retrieved message from queue: %r", queue_task.result())
@@ -322,13 +326,8 @@ class MessageQueue:
         self._active.clear()
         self._wakeup_event.set()  # Wake up the _wait_for_message if it's blocked
 
-        for task in list(self._retry_tasks):
-            try:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await asyncio.gather(*self._retry_tasks, return_exceptions=True)
-            except Exception as e:
-                logger.warning("Error while cancelling retry task: %s", e)
+        await self._cancel_tasks(self._retry_tasks)
+        await self._cancel_tasks(self._pending_queue_tasks)
 
         self._loop_task.cancel()
         if self._rate_limit_refill_task:
@@ -337,9 +336,23 @@ class MessageQueue:
             await self._loop_task
             await self._rate_limit_refill_task
 
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
         logger.debug("MessageQueue shutdown complete, message queue size: %d",
                         self._queue.qsize())
         self.clear()
+
+    async def _cancel_tasks(self, tasks: set[asyncio.Task]):
+        for task in list(tasks):
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await asyncio.gather(*tasks, return_exceptions=True)
+        tasks.clear()
 
     def is_empty(self):
         return self._queue.empty()
