@@ -37,9 +37,9 @@ from tb_mqtt_client.entities.data.requested_attribute_response import RequestedA
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.provisioning_client import ProvisioningClient
+from tb_mqtt_client.common.provisioning_client import ProvisioningClient
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler

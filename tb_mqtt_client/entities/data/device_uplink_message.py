@@ -20,7 +20,7 @@ from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 
 logger = get_logger(__name__)
 

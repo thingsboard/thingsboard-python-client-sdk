@@ -24,7 +24,7 @@ from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 exception_handler.install_asyncio_handler()

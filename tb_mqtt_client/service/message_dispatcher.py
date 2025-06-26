@@ -31,7 +31,7 @@ from tb_mqtt_client.entities.data.provisioning_request import ProvisioningReques
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 logger = get_logger(__name__)

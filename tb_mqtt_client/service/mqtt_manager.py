@@ -33,7 +33,7 @@ from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT, TELEMETRY
     TELEMETRY_DATAPOINTS_RATE_LIMIT
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
 from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
 

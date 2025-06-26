@@ -20,7 +20,7 @@ from time import monotonic
 
 from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT
 from tb_mqtt_client.service.mqtt_manager import MQTTManager
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
 

@@ -20,7 +20,7 @@ from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
-from tb_mqtt_client.entities.publish_result import PublishResult
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
 from tb_mqtt_client.service.mqtt_manager import MQTTManager
 
