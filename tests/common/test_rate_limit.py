@@ -13,8 +13,9 @@
 #  limitations under the License.
 
 import asyncio
-import pytest
 from time import sleep
+
+import pytest
 
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, GreedyTokenBucket
 
@@ -118,7 +119,3 @@ async def test_rate_limit_refill_behavior():
     await asyncio.sleep(1.1)
     await rl.refill()
     assert (await rl.try_consume()) is None
-
-
-if __name__ == '__main__':
-    pytest.main([__file__])

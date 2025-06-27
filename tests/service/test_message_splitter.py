@@ -13,9 +13,14 @@
 #  limitations under the License.
 
 import asyncio
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from tb_mqtt_client.common.publish_result import PublishResult
+from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
+from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 
@@ -115,7 +120,7 @@ def test_builder_failure_during_split_raises(mock_builder_class):
     builder_instance = MagicMock()
     builder_instance.set_device_name.return_value = builder_instance
     builder_instance.set_device_profile.return_value = builder_instance
-    builder_instance.add_telemetry.return_value = None
+    builder_instance.add_timeseries.return_value = None
     builder_instance._timeseries = [entry]
     builder_instance.build.side_effect = RuntimeError("build failed")
     mock_builder_class.return_value = builder_instance
@@ -187,5 +192,49 @@ def test_datapoint_setter_validation():
     assert s.max_datapoints == 0
 
 
-if __name__ == '__main__':
-    pytest.main([__file__])
+@pytest.mark.asyncio
+async def test_split_attributes_grouping():
+    dispatcher = JsonMessageDispatcher(max_payload_size=200, max_datapoints=5)
+
+    builder1 = DeviceUplinkMessageBuilder().set_device_name("deviceA").set_device_profile("default")
+    builder2 = DeviceUplinkMessageBuilder().set_device_name("deviceA").set_device_profile("default")
+
+    for i in range(3):
+        builder1.add_attributes(AttributeEntry(f"key_{i}", i))
+
+    for i in range(3, 6):
+        builder2.add_attributes(AttributeEntry(f"key_{i}", i))
+
+
+    messages = [builder1.build(), builder2.build()]
+    result = dispatcher.splitter.split_attributes(messages)
+
+    assert len(result) == 2
+    total_attrs = sum(len(msg.attributes) for msg in result)
+    assert total_attrs == 6
+    assert all(msg.device_name == "deviceA" for msg in result)
+    for msg in result:
+        for fut in msg.get_delivery_futures():
+            fut.set_result(PublishResult("test/topic", 1, 1, 100, 0))
+
+
+@pytest.mark.asyncio
+async def test_split_attributes_different_devices_not_grouped():
+    dispatcher = JsonMessageDispatcher(max_payload_size=200, max_datapoints=100)
+
+    builder1 = DeviceUplinkMessageBuilder().set_device_name("deviceA")
+    builder2 = DeviceUplinkMessageBuilder().set_device_name("deviceB")
+
+    for i in range(3):
+        builder1.add_attributes(AttributeEntry(f"key_{i}", i))
+        builder2.add_attributes(AttributeEntry(f"key_{i+3}", i+3))
+
+    result = dispatcher.splitter.split_attributes([builder1.build(), builder2.build()])
+
+    assert len(result) == 2
+    assert result[0].device_name != result[1].device_name
+    for msg in result:
+        for fut in msg.get_delivery_futures():
+            fut.set_result(PublishResult("test/topic", 1, 1, 100, 0))
+
+

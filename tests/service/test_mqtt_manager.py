@@ -13,16 +13,18 @@
 #  limitations under the License.
 
 import asyncio
+from time import monotonic
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock, call
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from time import monotonic
 
-from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT
-from tb_mqtt_client.service.mqtt_manager import MQTTManager
 from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
+from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.mqtt_manager import MQTTManager, IMPLEMENTATION_SPECIFIC_ERROR, QUOTA_EXCEEDED
 
 
 @pytest_asyncio.fixture
@@ -64,7 +66,9 @@ async def test_is_connected_returns_false_if_not_ready(setup_manager):
 @pytest.mark.asyncio
 async def test_register_and_unregister_handler(setup_manager):
     manager, *_ = setup_manager
+
     async def dummy(topic, payload): pass
+
     manager.register_handler("topic/+", dummy)
     assert "topic/+" in manager._handlers
     manager.unregister_handler("topic/+")
@@ -111,6 +115,7 @@ async def test_on_message_internal_handler_exception(setup_manager):
 
 def test_match_topic_full_wildcard():
     assert MQTTManager._match_topic("#", "any/depth/of/topic")
+
 
 @pytest.mark.asyncio
 async def test_publish_fails_without_rate_limits(setup_manager):
@@ -225,7 +230,6 @@ async def test_subscribe_adds_future(setup_manager):
     mock_rate_limit.consume.assert_awaited_once()
 
 
-
 @pytest.mark.asyncio
 async def test_unsubscribe_adds_future(setup_manager):
     manager, *_ = setup_manager
@@ -242,5 +246,147 @@ async def test_unsubscribe_adds_future(setup_manager):
     mock_rate_limit.consume.assert_awaited_once()
 
 
-if __name__ == '__main__':
-    pytest.main([__file__])
+@pytest.mark.asyncio
+async def test_register_claiming_future_triggers_event(setup_manager):
+    manager, *_ = setup_manager
+    future = asyncio.Future()
+    manager.register_claiming_future(future)
+    assert manager._claiming_future is future
+
+
+@pytest.mark.asyncio
+async def test_publish_qos_zero_sets_result_immediately(setup_manager):
+    manager, *_ = setup_manager
+    manager._MQTTManager__rate_limits_retrieved = True
+    manager._MQTTManager__is_waiting_for_rate_limits_publish = False
+    manager._rate_limits_ready_event.set()
+
+    manager._client._connection = MagicMock()
+    manager._client._connection.publish.return_value = (99, b"packet")
+    manager._client._persistent_storage = MagicMock()
+
+    result = await manager.publish("topic", b"payload", qos=0, force=True)
+    assert result.done()
+    assert result.result() is True
+
+
+@pytest.mark.asyncio
+async def test_on_subscribe_internal_sets_future(setup_manager):
+    manager, *_ = setup_manager
+    future = asyncio.Future()
+    manager._pending_subscriptions[5] = future
+    manager._on_subscribe_internal(manager._client, 5, 1, {})
+    assert future.done()
+    assert future.result() == 5
+
+
+@pytest.mark.asyncio
+async def test_on_unsubscribe_internal_sets_future(setup_manager):
+    manager, *_ = setup_manager
+    future = asyncio.Future()
+    manager._pending_unsubscriptions[11] = future
+    manager._on_unsubscribe_internal(manager._client, 11, {})
+    assert future.done()
+    assert future.result() == 11
+
+
+@pytest.mark.asyncio
+async def test_handle_puback_reason_code_errors(setup_manager):
+    manager, *_ = setup_manager
+
+    f1 = asyncio.Future()
+    manager._pending_publishes[1] = (f1, "topic", 1, 100, 0)
+    manager._handle_puback_reason_code(1, IMPLEMENTATION_SPECIFIC_ERROR, {})
+    assert f1.result().reason_code == IMPLEMENTATION_SPECIFIC_ERROR
+
+    f2 = asyncio.Future()
+    manager._pending_publishes[2] = (f2, "topic", 1, 100, 0)
+    manager._handle_puback_reason_code(2, QUOTA_EXCEEDED, {})
+    assert f2.result().reason_code == QUOTA_EXCEEDED
+
+    manager._handle_puback_reason_code(9999, 1, {})  # Should log warning, not crash
+
+
+@pytest.mark.asyncio
+async def test_connect_loop_retry_and_success(setup_manager):
+    manager, stop_event, *_ = setup_manager
+    manager._connected_event.set()
+
+    manager._client.connect = AsyncMock(side_effect=[Exception("fail1"), AsyncMock()])
+
+    with patch.object(type(manager._client), "is_connected", new_callable=PropertyMock) as mock_connected, \
+         patch("asyncio.sleep", new_callable=AsyncMock), \
+         patch.object(manager, "_connect_params", new=("host", 1883, None, None, False, 60, None)):
+
+        mock_connected.side_effect = [False, False, True]
+
+        await asyncio.wait_for(manager._connect_loop(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_request_rate_limits_timeout(setup_manager):
+    manager, stop_event, _, _, _, _, rate_handler, _ = setup_manager
+    dispatcher = manager._message_dispatcher
+
+    req_mock = MagicMock()
+    req_mock.request_id = "req-id"
+
+    dispatcher.build_rpc_request.return_value = ("topic", b"payload")
+
+    manager._client._connection = MagicMock()
+    manager._client._connection.publish.return_value = (999, b"fake_packet")
+    manager._client._persistent_storage = MagicMock()
+    manager._client._persistent_storage.push_message_nowait = MagicMock()
+
+    future = asyncio.Future()
+    future.set_result(None)
+    manager._rpc_response_handler.register_request.return_value = future
+
+    with patch("tb_mqtt_client.entities.data.rpc_request.RPCRequest.build", return_value=req_mock):
+        await manager._MQTTManager__request_rate_limits()
+        assert manager._rate_limits_ready_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_monitor_ack_timeouts_stops_gracefully(setup_manager):
+    manager, stop_event, *_ = setup_manager
+    stop_event.set()
+    await manager._monitor_ack_timeouts()
+
+
+@pytest.mark.asyncio
+async def test_match_topic_exact_match_and_failures():
+    assert MQTTManager._match_topic("a/b/c", "a/b/c")
+    assert not MQTTManager._match_topic("a/b/c", "a/b")
+    assert not MQTTManager._match_topic("a/+/c", "a/x")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_reason_code_142_triggers_special_flow(setup_manager):
+    manager, *_ = setup_manager
+    manager._client = MagicMock()
+    manager._backpressure = MagicMock()
+    manager._on_disconnect_callback = AsyncMock()
+
+    rate_limit = MagicMock(spec=RateLimit)
+    manager._MQTTManager__rate_limiter = {"messages": rate_limit}
+
+    fut = asyncio.Future()
+    manager._pending_publishes[42] = (fut, "topic", 1, 100, 0)
+
+    with patch("asyncio.get_event_loop") as mock_get_loop, \
+         patch("asyncio.create_task", side_effect=lambda coro: asyncio.ensure_future(coro)):
+
+        mock_loop = MagicMock()
+        mock_loop.run_until_complete.return_value = (None, 1, 1)  # simulate reached_time = 1
+        mock_get_loop.return_value = mock_loop
+
+        manager._on_disconnect_internal(manager._client, reason_code=142)
+        await asyncio.sleep(0.05)
+
+    assert fut.done()
+    manager._backpressure.notify_disconnect.assert_has_calls([
+        call(delay_seconds=10),
+        call(delay_seconds=1),
+    ])
+    manager._on_disconnect_callback.assert_awaited_once()

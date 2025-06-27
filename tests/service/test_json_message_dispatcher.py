@@ -12,39 +12,46 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import pytest
 from unittest.mock import MagicMock, patch, mock_open
+
+import pytest
 from orjson import dumps
 
-from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
 from tb_mqtt_client.constants import mqtt_topics
+from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
+from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
+from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.data.claim_request import ClaimRequest
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, BasicProvisioningCredentials, \
+    X509ProvisioningCredentials, AccessTokenProvisioningCredentials
+from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
+from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
-from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType, \
-    BasicProvisioningCredentials, X509ProvisioningCredentials, AccessTokenProvisioningCredentials
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
 
 
-class DummyClaimRequest:
-    def __init__(self, secret_key="key"):
-        self.secret_key = secret_key
+@pytest.fixture
+def dummy_provisioning_request():
+    credentials = AccessTokenProvisioningCredentials(
+        provision_device_key="key",
+        provision_device_secret="secret",
+        access_token="token"
+    )
+    return ProvisioningRequest("some-device", credentials, device_name="dev", gateway=False)
 
-    def to_payload_format(self):
-        return {"secretKey": self.secret_key}
 
 
-class DummyProvisioningRequest:
-    def __init__(self):
-        self.device_name = "dev"
-        self.gateway = True
-        self.credentials = MagicMock()
-        self.credentials.provision_device_key = "key"
-        self.credentials.provision_device_secret = "secret"
-        self.credentials.credentials_type = ProvisioningCredentialsType.ACCESS_TOKEN
-        self.credentials.access_token = "token"
-
+def build_msg(device="devX", with_attr=False, with_ts=False):
+    builder = DeviceUplinkMessageBuilder().set_device_name(device)
+    if with_attr:
+        builder.add_attributes(AttributeEntry("a", 1))
+    if with_ts:
+        builder.add_timeseries(TimeseriesEntry("t", 2, ts=1234567890))
+    return builder.build()
 
 @pytest.fixture
 def dispatcher():
@@ -68,16 +75,15 @@ def test_build_attribute_request_invalid(dispatcher):
 
 
 def test_build_claim_request(dispatcher):
-    req = DummyClaimRequest()
+    req = ClaimRequest.build("secretKey")
     topic, payload = dispatcher.build_claim_request(req)
     assert topic == mqtt_topics.DEVICE_CLAIM_TOPIC
     assert b"secretKey" in payload
 
 
 def test_build_claim_request_invalid(dispatcher):
-    req = DummyClaimRequest(secret_key=None)  # Simulating an invalid request # noqa
     with pytest.raises(ValueError):
-        dispatcher.build_claim_request(req)
+        req = ClaimRequest.build(secret_key=None)  # Simulating an invalid request # noqa
 
 
 def test_build_rpc_request(dispatcher):
@@ -212,5 +218,117 @@ def test_parse_rpc_response_invalid(dispatcher):
         dispatcher.parse_rpc_response(topic, b"bad")
 
 
-if __name__ == '__main__':
-    pytest.main([__file__])
+@pytest.mark.asyncio
+async def test_build_uplink_payloads_empty(dispatcher: JsonMessageDispatcher):
+    assert dispatcher.build_uplink_payloads([]) == []
+
+
+@pytest.mark.asyncio
+async def test_build_uplink_payloads_only_attributes(dispatcher: JsonMessageDispatcher):
+    msg = build_msg(with_attr=True)
+    with patch.object(dispatcher._splitter, "split_attributes", return_value=[msg]):
+        result = dispatcher.build_uplink_payloads([msg])
+        assert len(result) == 1
+        topic, payload, count, futures = result[0]
+        assert topic == DEVICE_ATTRIBUTES_TOPIC
+        assert count == 1
+        assert b"a" in payload
+
+
+@pytest.mark.asyncio
+async def test_build_uplink_payloads_only_timeseries(dispatcher: JsonMessageDispatcher):
+    msg = build_msg(with_ts=True)
+    with patch.object(dispatcher._splitter, "split_timeseries", return_value=[msg]):
+        result = dispatcher.build_uplink_payloads([msg])
+        assert len(result) == 1
+        topic, payload, count, futures = result[0]
+        assert topic == DEVICE_TELEMETRY_TOPIC
+        assert count == 1
+        assert b"ts" in payload
+
+
+@pytest.mark.asyncio
+async def test_build_uplink_payloads_both(dispatcher: JsonMessageDispatcher):
+    msg = build_msg(with_attr=True, with_ts=True)
+    with patch.object(dispatcher._splitter, "split_attributes", return_value=[msg]), \
+         patch.object(dispatcher._splitter, "split_timeseries", return_value=[msg]):
+        result = dispatcher.build_uplink_payloads([msg])
+        assert len(result) == 2
+        topics = {r[0] for r in result}
+        assert DEVICE_ATTRIBUTES_TOPIC in topics
+        assert DEVICE_TELEMETRY_TOPIC in topics
+
+
+@pytest.mark.asyncio
+async def test_build_uplink_payloads_multiple_devices(dispatcher: JsonMessageDispatcher):
+    msg1 = build_msg(device="dev1", with_attr=True)
+    msg2 = build_msg(device="dev2", with_ts=True)
+    with patch.object(dispatcher._splitter, "split_attributes", side_effect=lambda x: x), \
+         patch.object(dispatcher._splitter, "split_timeseries", side_effect=lambda x: x):
+        result = dispatcher.build_uplink_payloads([msg1, msg2])
+        topics = {r[0] for r in result}
+        assert DEVICE_ATTRIBUTES_TOPIC in topics or DEVICE_TELEMETRY_TOPIC in topics
+
+
+def test_build_payload_with_device_name(dispatcher: JsonMessageDispatcher):
+    msg = build_msg(with_ts=True)
+    payload = dispatcher.build_payload(msg, True)
+    assert isinstance(payload, bytes)
+    assert msg.device_name.encode() in payload
+
+
+def test_build_payload_without_device_name(dispatcher: JsonMessageDispatcher):
+    builder = DeviceUplinkMessageBuilder().add_attributes(AttributeEntry("x", 9))
+    msg = builder.build()
+    payload = dispatcher.build_payload(msg, False)
+    assert isinstance(payload, bytes)
+    assert b"x" in payload
+
+
+def test_pack_attributes():
+    builder = DeviceUplinkMessageBuilder().add_attributes(AttributeEntry("x", 10))
+    msg = builder.build()
+    result = JsonMessageDispatcher.pack_attributes(msg)
+    assert isinstance(result, dict)
+    assert "x" in result
+
+
+def test_pack_timeseries_uses_now(monkeypatch):
+    monkeypatch.setattr("tb_mqtt_client.service.message_dispatcher.datetime", MagicMock())
+    ts_entry = TimeseriesEntry("temp", 23, ts=None)
+    builder = DeviceUplinkMessageBuilder().add_timeseries(ts_entry)
+    msg = builder.build()
+    packed = JsonMessageDispatcher.pack_timeseries(msg)
+    assert isinstance(packed, list)
+    assert "ts" in packed[0]
+    assert "values" in packed[0]
+
+
+def test_build_uplink_payloads_error_handling(dispatcher: JsonMessageDispatcher):
+    with patch("tb_mqtt_client.service.message_dispatcher.DeviceUplinkMessage.has_attributes", side_effect=Exception("boom")):
+        msg = build_msg(with_attr=True)
+        with pytest.raises(Exception, match="boom"):
+            dispatcher.build_uplink_payloads([msg])
+
+
+def test_parse_provisioning_response_success(dispatcher, dummy_provisioning_request):
+    payload_dict = {"status": "SUCCESS", "credentialsType": "ACCESS_TOKEN"}
+    payload_bytes = dumps(payload_dict)
+
+    with patch.object(ProvisioningResponse, "build", return_value="SUCCESS_RESPONSE") as mock_build:
+        result = dispatcher.parse_provisioning_response(dummy_provisioning_request, payload_bytes)
+        assert result == "SUCCESS_RESPONSE"
+        mock_build.assert_called_once_with(dummy_provisioning_request, payload_dict)
+
+
+def test_parse_provisioning_response_failure(dispatcher, dummy_provisioning_request):
+    broken_bytes = b"{not_json"
+
+    with patch.object(ProvisioningResponse, "build", return_value="FAILURE_RESPONSE") as mock_build:
+        result = dispatcher.parse_provisioning_response(dummy_provisioning_request, broken_bytes)
+        assert result == "FAILURE_RESPONSE"
+        mock_build.assert_called_once()
+        args = mock_build.call_args[0]
+        assert args[0] == dummy_provisioning_request
+        assert args[1]["status"] == "FAILURE"
+        assert "errorMsg" in args[1]
