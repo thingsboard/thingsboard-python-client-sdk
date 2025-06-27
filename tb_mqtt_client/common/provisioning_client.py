@@ -13,9 +13,9 @@
 #  limitations under the License.
 
 from asyncio import Event
+from typing import Union, Optional
 
 from gmqtt import Client as GMQTTClient
-from orjson import loads
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger
@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 
 class ProvisioningClient:
-    def __init__(self, host, port, provision_request: 'ProvisioningRequest'):
+    def __init__(self, host: str, port: int, provision_request: ProvisioningRequest):
         self._log = logger
         self._stop_event = Event()
         self._host = host
@@ -39,14 +39,14 @@ class ProvisioningClient:
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._provisioned = Event()
-        self._device_config: 'DeviceConfig' = None
-        self._json_message_dispatcher = JsonMessageDispatcher()
+        self._device_config: Optional[Union[DeviceConfig, ProvisioningResponse]] = None
+        self.__message_dispatcher = JsonMessageDispatcher()
 
     def _on_connect(self, client, _, rc, __):
         if rc == 0:
             self._log.debug("[Provisioning client] Connected to ThingsBoard")
             client.subscribe(PROVISION_RESPONSE_TOPIC)
-            topic, payload = self._json_message_dispatcher.build_provision_request(self._provision_request)
+            topic, payload = self.__message_dispatcher.build_provision_request(self._provision_request)
             self._log.debug("[Provisioning client] Sending provisioning request %s" % payload)
             client.publish(topic, payload)
         else:
@@ -57,11 +57,8 @@ class ProvisioningClient:
             self._log.error("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % rc)
 
     async def _on_message(self, _, __, payload, ___, ____):
-        decoded_payload = payload.decode("UTF-8")
-        self._log.debug("[Provisioning client] Received data from ThingsBoard: %s" % decoded_payload)
-        decoded_message = loads(decoded_payload)
-
-        self._device_config = ProvisioningResponse.build(self._provision_request, decoded_message)
+        provisioning_response = self.__message_dispatcher.parse_provisioning_response(self._provision_request, payload)
+        self._device_config = provisioning_response.result
 
         await self._client.disconnect()
         self._provisioned.set()

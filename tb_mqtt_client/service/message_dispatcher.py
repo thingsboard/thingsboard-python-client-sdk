@@ -28,6 +28,7 @@ from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType
+from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
@@ -133,6 +134,14 @@ class MessageDispatcher(ABC):
         """
         pass
 
+    @abstractmethod
+    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> 'ProvisioningResponse':
+        """
+        Parse the provisioning response from the given payload.
+        This method should be implemented to handle the specific format of the provisioning response.
+        """
+        pass
+
 
 class JsonMessageDispatcher(MessageDispatcher):
     """
@@ -210,6 +219,21 @@ class JsonMessageDispatcher(MessageDispatcher):
         except Exception as e:
             logger.error("Failed to parse RPC response: %s", str(e))
             raise ValueError("Invalid RPC response format") from e
+
+    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> 'ProvisioningResponse':
+        """
+        Parse the provisioning response from the given payload.
+        :param provisioning_request: The ProvisioningRequest that initiated the provisioning.
+        :param payload: The raw bytes of the payload.
+        :return: An instance of ProvisioningResponse.
+        """
+        try:
+            data = loads(payload)
+            logger.trace("Parsing provisioning response from payload: %s", data)
+            return ProvisioningResponse.build(provisioning_request, data)
+        except Exception as e:
+            logger.error("Failed to parse provisioning response: %s", str(e))
+            return ProvisioningResponse.build(provisioning_request, {"status": "FAILURE", "errorMsg": str(e)})
 
     @property
     def splitter(self) -> MessageSplitter:

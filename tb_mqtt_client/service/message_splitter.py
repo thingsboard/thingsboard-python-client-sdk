@@ -13,10 +13,13 @@
 #  limitations under the License.
 
 import asyncio
-from typing import List
+from collections import defaultdict
+from typing import List, Optional, Dict, Tuple
 
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
 logger = get_logger(__name__)
 
@@ -37,43 +40,57 @@ class MessageSplitter:
 
     def split_timeseries(self, messages: List[DeviceUplinkMessage]) -> List[DeviceUplinkMessage]:
         logger.trace("Splitting timeseries for %d messages", len(messages))
+
         if (len(messages) == 1
-                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and ((messages[0].attributes_datapoint_count() + messages[
+                    0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
                 and messages[0].size <= self._max_payload_size):
             return messages
 
         result: List[DeviceUplinkMessage] = []
 
-        for message in messages:
-            if not message.has_timeseries():
-                logger.trace("Message from device '%s' has no timeseries. Skipping.", message.device_name)
-                continue
+        grouped: Dict[Tuple[str, Optional[str]], List[DeviceUplinkMessage]] = defaultdict(list)
+        for msg in messages:
+            key = (msg.device_name, msg.device_profile)
+            grouped[key].append(msg)
 
-            logger.trace("Processing timeseries from device: %s", message.device_name)
-            builder = None
+        for (device_name, device_profile), group_msgs in grouped.items():
+            logger.trace("Processing group: device='%s', profile='%s', messages=%d", device_name, device_profile,
+                         len(group_msgs))
+
+            all_ts: List[TimeseriesEntry] = []
+            delivery_futures: List[asyncio.Future] = []
+            for msg in group_msgs:
+                if msg.has_timeseries():
+                    for ts_group in msg.timeseries.values():
+                        all_ts.extend(ts_group)
+                delivery_futures.extend(msg.get_delivery_futures())
+
+            builder: Optional[DeviceUplinkMessageBuilder] = None
             size = 0
             point_count = 0
             batch_futures = []
 
-            for grouped_ts in message.timeseries.values():
-                for ts_kv in grouped_ts:
-                    exceeds_size = builder and size + ts_kv.size > self._max_payload_size
-                    exceeds_points = 0 < self._max_datapoints <= point_count
+            for ts_kv in all_ts:
+                exceeds_size = builder and size + ts_kv.size > self._max_payload_size
+                exceeds_points = 0 < self._max_datapoints <= point_count
 
-                    if not builder or exceeds_size or exceeds_points:
-                        if builder:
-                            built = builder.build()
-                            result.append(built)
-                            batch_futures.extend(built.get_delivery_futures())
-                            logger.trace("Flushed batch with %d points (size=%d)", len(built.timeseries), size)
-                        builder = DeviceUplinkMessageBuilder().set_device_name(message.device_name).set_device_profile(
-                            message.device_profile)
-                        size = 0
-                        point_count = 0
+                if not builder or exceeds_size or exceeds_points:
+                    if builder:
+                        built = builder.build()
+                        result.append(built)
+                        batch_futures.extend(built.get_delivery_futures())
+                        logger.trace("Flushed batch with %d points (size=%d)", len(built.timeseries), size)
 
-                    builder.add_telemetry(ts_kv)
-                    size += ts_kv.size
-                    point_count += 1
+                    builder = DeviceUplinkMessageBuilder() \
+                        .set_device_name(device_name) \
+                        .set_device_profile(device_profile)
+                    size = 0
+                    point_count = 0
+
+                builder.add_timeseries(ts_kv)
+                size += ts_kv.size
+                point_count += 1
 
             if builder and builder._timeseries:  # noqa
                 built = builder.build()
@@ -81,14 +98,13 @@ class MessageSplitter:
                 batch_futures.extend(built.get_delivery_futures())
                 logger.trace("Flushed final batch with %d points (size=%d)", len(built.timeseries), size)
 
-            if message.get_delivery_futures():
-                original_future = message.get_delivery_futures()[0]
+            if delivery_futures:
+                original_future = delivery_futures[0]
                 logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
-                                 [id(batch_future) for batch_future in batch_futures])
+                             [id(f) for f in batch_futures])
 
                 async def resolve_original():
-                    logger.trace("Resolving original future with batch futures: %r, %s",
-                                 batch_futures, [id(f) for f in batch_futures])
+                    logger.trace("Resolving original future with batch futures: %r", [id(f) for f in batch_futures])
                     results = await asyncio.gather(*batch_futures, return_exceptions=False)
                     original_future.set_result(all(results))
 
@@ -102,22 +118,33 @@ class MessageSplitter:
         result: List[DeviceUplinkMessage] = []
 
         if (len(messages) == 1
-                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and ((messages[0].attributes_datapoint_count() + messages[
+                    0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
                 and messages[0].size <= self._max_payload_size):
             return messages
 
-        for message in messages:
-            if not message.has_attributes():
-                logger.trace("Message from device '%s' has no attributes. Skipping.", message.device_name)
-                continue
+        grouped: Dict[Tuple[str, Optional[str]], List[DeviceUplinkMessage]] = defaultdict(list)
+        for msg in messages:
+            grouped[(msg.device_name, msg.device_profile)].append(msg)
 
-            logger.trace("Processing attributes from device: %s", message.device_name)
+        for (device_name, device_profile), group_msgs in grouped.items():
+            logger.trace("Processing attribute group: device='%s', profile='%s', messages=%d", device_name,
+                         device_profile, len(group_msgs))
+
+            all_attrs: List[AttributeEntry] = []
+            delivery_futures: List[asyncio.Future] = []
+
+            for msg in group_msgs:
+                if msg.has_attributes():
+                    all_attrs.extend(msg.attributes)
+                delivery_futures.extend(msg.get_delivery_futures())
+
             builder = None
             size = 0
             point_count = 0
             batch_futures = []
 
-            for attr in message.attributes:
+            for attr in all_attrs:
                 exceeds_size = builder and size + attr.size > self._max_payload_size
                 exceeds_points = 0 < self._max_datapoints <= point_count
 
@@ -127,13 +154,10 @@ class MessageSplitter:
                         result.append(built)
                         batch_futures.extend(built.get_delivery_futures())
                         logger.trace("Flushed attribute batch (count=%d, size=%d)", len(built.attributes), size)
-                    builder = None
+                    builder = DeviceUplinkMessageBuilder().set_device_name(device_name).set_device_profile(
+                        device_profile)
                     size = 0
                     point_count = 0
-
-                if not builder:
-                    builder = DeviceUplinkMessageBuilder().set_device_name(message.device_name).set_device_profile(
-                        message.device_profile)
 
                 builder.add_attributes(attr)
                 size += attr.size
@@ -145,10 +169,10 @@ class MessageSplitter:
                 batch_futures.extend(built.get_delivery_futures())
                 logger.trace("Flushed final attribute batch (count=%d, size=%d)", len(built.attributes), size)
 
-            if message.get_delivery_futures():
-                original_future = message.get_delivery_futures()[0]
+            if delivery_futures:
+                original_future = delivery_futures[0]
                 logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
-                                 [id(batch_future) for batch_future in batch_futures])
+                             [id(batch_future) for batch_future in batch_futures])
 
                 async def resolve_original():
                     results = await asyncio.gather(*batch_futures, return_exceptions=False)

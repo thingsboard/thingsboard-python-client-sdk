@@ -50,6 +50,7 @@ class MessageQueue:
         self._backpressure = self._mqtt_manager.backpressure
         self._pending_ack_futures: Dict[int, asyncio.Future[PublishResult]] = {}
         self._pending_ack_callbacks: Dict[int, Callable[[bool], None]] = {}
+        # Queue expects tuples of (topic, payload, delivery_futures, datapoints_count, qos)
         self._queue: asyncio.Queue[Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
         self._pending_queue_tasks: set[asyncio.Task] = set()
         self._active = asyncio.Event()
@@ -63,7 +64,7 @@ class MessageQueue:
                      max_queue_size, self._batch_max_time, batch_collect_max_count)
 
     async def publish(self, topic: str, payload: Union[bytes, DeviceUplinkMessage], datapoints_count: int, qos: int) -> Optional[List[asyncio.Future[PublishResult]]]:
-        delivery_futures = payload.get_delivery_futures() if isinstance(payload, DeviceUplinkMessage) else []
+        delivery_futures = payload.get_delivery_futures() if isinstance(payload, DeviceUplinkMessage) else [asyncio.Future()]
         try:
             logger.trace("publish() received delivery future id: %r for topic=%s",
                          id(delivery_futures[0]) if delivery_futures else -1, topic)
@@ -72,7 +73,7 @@ class MessageQueue:
                          topic, datapoints_count, type(payload).__name__)
         except asyncio.QueueFull:
             logger.error("Message queue full. Dropping message for topic %s", topic)
-            for future in payload.get_delivery_futures():
+            for future in delivery_futures:
                 if future:
                     future.set_result(PublishResult(topic, qos, -1, len(payload), -1))
         return delivery_futures or None
@@ -357,16 +358,18 @@ class MessageQueue:
     def is_empty(self):
         return self._queue.empty()
 
-    def size(self):
-        return self._queue.qsize()
-
     def clear(self):
         logger.debug("Clearing message queue...")
         while not self._queue.empty():
-            _, message, _, _, _ = self._queue.get_nowait()
-            if isinstance(message, DeviceUplinkMessage) and message.get_delivery_futures():
-                for future in message.get_delivery_futures():
-                    future.set_result(False)
+            topic, message, delivery_futures, _, qos = self._queue.get_nowait()
+            for future in delivery_futures:
+                future.set_result(PublishResult(
+                    topic=topic,
+                    qos=qos,
+                    message_id=-1,
+                    payload_size=message.size if isinstance(message, DeviceUplinkMessage) else len(message),
+                    reason_code=-1
+                ))
             self._queue.task_done()
         logger.debug("Message queue cleared.")
 

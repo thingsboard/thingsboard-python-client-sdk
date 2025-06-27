@@ -18,9 +18,9 @@ from types import MappingProxyType
 from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
 
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.common.publish_result import PublishResult
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,8 @@ class DeviceUplinkMessage:
     _size: int
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
+        raise TypeError(
+            "Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
 
     def __repr__(self):
         return (f"DeviceUplinkMessage(device_name={self.device_name}, "
@@ -58,7 +59,8 @@ class DeviceUplinkMessage:
         object.__setattr__(self, 'device_name', device_name)
         object.__setattr__(self, 'device_profile', device_profile)
         object.__setattr__(self, 'attributes', tuple(attributes))
-        object.__setattr__(self, 'timeseries', MappingProxyType({ts: tuple(entries) for ts, entries in timeseries.items()}))
+        object.__setattr__(self, 'timeseries',
+                           MappingProxyType({ts: tuple(entries) for ts, entries in timeseries.items()}))
         object.__setattr__(self, 'delivery_futures', tuple(delivery_futures))
         object.__setattr__(self, '_size', size)
         return self
@@ -112,7 +114,8 @@ class DeviceUplinkMessageBuilder:
             self.__size += attribute.size
         return self
 
-    def add_telemetry(self, timeseries: Union[TimeseriesEntry, List[TimeseriesEntry], OrderedDict[int, List[TimeseriesEntry]]]) -> 'DeviceUplinkMessageBuilder':
+    def add_timeseries(self, timeseries: Union[TimeseriesEntry, List[TimeseriesEntry], OrderedDict[
+        int, List[TimeseriesEntry]]]) -> 'DeviceUplinkMessageBuilder':
         if isinstance(timeseries, OrderedDict):
             self._timeseries = timeseries
             return self
@@ -133,7 +136,8 @@ class DeviceUplinkMessageBuilder:
             self.__size += timeseries_entry.size
         return self
 
-    def add_delivery_futures(self, futures: Union[asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
+    def add_delivery_futures(self, futures: Union[
+        asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
         if not isinstance(futures, list):
             futures = [futures]
         if futures:

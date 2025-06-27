@@ -23,7 +23,7 @@ class TimeseriesEntry(DataEntry):
         super().__init__(key, value, ts)
 
     def __repr__(self):
-        return f"TelemetryEntry(key={self.key}, value={self.value}, ts={self.ts})"
+        return f"TimeseriesEntry(key={self.key}, value={self.value}, ts={self.ts})"
 
     def as_dict(self) -> dict:
         result = {

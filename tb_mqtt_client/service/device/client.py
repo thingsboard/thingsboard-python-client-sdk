@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import ssl
 from asyncio import sleep, wait_for, TimeoutError, Event, Future
 from random import choices
 from string import ascii_uppercase, digits
@@ -23,6 +24,8 @@ from orjson import dumps
 from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.provisioning_client import ProvisioningClient
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
@@ -33,13 +36,11 @@ from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.common.provisioning_client import ProvisioningClient
-from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
 from tb_mqtt_client.service.device.handlers.attribute_updates_handler import AttributeUpdatesHandler
@@ -72,11 +73,13 @@ class DeviceClient(BaseClient):
         super().__init__(self._config.host, self._config.port, client_id)
 
         self._message_queue: Optional[MessageQueue] = None
-        self._message_dispatcher: MessageDispatcher = JsonMessageDispatcher(1000, 1)  # Will be updated after connection established
+        self._message_dispatcher: MessageDispatcher = JsonMessageDispatcher(1000,
+                                                                            1)  # Will be updated after connection established
 
         self._messages_rate_limit = RateLimit("0:0,", name="messages")
         self._telemetry_rate_limit = RateLimit("0:0,", name="telemetry")
         self._telemetry_dp_rate_limit = RateLimit("0:0,", name="telemetryDataPoints")
+        self._ssl_context = None
         self.max_payload_size = None
         self._max_inflight_messages = 100
         self._max_uplink_message_queue_size = 10000
@@ -107,13 +110,11 @@ class DeviceClient(BaseClient):
     async def connect(self):
         logger.info("Connecting to platform at %s:%s", self._host, self._port)
 
-        ssl_context = None
         tls = self._config.use_tls()
         if tls:
-            import ssl
-            ssl_context = ssl.create_default_context()
-            ssl_context.load_verify_locations(self._config.ca_cert)
-            ssl_context.load_cert_chain(certfile=self._config.client_cert, keyfile=self._config.private_key)
+            self._ssl_context = ssl.create_default_context()
+            self._ssl_context.load_verify_locations(self._config.ca_cert)
+            self._ssl_context.load_cert_chain(certfile=self._config.client_cert, keyfile=self._config.private_key)
 
         await self._mqtt_manager.connect(
             host=self._host,
@@ -121,7 +122,7 @@ class DeviceClient(BaseClient):
             username=self._config.access_token or self._config.username,
             password=None if self._config.access_token else self._config.password,
             tls=tls,
-            ssl_context=ssl_context
+            ssl_context=self._ssl_context
         )
 
         while not self._mqtt_manager.is_connected():
@@ -276,7 +277,8 @@ class DeviceClient(BaseClient):
             else:
                 logger.warning("Timed out waiting for RPC response, but callback is set. "
                                "Callback will be called with None response.")
-                await self._rpc_response_handler.handle(mqtt_topics.build_device_rpc_response_topic(rpc_request.request_id), e)
+                await self._rpc_response_handler.handle(
+                    mqtt_topics.build_device_rpc_response_topic(rpc_request.request_id), e)
 
     async def send_rpc_response(self, response: RPCResponse):
         topic, payload = self._message_dispatcher.build_rpc_response(response)
@@ -287,7 +289,7 @@ class DeviceClient(BaseClient):
 
     async def send_attribute_request(self,
                                      attribute_request: AttributeRequest,
-                                     callback: Callable[[RequestedAttributeResponse], Awaitable[None]],):
+                                     callback: Callable[[RequestedAttributeResponse], Awaitable[None]], ):
         await self._requested_attribute_response_handler.register_request(attribute_request, callback)
 
         topic, payload = self._message_dispatcher.build_attribute_request(attribute_request)
@@ -300,13 +302,14 @@ class DeviceClient(BaseClient):
     async def claim_device(self,
                            claim_request: ClaimRequest,
                            wait_for_publish: bool = True,
-                           timeout: int = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
+                           timeout: float = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
         topic, payload = self._message_dispatcher.build_claim_request(claim_request)
         self.__claiming_response_future = Future()
         await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
         if wait_for_publish:
             try:
-                return await await_or_stop(self.__claiming_response_future, timeout=timeout, stop_event=self._stop_event)
+                return await await_or_stop(self.__claiming_response_future, timeout=timeout,
+                                           stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for telemetry publish result")
                 return PublishResult(topic, 1, -1, len(payload), -1)
@@ -329,8 +332,10 @@ class DeviceClient(BaseClient):
                 return
 
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_TOPIC, self._handle_attribute_update)
-        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_request)  # noqa
-        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_RESPONSE_TOPIC, self._handle_requested_attribute_response)  # noqa
+        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION,
+                                            self._handle_rpc_request)  # noqa
+        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_RESPONSE_TOPIC,
+                                            self._handle_requested_attribute_response)  # noqa
         # RPC responses are handled by the RPCResponseHandler, which is already registered
 
     async def _on_disconnect(self):
@@ -338,7 +343,8 @@ class DeviceClient(BaseClient):
         self._requested_attribute_response_handler.clear()
         self._rpc_response_handler.clear()
 
-    async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Union[RPCResponse, None]:
+    async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Union[
+        RPCResponse, None]:
         """
         Initiates a client-side RPC to ThingsBoard and awaits the result.
         :param method: The RPC method to call.
@@ -406,7 +412,7 @@ class DeviceClient(BaseClient):
             if "maxPayloadSize" in response.result:
                 self.max_payload_size = int(response.result["maxPayloadSize"] * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
                 # Update the dispatcher's max_payload_size if it's already initialized
-                if hasattr(self, '_dispatcher') and self._message_dispatcher is not None:
+                if self._message_dispatcher is not None and hasattr(self._message_dispatcher, 'splitter'):
                     self._message_dispatcher.splitter.max_payload_size = self.max_payload_size
                     logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
             else:
@@ -417,12 +423,12 @@ class DeviceClient(BaseClient):
                     self.max_payload_size = 65535
                     logger.debug("Using default max_payload_size: %d", self.max_payload_size)
                     # Update the dispatcher's max_payload_size if it's already initialized
-                    if hasattr(self, '_dispatcher') and self._message_dispatcher is not None:
+                    if self._message_dispatcher is not None and hasattr(self._message_dispatcher, 'splitter'):
                         self._message_dispatcher.splitter.max_payload_size = self.max_payload_size
                         logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
 
             if (not self._messages_rate_limit.has_limit()
-                and not self._telemetry_rate_limit.has_limit()
+                    and not self._telemetry_rate_limit.has_limit()
                     and not self._telemetry_dp_rate_limit.has_limit()):
                 self._max_queued_messages = 50000
                 logger.debug("No rate limits, setting max_queued_messages to 50000")
@@ -466,9 +472,9 @@ class DeviceClient(BaseClient):
 
     @staticmethod
     def _build_uplink_message_for_telemetry(payload: Union[Dict[str, Any],
-                                                           TimeseriesEntry,
-                                                           List[TimeseriesEntry],
-                                                           List[Dict[str, Any]]]) -> DeviceUplinkMessage:
+    TimeseriesEntry,
+    List[TimeseriesEntry],
+    List[Dict[str, Any]]]) -> DeviceUplinkMessage:
         timeseries_entries = []
         if isinstance(payload, TimeseriesEntry):
             timeseries_entries.append(payload)
@@ -486,7 +492,7 @@ class DeviceClient(BaseClient):
             raise ValueError(f"Unsupported payload type for telemetry: {type(payload).__name__}")
 
         builder = DeviceUplinkMessageBuilder()
-        builder.add_telemetry(timeseries_entries)
+        builder.add_timeseries(timeseries_entries)
         return builder.build()
 
     @staticmethod
@@ -509,8 +515,8 @@ class DeviceClient(BaseClient):
 
     @staticmethod
     def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],
-                                                            AttributeEntry,
-                                                            List[AttributeEntry]]) -> DeviceUplinkMessage:
+    AttributeEntry,
+    List[AttributeEntry]]) -> DeviceUplinkMessage:
         if isinstance(payload, dict):
             payload = [AttributeEntry(k, v) for k, v in payload.items()]
 

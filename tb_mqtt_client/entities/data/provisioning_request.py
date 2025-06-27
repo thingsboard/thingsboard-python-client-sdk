@@ -18,22 +18,22 @@ from typing import Optional
 from tb_mqtt_client.constants.provisioning import ProvisioningCredentialsType
 
 
-class ProvisioningRequest:
-    def __init__(self, host, credentials: 'ProvisioningCredentials', port: str = "1883",
-                 device_name: Optional[str] = None, gateway: Optional[bool] = False):
-        self.host = host
-        self.port = port
-        self.credentials = credentials
-        self.device_name = device_name
-        self.gateway = gateway
-
-
 class ProvisioningCredentials(ABC):
     @abstractmethod
     def __init__(self, provision_device_key: str, provision_device_secret: str):
         self.provision_device_key = provision_device_key
         self.provision_device_secret = provision_device_secret
         self.credentials_type: ProvisioningCredentialsType
+
+
+class ProvisioningRequest:
+    def __init__(self, host, credentials: ProvisioningCredentials, port: int = 1883,
+                 device_name: Optional[str] = None, gateway: Optional[bool] = False):
+        self.host = host
+        self.port = port
+        self.credentials = credentials
+        self.device_name = device_name
+        self.gateway = gateway
 
 
 class AccessTokenProvisioningCredentials(ProvisioningCredentials):
