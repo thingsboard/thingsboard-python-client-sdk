@@ -223,7 +223,7 @@ class FirmwareUpdater:
 
     async def _send_current_firmware_info(self):
         current_info = [TimeseriesEntry(key, value) for key, value in self.current_firmware_info.items()]
-        await self._client.send_telemetry(current_info, wait_for_publish=True)
+        await self._client.send_timeseries(current_info, wait_for_publish=True)
 
     def verify_checksum(self, firmware_data, checksum_alg, checksum):
         if firmware_data is None:

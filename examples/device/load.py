@@ -93,7 +93,7 @@ async def main():
             ]
 
             try:
-                future = await client.send_telemetry(entries)
+                future = await client.send_timeseries(entries)
                 if future:
                     pending_futures.append((future, BATCH_SIZE))
                     sent_batches += 1

@@ -144,13 +144,13 @@ async def main():
             "humidity": 60
         }
         logger.info("Sending raw telemetry...")
-        raw_telemetry_publish_result = await client.send_telemetry(raw_dict)
+        raw_telemetry_publish_result = await client.send_timeseries(raw_dict)
         logger.info(f"Raw telemetry sent: {raw_dict} with result: {raw_telemetry_publish_result}")
 
         # 2. Single TimeseriesEntry (with ts)
         single_entry = TimeseriesEntry("batteryLevel", randint(0, 100))
         logger.info("Sending single telemetry: %s", single_entry)
-        delivery_future = await client.send_telemetry(single_entry)
+        delivery_future = await client.send_timeseries(single_entry)
         logger.info(f"Single telemetry sent: {single_entry} with delivery future: {delivery_future}")
 
         # 3. List of TimeseriesEntry with mixed timestamps
@@ -159,7 +159,7 @@ async def main():
         for i in range(100):
             telemetry_entries.append(TimeseriesEntry("temperature", i, ts=int(datetime.now(UTC).timestamp() * 1000)-i))
         logger.info("Sending list of telemetry entries with mixed timestamps...")
-        telemetry_list_publish_result = await client.send_telemetry(telemetry_entries)
+        telemetry_list_publish_result = await client.send_timeseries(telemetry_entries)
         logger.info("List of telemetry entries sent: %s with result: %s",
                     len(telemetry_entries) if len(telemetry_entries) > 10 else telemetry_entries,
                     telemetry_list_publish_result)

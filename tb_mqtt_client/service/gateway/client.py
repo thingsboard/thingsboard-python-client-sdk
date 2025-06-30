@@ -208,7 +208,7 @@ class GatewayClient(DeviceClient):
         if self._device_disconnect_callback:
             await self._device_disconnect_callback(device_name)
 
-    async def gw_send_telemetry(self, device_name: str, telemetry: Union[Dict[str, Any], TimeseriesEntry, List[TimeseriesEntry]]):
+    async def gw_send_timeseries(self, device_name: str, telemetry: Union[Dict[str, Any], TimeseriesEntry, List[TimeseriesEntry]]):
         """
         Send telemetry on behalf of a connected device.
 

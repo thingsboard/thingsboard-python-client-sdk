@@ -41,7 +41,7 @@ async def main():
     await client.connect()
 
     # Send single telemetry entry to provisioned device
-    await client.send_telemetry(TimeseriesEntry("batteryLevel", randint(0, 100)))
+    await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)))
 
     await client.stop()
 

@@ -33,7 +33,7 @@ def mock_client():
     client._mqtt_manager.unsubscribe = AsyncMock()
     client._mqtt_manager.is_connected.return_value = True
     client._message_queue.publish = AsyncMock()
-    client.send_telemetry = AsyncMock()
+    client.send_timeseries = AsyncMock()
     client.send_attribute_request = AsyncMock()
     return client
 
@@ -50,7 +50,7 @@ async def test_update_success(updater, mock_client):
             patch.object(updater, "_firmware_info_callback", new=AsyncMock()):
         await updater.update()
         mock_client._mqtt_manager.subscribe.assert_called_once()
-        mock_client.send_telemetry.assert_called()
+        mock_client.send_timeseries.assert_called()
         mock_client.send_attribute_request.assert_called_once()
 
 
@@ -182,15 +182,15 @@ async def test_save_firmware_failure_logs_error(updater, caplog):
 
 
 @pytest.mark.asyncio
-async def test_send_current_firmware_info_calls_send_telemetry(updater, mock_client):
+async def test_send_current_firmware_info_calls_send_timeseries(updater, mock_client):
     updater.current_firmware_info = {
         f"current_{FW_TITLE_ATTR}": "test",
         f"current_{FW_VERSION_ATTR}": "1.0",
         FW_STATE_ATTR: FirmwareStates.DOWNLOADING.value
     }
     await updater._send_current_firmware_info()
-    mock_client.send_telemetry.assert_awaited_once()
-    args = mock_client.send_telemetry.call_args[0][0]
+    mock_client.send_timeseries.assert_awaited_once()
+    args = mock_client.send_timeseries.call_args[0][0]
     assert all(isinstance(entry, TimeseriesEntry) for entry in args)
 
 

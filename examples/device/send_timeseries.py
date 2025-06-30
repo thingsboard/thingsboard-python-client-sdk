@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# This example demonstrates how to send telemetry data from a device to ThingsBoard using the DeviceClient.
+# This example demonstrates how to send time series data from a device to ThingsBoard using the DeviceClient.
 
 import asyncio
 from random import uniform, randint
@@ -28,21 +28,21 @@ async def main():
     client = DeviceClient(config)
     await client.connect()
 
-    # Send telemetry as raw dictionary
-    await client.send_telemetry({
+    # Send time series as raw dictionary
+    await client.send_timeseries({
         "temperature": round(uniform(20.0, 30.0), 2),
         "humidity": randint(30, 70)
     })
 
-    # Send single telemetry entry
-    await client.send_telemetry(TimeseriesEntry("batteryLevel", randint(0, 100)))
+    # Send single time series entry
+    await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)))
 
-    # Send list of telemetry entries
+    # Send a list of time series entries
     entries = [
         TimeseriesEntry("vibration", 0.05),
         TimeseriesEntry("speed", 123)
     ]
-    await client.send_telemetry(entries)
+    await client.send_timeseries(entries)
 
     await client.stop()
 

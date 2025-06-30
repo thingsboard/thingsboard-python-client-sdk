@@ -29,24 +29,24 @@ from tb_mqtt_client.service.message_queue import MessageQueue
 
 
 @pytest.mark.asyncio
-async def test_send_telemetry_with_dict():
+async def test_send_timeseries_with_dict():
     client = DeviceClient()
     client._message_queue = AsyncMock(spec=MessageQueue)
     future = asyncio.Future()
     future.set_result(PublishResult("topic", 1, 1, 100, 1))
     client._message_queue.publish.return_value = [future]
-    result = await client.send_telemetry({"temp": 22})
+    result = await client.send_timeseries({"temp": 22})
     assert isinstance(result, PublishResult)
     assert result.message_id == 1
 
 
 @pytest.mark.asyncio
-async def test_send_telemetry_timeout():
+async def test_send_timeseries_timeout():
     client = DeviceClient()
     client._message_queue = AsyncMock()
     future = asyncio.Future()
     client._message_queue.publish.return_value = [future]
-    result = await client.send_telemetry({"temp": 22}, timeout=0.01)
+    result = await client.send_timeseries({"temp": 22}, timeout=0.01)
     assert isinstance(result, PublishResult)
     assert result.message_id == -1
 
@@ -88,19 +88,50 @@ async def test_send_rpc_response():
 @pytest.mark.asyncio
 async def test_claim_device_success():
     client = DeviceClient()
-    from tb_mqtt_client.entities.data.claim_request import ClaimRequest
-    claim = ClaimRequest.build(secret_key="abc")
     client._message_queue = AsyncMock()
+
+    claim = ClaimRequest.build(secret_key="abc")
+
     fut = asyncio.Future()
-    fut.set_result(None)
-    client._message_queue.publish.return_value = fut
-    client._DeviceClient__claiming_response_future = asyncio.Future()
-    client._DeviceClient__claiming_response_future.set_result(
-        PublishResult(DEVICE_CLAIM_TOPIC, 1, 3, 10, 1)
-    )
-    result = await client.claim_device(claim, timeout=0.01)
+    fut.set_result(PublishResult(topic=DEVICE_CLAIM_TOPIC, qos=1, message_id=1, payload_size=12, reason_code=0))
+    client._message_queue.publish.return_value = [fut]
+
+    result = await client.claim_device(claim)
     assert isinstance(result, PublishResult)
     assert result.topic == DEVICE_CLAIM_TOPIC
+
+
+@pytest.mark.asyncio
+async def test_claim_device_timeout():
+    client = DeviceClient()
+    client._message_queue = AsyncMock()
+
+    claim = ClaimRequest.build(secret_key="abc")
+    fut = asyncio.Future()
+    client._message_queue.publish.return_value = [fut]
+
+    result = await client.claim_device(claim, timeout=0.01)
+    assert isinstance(result, PublishResult)
+    assert result.message_id == -1
+
+
+
+@pytest.mark.asyncio
+async def test_claim_device_payload_contains_secret_key():
+    client = DeviceClient()
+    client._message_queue = AsyncMock()
+
+    claim = ClaimRequest.build(secret_key="my-secret")
+    fut = asyncio.Future()
+    fut.set_result(PublishResult(topic=DEVICE_CLAIM_TOPIC, qos=1, message_id=3, payload_size=15, reason_code=0))
+    client._message_queue.publish.return_value = [fut]
+
+    await client.claim_device(claim)
+
+    client._message_queue.publish.assert_awaited_once()
+    args, kwargs = client._message_queue.publish.call_args
+    assert kwargs['topic'] == DEVICE_CLAIM_TOPIC
+    assert b"my-secret" in kwargs['payload']
 
 
 @pytest.mark.asyncio
@@ -363,22 +394,10 @@ async def test_does_not_update_dispatcher_when_not_initialized():
 
 
 @pytest.mark.asyncio
-async def test_publish_result_device_claim_successfully_sets_future():
-    publish_result = PublishResult(topic=DEVICE_CLAIM_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0)
-    client = DeviceClient()
-    client._DeviceClient__claiming_response_future = MagicMock()
-    client._DeviceClient__claiming_response_future.done.return_value = False
-
-    await client._DeviceClient__on_publish_result(publish_result)
-
-    client._DeviceClient__claiming_response_future.set_result.assert_called_once_with(True)
-
-
-@pytest.mark.asyncio
-async def test_send_telemetry_without_connect_raises_error():
+async def test_send_timeseries_without_connect_raises_error():
     client = DeviceClient()
     with pytest.raises(AttributeError):
-        await client.send_telemetry({"temp": 22})
+        await client.send_timeseries({"temp": 22})
 
 
 @pytest.mark.asyncio
@@ -441,10 +460,10 @@ async def test_set_attribute_update_callback_sets_handler():
 
 
 @pytest.mark.asyncio
-async def test_send_telemetry_with_invalid_type_raises():
+async def test_send_timeseries_with_invalid_type_raises():
     client = DeviceClient()
     with pytest.raises(ValueError):
-        await client.send_telemetry("invalid")
+        await client.send_timeseries("invalid")
 
 
 @pytest.mark.asyncio
@@ -513,3 +532,7 @@ async def test_provision_timeout(monkeypatch):
     req = ProvisioningRequest(host="localhost", credentials=credentials, port=1883, device_name="dev")
     result = await DeviceClient.provision(req, timeout=0.01)
     assert result is None
+
+
+if __name__ == '__main__':
+    pytest.main([__file__])

@@ -178,13 +178,23 @@ class DeviceClient(BaseClient):
         #     await self._message_queue.shutdown()
         # TODO: Not sure if we need to shutdown the message queue here, as it might be handled by MQTTManager
 
-    async def send_telemetry(
+    async def send_timeseries(
             self,
             data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
             qos: int = 1,
             wait_for_publish: bool = True,
             timeout: Optional[float] = None
-    ) -> Union[PublishResult, List[PublishResult], None]:
+    ) -> Union[PublishResult, List[PublishResult], None, Future[PublishResult], List[Future[PublishResult]]]:
+        """
+        Sends timeseries data to the ThingsBoard server.
+        :param data: Timeseries data to send, can be a single TimeseriesEntry, a list of TimeseriesEntries,
+                     a dictionary of key-value pairs, or a list of dictionaries.
+        :param qos: Quality of Service level for the MQTT message.
+        :param wait_for_publish: If True, waits for the publish result.
+        :param timeout: Timeout for waiting for the publish result.
+        :return: PublishResult or list of PublishResults if wait_for_publish is True, Future or list of Futures if not,
+                    None if no data is sent.
+        """
         message = self._build_uplink_message_for_telemetry(data)
         topic = mqtt_topics.DEVICE_TELEMETRY_TOPIC
         futures = await self._message_queue.publish(
@@ -199,7 +209,7 @@ class DeviceClient(BaseClient):
             return None
 
         if not wait_for_publish:
-            return None
+            return futures[0] if len(futures) == 1 else futures
 
         results = []
         for fut in futures:
@@ -304,14 +314,16 @@ class DeviceClient(BaseClient):
                            timeout: float = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
         topic, payload = self._message_dispatcher.build_claim_request(claim_request)
         publish_future = await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
+        if isinstance(publish_future, list):
+            publish_future = publish_future[0]
         if wait_for_publish:
             try:
-                return await await_or_stop(publish_future[0], timeout=timeout, stop_event=self._stop_event)
+                return await await_or_stop(publish_future, timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for claiming publish result")
                 return PublishResult(topic, 1, -1, len(payload), -1)
         else:
-            return publish_future[0]
+            return publish_future
 
     def set_attribute_update_callback(self, callback: Callable[[AttributeUpdate], Awaitable[None]]):
         self._attribute_updates_handler.set_callback(callback)

@@ -58,21 +58,26 @@ class BaseClient(ABC):
         pass
 
     @abstractmethod
-    async def send_telemetry(self, telemetry_data: Union[TimeseriesEntry,
-                                                         List[TimeseriesEntry],
-                                                         Dict[str, Any],
-                                                         List[Dict[str, Any]]],
-                             wait_for_publish: bool = True,
-                             timeout: Optional[float] = None) -> Union[asyncio.Future[PublishResult], PublishResult]:
+    async def send_timeseries(self,
+                              telemetry_data: Union[TimeseriesEntry,
+                              List[TimeseriesEntry],
+                              Dict[str, Any],
+                              List[Dict[str, Any]]],
+                              wait_for_publish: bool = True,
+                              timeout: Optional[float] = None) -> Union[asyncio.Future[PublishResult],
+                                                                        PublishResult,
+                                                                        None,
+                                                                        List[PublishResult],
+                                                                        List[asyncio.Future[PublishResult]]]:
         """
-        Send telemetry data.
-
-        :param telemetry_data: Dictionary of telemetry data, a single TimeseriesEntry,
-                                or a list of TimeseriesEntry or dictionaries.
-        :param wait_for_publish: If True, wait for the publishing result. Default is True.
-        :param timeout: Timeout for the publish operation if `wait_for_publish` is True.
-                                In seconds. If less than 0 or None, wait indefinitely.
-        :return: Future or PublishResult depending on `wait_for_publish`.
+        Sends timeseries data to the ThingsBoard server.
+        :param data: Timeseries data to send, can be a single TimeseriesEntry, a list of TimeseriesEntries,
+                     a dictionary of key-value pairs, or a list of dictionaries.
+        :param qos: Quality of Service level for the MQTT message.
+        :param wait_for_publish: If True, waits for the publish result.
+        :param timeout: Timeout for waiting for the publish result.
+        :return: PublishResult or list of PublishResults if wait_for_publish is True, Future or list of Futures if not,
+                    None if no data is sent.
         """
         pass
 
