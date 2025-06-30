@@ -67,6 +67,7 @@ FW_CHECKSUM_ATTR = "fw_checksum"
 FW_CHECKSUM_ALG_ATTR = "fw_checksum_algorithm"
 FW_SIZE_ATTR = "fw_size"
 FW_STATE_ATTR = "fw_state"
+FW_ERROR_ATTR = "fw_error"
 
 REQUIRED_SHARED_KEYS = f"{FW_CHECKSUM_ATTR},{FW_CHECKSUM_ALG_ATTR},{FW_SIZE_ATTR},{FW_TITLE_ATTR},{FW_VERSION_ATTR}"
 
@@ -532,6 +533,7 @@ class TBDeviceMqttClient:
             "current_" + FW_TITLE_ATTR: "Initial",
             "current_" + FW_VERSION_ATTR: "v0",
             FW_STATE_ATTR: TBFirmwareState.IDLE.value,
+            FW_ERROR_ATTR: ""
         }
         self.__request_id = 0
         self.__firmware_request_id = 0
@@ -554,6 +556,10 @@ class TBDeviceMqttClient:
 
         if state is not None:
             self.current_firmware_info[FW_STATE_ATTR] = state.value
+            if state is TBFirmwareState.FAILED and error is not None:
+                self.current_firmware_info[FW_ERROR_ATTR] = error
+            else:
+                self.current_firmware_info[FW_ERROR_ATTR] = ""
 
         self.send_telemetry(self.current_firmware_info)
 
@@ -796,7 +802,7 @@ class TBDeviceMqttClient:
             sleep(1)
         else:
             log.debug('Checksum verification failed!')
-            self.update_firmware_info(state = TBFirmwareState.FAILED)
+            self.update_firmware_info(state = TBFirmwareState.FAILED, error = "Checksum verification failed!")
             self.__request_firmware_info()
             return
         self.firmware_received = True
