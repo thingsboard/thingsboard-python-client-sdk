@@ -21,6 +21,7 @@ from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
 
+
 PLATFORM_HOST = 'localhost'  # Update with your ThingsBoard host
 PLATFORM_PORT = 8883  # Default port for MQTT over SSL
 
@@ -32,6 +33,7 @@ PLATFORM_PORT = 8883  # Default port for MQTT over SSL
 CA_CERT_PATH = "mqttserver.pem"  # Update with your CA certificate path (Default - mqttserver.pem in the examples directory)
 CLIENT_CERT_PATH = "cert.pem"  # Update with your client certificate path (Default - cert.pem in the examples directory)
 CLIENT_KEY_PATH = "key.pem"  # Update with your client key path (Default - key.pem in the examples directory)
+
 
 async def main():
     config = DeviceConfig()
@@ -47,7 +49,8 @@ async def main():
     await client.connect()
 
     # Send telemetry entry
-    result = await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)), wait_for_publish=True)
+    result = await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)),
+                                          wait_for_publish=True)
     if result is not None and result.is_successful():
         print("Telemetry sent successfully")
     else:
