@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# This example demonstrates how to connect to ThingsBoard over SSL using the DeviceClient and send telemetry.
+# This example demonstrates how to connect to ThingsBoard over SSL using the DeviceClient and send time series.
 
 import asyncio
 from random import randint

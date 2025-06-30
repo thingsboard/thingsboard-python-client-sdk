@@ -178,6 +178,13 @@ class DeviceClient(BaseClient):
         #     await self._message_queue.shutdown()
         # TODO: Not sure if we need to shutdown the message queue here, as it might be handled by MQTTManager
 
+    async def send_telemetry(self, *args, **kwargs):
+        """
+        Note: This method is deprecated. Use `send_timeseries` instead.
+        """
+        logger.warning("send_telemetry is deprecated. Use send_timeseries instead.")
+        return await self.send_timeseries(*args, **kwargs)
+
     async def send_timeseries(
             self,
             data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
