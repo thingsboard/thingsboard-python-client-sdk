@@ -15,22 +15,43 @@
 # This example demonstrates how to connect to ThingsBoard over SSL using the DeviceClient and send telemetry.
 
 import asyncio
-from random import uniform, randint
+from random import randint
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
 
+PLATFORM_HOST = 'localhost'  # Update with your ThingsBoard host
+PLATFORM_PORT = 8883  # Default port for MQTT over SSL
+
+
+# Update with your CA certificate, client certificate, and client key paths. There are no default files generated.
+# You can generate them using the following guides:
+# Certificates for server - https://thingsboard.io/docs/user-guide/mqtt-over-ssl/
+# Certificates for client - https://thingsboard.io/docs/user-guide/certificates/?ubuntuThingsboardX509=X509Leaf
+CA_CERT_PATH = "mqttserver.pem"  # Update with your CA certificate path (Default - mqttserver.pem in the examples directory)
+CLIENT_CERT_PATH = "cert.pem"  # Update with your client certificate path (Default - cert.pem in the examples directory)
+CLIENT_KEY_PATH = "key.pem"  # Update with your client key path (Default - key.pem in the examples directory)
+
 async def main():
     config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
+
+    config.host = PLATFORM_HOST
+    config.port = PLATFORM_PORT
+
+    config.ca_cert = CA_CERT_PATH
+    config.client_cert = CLIENT_CERT_PATH
+    config.private_key = CLIENT_KEY_PATH
 
     client = DeviceClient(config)
     await client.connect()
 
-
     # Send telemetry entry
-    await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)))
+    result = await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)), wait_for_publish=True)
+    if result is not None and result.is_successful():
+        print("Telemetry sent successfully")
+    else:
+        print(f"Failed to send telemetry: {result}")
 
     await client.stop()
 
