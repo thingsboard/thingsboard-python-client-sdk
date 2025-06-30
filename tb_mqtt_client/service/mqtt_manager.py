@@ -310,7 +310,7 @@ class MQTTManager:
                 return
 
     def _on_publish_internal(self, client, mid):
-        pass
+        logger.trace("Publish was sent by client %r with mid=%s", client, mid)
 
     def _handle_puback_reason_code(self, mid: int, reason_code: int, properties: dict):
         logger.trace("Handling PUBACK mid=%s with rc %r and properties: %r",

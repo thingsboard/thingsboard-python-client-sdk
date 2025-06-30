@@ -99,7 +99,6 @@ class DeviceClient(BaseClient):
         self._requested_attribute_response_handler = RequestedAttributeResponseHandler()
         self._attribute_updates_handler = AttributeUpdatesHandler()
         self._rpc_requests_handler = RPCRequestsHandler()
-        self.__claiming_response_future: Union[Future[bool], None] = None
 
         self._firmware_updater = FirmwareUpdater(self)
 
@@ -304,17 +303,15 @@ class DeviceClient(BaseClient):
                            wait_for_publish: bool = True,
                            timeout: float = BaseClient.DEFAULT_TIMEOUT) -> Union[Future[PublishResult], PublishResult]:
         topic, payload = self._message_dispatcher.build_claim_request(claim_request)
-        self.__claiming_response_future = Future()
-        await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
+        publish_future = await self._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
         if wait_for_publish:
             try:
-                return await await_or_stop(self.__claiming_response_future, timeout=timeout,
-                                           stop_event=self._stop_event)
+                return await await_or_stop(publish_future[0], timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
-                logger.warning("Timeout while waiting for telemetry publish result")
+                logger.warning("Timeout while waiting for claiming publish result")
                 return PublishResult(topic, 1, -1, len(payload), -1)
         else:
-            return self.__claiming_response_future
+            return publish_future[0]
 
     def set_attribute_update_callback(self, callback: Callable[[AttributeUpdate], Awaitable[None]]):
         self._attribute_updates_handler.set_callback(callback)
@@ -455,16 +452,6 @@ class DeviceClient(BaseClient):
         Callback for handling publish results.
         This can be used to handle the result of a publish operation, such as logging or updating state.
         """
-        if mqtt_topics.DEVICE_CLAIM_TOPIC == publish_result.topic:
-            if self.__claiming_response_future and not self.__claiming_response_future.done():
-                if publish_result.is_successful():
-                    self.__claiming_response_future.set_result(True)
-                    logger.debug("Device claimed successfully.")
-                else:
-                    self.__claiming_response_future.set_exception(
-                        Exception(f"Failed to claim device: {publish_result}"))
-                    logger.error("Failed to claim device: %r", publish_result)
-            return
         if publish_result.is_successful():
             logger.trace("Publish successful: %r", publish_result)
         else:
