@@ -1107,14 +1107,14 @@ class TBDeviceMqttClient:
         attributes_format = topic.endswith('attributes')
         if topic.endswith('telemetry') or attributes_format:
             if device is None or data.get(device) is None:
-                device_split_messages = self._split_message(data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
+                device_split_messages = self._split_message(data, int(dp_rate_limit.get_minimal_limit()), self.max_payload_size) # noqa
                 if attributes_format:
                     split_messages = [{'message': msg_data, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
                     split_messages = [{'message': split_message['data'], 'datapoints': split_message['datapoints']} for split_message in device_split_messages] # noqa
             else:
                 device_data = data.get(device)
-                device_split_messages = self._split_message(device_data, dp_rate_limit.get_minimal_limit(), self.max_payload_size) # noqa
+                device_split_messages = self._split_message(device_data, int(dp_rate_limit.get_minimal_limit()), self.max_payload_size) # noqa
                 if attributes_format:
                     split_messages = [{'message': {device: msg_data}, 'datapoints': len(msg_data)} for split_message in device_split_messages for msg_data in split_message['data']] # noqa
                 else:
@@ -1457,16 +1457,23 @@ class TBDeviceMqttClient:
                     current_size += chunk_size
                     return
 
-                max_step = datapoints_max_count if datapoints_max_count > 0 else len(keys)
+                max_step = int(datapoints_max_count) if datapoints_max_count > 0 else len(keys)
                 if max_step < 1:
                     max_step = 1
 
                 for i in range(0, len(keys), max_step):
-                    sub_values = {k: chunk["values"][k] for k in keys[i:i + max_step]} if "values" in chunk else {
-                        k: chunk[k] for k in keys[i:i + max_step]}
-                    sub_chunk = {"ts": chunk.get("ts"), "values": sub_values} if "values" in chunk else sub_values
-                    if "metadata" in chunk:
-                        sub_chunk["metadata"] = chunk["metadata"]
+                    sub_values = (
+                        {k: chunk["values"][k] for k in keys[i:i + max_step]}
+                        if "values" in chunk else
+                        {k: chunk[k] for k in keys[i:i + max_step]}
+                    )
+
+                    if "ts" in chunk:
+                        sub_chunk = {"ts": chunk["ts"], "values": sub_values}
+                        if "metadata" in chunk:
+                            sub_chunk["metadata"] = chunk["metadata"]
+                    else:
+                        sub_chunk = sub_values.copy()
 
                     sub_datapoints = len(sub_values)
                     sub_size = estimate_chunk_size(sub_chunk)
@@ -1508,14 +1515,17 @@ class TBDeviceMqttClient:
                 return
             values, _, metadata = ts_group_cache.pop(ts_key)
             keys = list(values.keys())
-            step = datapoints_max_count if datapoints_max_count > 0 else len(keys)
+            step = int(datapoints_max_count) if datapoints_max_count > 0 else len(keys)
             if step < 1:
                 step = 1
             for i in range(0, len(keys), step):
                 chunk_values = {k: values[k] for k in keys[i:i + step]}
-                chunk = {"ts": ts, "values": chunk_values}
-                if metadata:
-                    chunk["metadata"] = metadata
+                if ts is not None:
+                    chunk = {"ts": ts, "values": chunk_values}
+                    if metadata:
+                        chunk["metadata"] = metadata
+                else:
+                    chunk = chunk_values.copy()
                 add_chunk_to_current_message(chunk, len(chunk_values))
 
         for message in message_pack:

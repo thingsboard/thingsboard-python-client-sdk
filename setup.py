@@ -21,7 +21,7 @@ this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.md')) as f:
     long_description = f.read()
 
-VERSION = "1.13.7"
+VERSION = "1.13.8"
 
 setup(
     version=VERSION,
