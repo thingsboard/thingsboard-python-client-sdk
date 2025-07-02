@@ -1411,9 +1411,7 @@ class TBDeviceMqttClient:
             message_pack = [message_pack]
 
         def _get_metadata_repr(metadata):
-            if isinstance(metadata, dict):
-                return tuple(sorted(metadata.items()))
-            return None
+            return tuple(sorted(metadata.items())) if isinstance(metadata, dict) else None
 
         def estimate_chunk_size(chunk):
             if isinstance(chunk, dict) and "values" in chunk:
@@ -1427,47 +1425,46 @@ class TBDeviceMqttClient:
             else:
                 return len(str(chunk)) + 20
 
-
         ts_group_cache = {}
         current_message = {"data": [], "datapoints": 0}
-        current_datapoints = 0
         current_size = 0
+        current_datapoints = 0
 
         def flush_current_message():
-            nonlocal current_message, current_datapoints, current_size
+            nonlocal current_message, current_size, current_datapoints
             if current_message["data"]:
                 split_messages.append(current_message)
             current_message = {"data": [], "datapoints": 0}
-            current_datapoints = 0
             current_size = 0
+            current_datapoints = 0
 
         def split_and_add_chunk(chunk, chunk_datapoints):
-            nonlocal current_message, current_datapoints, current_size
+            nonlocal current_message, current_size, current_datapoints
+
             chunk_size = estimate_chunk_size(chunk)
 
-            if (datapoints_max_count > 0 and current_datapoints + chunk_datapoints > datapoints_max_count) or \
+            if (0 < datapoints_max_count <= current_datapoints + chunk_datapoints) or \
                     (current_size + chunk_size > max_payload_size):
                 flush_current_message()
 
             if chunk_datapoints > datapoints_max_count > 0 or chunk_size > max_payload_size:
-                keys = list(chunk["values"].keys()) if "values" in chunk else list(chunk.keys())
+                keys = list(chunk.get("values", {}).keys()) if isinstance(chunk, dict) else list(chunk.keys())
                 if len(keys) == 1:
+                    flush_current_message()
                     current_message["data"].append(chunk)
                     current_message["datapoints"] += chunk_datapoints
                     current_size += chunk_size
+                    current_datapoints += chunk_datapoints
+                    flush_current_message()
                     return
 
-                max_step = int(datapoints_max_count) if datapoints_max_count > 0 else len(keys)
-                if max_step < 1:
-                    max_step = 1
-
+                max_step = max(1, datapoints_max_count if datapoints_max_count > 0 else len(keys))
                 for i in range(0, len(keys), max_step):
                     sub_values = (
-                        {k: chunk["values"][k] for k in keys[i:i + max_step]}
-                        if "values" in chunk else
-                        {k: chunk[k] for k in keys[i:i + max_step]}
+                        {k: chunk["values"][k] for k in keys[i:i + max_step]} if "values" in chunk
+                        else {k: chunk[k] for k in keys[i:i + max_step]}
                     )
-
+                    sub_chunk = {}
                     if "ts" in chunk:
                         sub_chunk = {"ts": chunk["ts"], "values": sub_values}
                         if "metadata" in chunk:
@@ -1478,46 +1475,55 @@ class TBDeviceMqttClient:
                     sub_datapoints = len(sub_values)
                     sub_size = estimate_chunk_size(sub_chunk)
 
-                    if sub_size > max_payload_size:
+                    if sub_size > max_payload_size or (0 < datapoints_max_count <= sub_datapoints):
+                        flush_current_message()
                         current_message["data"].append(sub_chunk)
                         current_message["datapoints"] += sub_datapoints
                         current_size += sub_size
-                        continue
-
-                    split_and_add_chunk(sub_chunk, sub_datapoints)
+                        current_datapoints += sub_datapoints
+                        flush_current_message()
+                    else:
+                        split_and_add_chunk(sub_chunk, sub_datapoints)
                 return
 
             current_message["data"].append(chunk)
             current_message["datapoints"] += chunk_datapoints
             current_size += chunk_size
+            current_datapoints += chunk_datapoints
+
+            if 0 < datapoints_max_count == current_datapoints:
+                flush_current_message()
 
         def add_chunk_to_current_message(chunk, chunk_datapoints):
-            nonlocal current_message, current_datapoints, current_size
+            nonlocal current_message, current_size, current_datapoints
+
             chunk_size = estimate_chunk_size(chunk)
 
-            if (datapoints_max_count > 0 and chunk_datapoints > datapoints_max_count) or chunk_size > max_payload_size:
+            if (0 < datapoints_max_count <= chunk_datapoints) or chunk_size > max_payload_size:
                 split_and_add_chunk(chunk, chunk_datapoints)
                 return
 
-            if (datapoints_max_count > 0 and current_datapoints + chunk_datapoints > datapoints_max_count) or \
+            if (0 < datapoints_max_count <= current_datapoints + chunk_datapoints) or \
                     (current_size + chunk_size > max_payload_size):
                 flush_current_message()
 
             current_message["data"].append(chunk)
             current_message["datapoints"] += chunk_datapoints
             current_size += chunk_size
+            current_datapoints += chunk_datapoints
 
-            if datapoints_max_count > 0 and current_message["datapoints"] == datapoints_max_count:
+            if 0 < datapoints_max_count == current_datapoints:
                 flush_current_message()
 
         def flush_ts_group(ts_key, ts, metadata_repr):
+            nonlocal current_message, current_size, current_datapoints
             if ts_key not in ts_group_cache:
                 return
+
             values, _, metadata = ts_group_cache.pop(ts_key)
             keys = list(values.keys())
-            step = int(datapoints_max_count) if datapoints_max_count > 0 else len(keys)
-            if step < 1:
-                step = 1
+
+            step = max(1, datapoints_max_count if datapoints_max_count > 0 else len(keys))
             for i in range(0, len(keys), step):
                 chunk_values = {k: values[k] for k in keys[i:i + step]}
                 if ts is not None:
@@ -1526,13 +1532,25 @@ class TBDeviceMqttClient:
                         chunk["metadata"] = metadata
                 else:
                     chunk = chunk_values.copy()
-                add_chunk_to_current_message(chunk, len(chunk_values))
+
+                chunk_datapoints = len(chunk_values)
+                chunk_size = estimate_chunk_size(chunk)
+
+                if chunk_size > max_payload_size or (0 < datapoints_max_count <= chunk_datapoints):
+                    flush_current_message()
+                    current_message["data"].append(chunk)
+                    current_message["datapoints"] += chunk_datapoints
+                    current_size += chunk_size
+                    current_datapoints += chunk_datapoints
+                    flush_current_message()
+                else:
+                    add_chunk_to_current_message(chunk, chunk_datapoints)
 
         for message in message_pack:
             if not isinstance(message, dict):
                 continue
 
-            ts = message.get("ts", None)
+            ts = message.get("ts")
             metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else None
             values = message.get("values") if isinstance(message.get("values"), dict) else \
                 message if isinstance(message, dict) else {}
