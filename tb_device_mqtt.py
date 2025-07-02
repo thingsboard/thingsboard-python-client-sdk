@@ -1410,72 +1410,150 @@ class TBDeviceMqttClient:
         if not isinstance(message_pack, list):
             message_pack = [message_pack]
 
-        datapoints_max_count = max(datapoints_max_count - 1, 0)
-
-        append_split_message = split_messages.append
-
-        # Group cache key = (ts, metadata_repr or None)
-        ts_group_cache = {}
-
         def _get_metadata_repr(metadata):
             if isinstance(metadata, dict):
                 return tuple(sorted(metadata.items()))
             return None
 
-        def flush_ts_group(ts_key):
-            if ts_key in ts_group_cache:
-                ts, metadata_repr = ts_key
-                values, size, metadata = ts_group_cache.pop(ts_key)
-                if ts is not None:
-                    chunk = {"ts": ts, "values": values}
-                    if metadata:
-                        chunk["metadata"] = metadata
-                else:
-                    chunk = values  # Raw mode, no ts
+        def estimate_chunk_size(chunk):
+            if isinstance(chunk, dict) and "values" in chunk:
+                size = sum(len(str(k)) + len(str(v)) for k, v in chunk["values"].items())
+                size += len(str(chunk.get("ts", "")))
+                if "metadata" in chunk:
+                    size += sum(len(str(k)) + len(str(v)) for k, v in chunk["metadata"].items())
+                return size + 40
+            elif isinstance(chunk, dict):
+                return sum(len(str(k)) + len(str(v)) for k, v in chunk.items()) + 20
+            else:
+                return len(str(chunk)) + 20
 
-                message = {
-                    "data": [chunk],
-                    "datapoints": len(values)
-                }
-                append_split_message(message)
 
-        for message_index, message in enumerate(message_pack):
+        ts_group_cache = {}
+        current_message = {"data": [], "datapoints": 0}
+        current_datapoints = 0
+        current_size = 0
+
+        def flush_current_message():
+            nonlocal current_message, current_datapoints, current_size
+            if current_message["data"]:
+                split_messages.append(current_message)
+            current_message = {"data": [], "datapoints": 0}
+            current_datapoints = 0
+            current_size = 0
+
+        def split_and_add_chunk(chunk, chunk_datapoints):
+            nonlocal current_message, current_datapoints, current_size
+            chunk_size = estimate_chunk_size(chunk)
+
+            if (datapoints_max_count > 0 and current_datapoints + chunk_datapoints > datapoints_max_count) or \
+                    (current_size + chunk_size > max_payload_size):
+                flush_current_message()
+
+            if chunk_datapoints > datapoints_max_count > 0 or chunk_size > max_payload_size:
+                keys = list(chunk["values"].keys()) if "values" in chunk else list(chunk.keys())
+                if len(keys) == 1:
+                    current_message["data"].append(chunk)
+                    current_message["datapoints"] += chunk_datapoints
+                    current_size += chunk_size
+                    return
+
+                max_step = datapoints_max_count if datapoints_max_count > 0 else len(keys)
+                if max_step < 1:
+                    max_step = 1
+
+                for i in range(0, len(keys), max_step):
+                    sub_values = {k: chunk["values"][k] for k in keys[i:i + max_step]} if "values" in chunk else {
+                        k: chunk[k] for k in keys[i:i + max_step]}
+                    sub_chunk = {"ts": chunk.get("ts"), "values": sub_values} if "values" in chunk else sub_values
+                    if "metadata" in chunk:
+                        sub_chunk["metadata"] = chunk["metadata"]
+
+                    sub_datapoints = len(sub_values)
+                    sub_size = estimate_chunk_size(sub_chunk)
+
+                    if sub_size > max_payload_size:
+                        current_message["data"].append(sub_chunk)
+                        current_message["datapoints"] += sub_datapoints
+                        current_size += sub_size
+                        continue
+
+                    split_and_add_chunk(sub_chunk, sub_datapoints)
+                return
+
+            current_message["data"].append(chunk)
+            current_message["datapoints"] += chunk_datapoints
+            current_size += chunk_size
+
+        def add_chunk_to_current_message(chunk, chunk_datapoints):
+            nonlocal current_message, current_datapoints, current_size
+            chunk_size = estimate_chunk_size(chunk)
+
+            if (datapoints_max_count > 0 and chunk_datapoints > datapoints_max_count) or chunk_size > max_payload_size:
+                split_and_add_chunk(chunk, chunk_datapoints)
+                return
+
+            if (datapoints_max_count > 0 and current_datapoints + chunk_datapoints > datapoints_max_count) or \
+                    (current_size + chunk_size > max_payload_size):
+                flush_current_message()
+
+            current_message["data"].append(chunk)
+            current_message["datapoints"] += chunk_datapoints
+            current_size += chunk_size
+
+            if datapoints_max_count > 0 and current_message["datapoints"] == datapoints_max_count:
+                flush_current_message()
+
+        def flush_ts_group(ts_key, ts, metadata_repr):
+            if ts_key not in ts_group_cache:
+                return
+            values, _, metadata = ts_group_cache.pop(ts_key)
+            keys = list(values.keys())
+            step = datapoints_max_count if datapoints_max_count > 0 else len(keys)
+            if step < 1:
+                step = 1
+            for i in range(0, len(keys), step):
+                chunk_values = {k: values[k] for k in keys[i:i + step]}
+                chunk = {"ts": ts, "values": chunk_values}
+                if metadata:
+                    chunk["metadata"] = metadata
+                add_chunk_to_current_message(chunk, len(chunk_values))
+
+        for message in message_pack:
             if not isinstance(message, dict):
-                log.error("Message is not a dictionary!")
-                log.debug("Message: %s", message)
                 continue
 
-            ts = message.get("ts")
-            values = message.get("values", message)
-            metadata = message.get("metadata") if "metadata" in message and isinstance(message["metadata"],
-                                                                                       dict) else None
-            metadata_repr = _get_metadata_repr(metadata)
+            ts = message.get("ts", None)
+            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else None
+            values = message.get("values") if isinstance(message.get("values"), dict) else \
+                message if isinstance(message, dict) else {}
 
+            metadata_repr = _get_metadata_repr(metadata)
             ts_key = (ts, metadata_repr)
 
-            for data_key, value in values.items():
-                data_key_size = len(data_key) + len(str(value))
-
+            for key, value in values.items():
+                pair_size = len(str(key)) + len(str(value)) + 4
                 if ts_key not in ts_group_cache:
                     ts_group_cache[ts_key] = ({}, 0, metadata)
 
-                ts_values, current_size, current_metadata = ts_group_cache[ts_key]
+                group_values, group_size, group_metadata = ts_group_cache[ts_key]
 
                 can_add = (
-                        (datapoints_max_count == 0 or len(ts_values) < datapoints_max_count)
-                        and (current_size + data_key_size < max_payload_size)
+                        (datapoints_max_count == 0 or len(group_values) < datapoints_max_count) and
+                        (group_size + pair_size <= max_payload_size)
                 )
 
                 if can_add:
-                    ts_values[data_key] = value
-                    ts_group_cache[ts_key] = (ts_values, current_size + data_key_size, metadata)
+                    group_values[key] = value
+                    ts_group_cache[ts_key] = (group_values, group_size + pair_size, group_metadata)
                 else:
-                    flush_ts_group(ts_key)
-                    ts_group_cache[ts_key] = ({data_key: value}, data_key_size, metadata)
+                    flush_ts_group(ts_key, ts, metadata_repr)
+                    ts_group_cache[ts_key] = ({key: value}, pair_size, metadata)
 
         for ts_key in list(ts_group_cache.keys()):
-            flush_ts_group(ts_key)
+            ts, metadata_repr = ts_key
+            flush_ts_group(ts_key, ts, metadata_repr)
 
+        flush_current_message()
         return split_messages
 
     @staticmethod
