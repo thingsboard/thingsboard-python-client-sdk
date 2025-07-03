@@ -15,13 +15,23 @@
 # Example script to handle RPC requests from ThingsBoard using the DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
 
 async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
-    print("Received RPC:", request)
+    logger.info("Received RPC:", request)
 
     if request.method == "ping":
         return RPCResponse.build(request_id=request.request_id, result={"pong": True})
@@ -37,12 +47,12 @@ async def main():
     client.set_rpc_request_callback(rpc_request_callback)
 
     await client.connect()
-    print("Waiting for RPCs... Press Ctrl+C to stop.")
+    logger.info("Waiting for RPCs... Press Ctrl+C to stop.")
     try:
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down...")
+        logger.info("Shutting down...")
 
     await client.stop()
 

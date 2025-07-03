@@ -15,11 +15,19 @@
 # This example demonstrates how to connect to ThingsBoard over SSL using the DeviceClient and send time series.
 
 import asyncio
+import logging
 from random import randint
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 PLATFORM_HOST = 'localhost'  # Update with your ThingsBoard host
@@ -52,9 +60,9 @@ async def main():
     result = await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)),
                                           wait_for_publish=True)
     if result is not None and result.is_successful():
-        print("Telemetry sent successfully")
+        logger.info("Telemetry sent successfully")
     else:
-        print(f"Failed to send telemetry: {result}")
+        logger.error(f"Failed to send telemetry: {result}")
 
     await client.stop()
 

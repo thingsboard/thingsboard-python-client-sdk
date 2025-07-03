@@ -15,12 +15,23 @@
 # Example script to handle attribute updates from ThingsBoard using the DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
 
 async def attribute_update_callback(update: AttributeUpdate):
-    print("Received attribute update:", update)
+    logger.info("Received attribute update:", update)
+
 
 async def main():
     config = DeviceConfig()
@@ -31,13 +42,13 @@ async def main():
     client.set_attribute_update_callback(attribute_update_callback)
 
     await client.connect()
-    print("Waiting for attribute updates... Press Ctrl+C to stop.")
+    logger.info("Waiting for attribute updates... Press Ctrl+C to stop.")
 
     try:
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down...")
+        logger.info("Shutting down...")
 
     await client.stop()
 

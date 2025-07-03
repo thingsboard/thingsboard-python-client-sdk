@@ -15,13 +15,23 @@
 # Example script to request attributes from ThingsBoard using the DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
 
 async def attribute_request_callback(response: RequestedAttributeResponse):
-    print("Received attribute response:", response)
+    logger.info("Received attribute response:", response)
 
 async def main():
     config = DeviceConfig()
@@ -35,7 +45,7 @@ async def main():
     request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
     await client.send_attribute_request(request, attribute_request_callback)
 
-    print("Attribute request sent. Waiting for response...")
+    logger.info("Attribute request sent. Waiting for response...")
     await asyncio.sleep(5)
 
     await client.stop()

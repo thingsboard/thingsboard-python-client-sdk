@@ -15,13 +15,24 @@
 # Example script to send a client-side RPC request to ThingsBoard using the DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
 
 async def rpc_response_callback(response: RPCResponse):
-    print("Received RPC response:", response)
+    logger.info("Received RPC response:", response)
+
 
 async def main():
     config = DeviceConfig()
@@ -35,9 +46,9 @@ async def main():
     rpc_request = await RPCRequest.build("getTime", {})
     try:
         response = await client.send_rpc_request(rpc_request)
-        print("Received response:", response)
+        logger.info("Received response:", response)
     except TimeoutError:
-        print("RPC request timed out")
+        logger.info("RPC request timed out")
 
     # Send client-side RPC with callback
     rpc_request_2 = await RPCRequest.build("getStatus", {})

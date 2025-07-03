@@ -15,10 +15,18 @@
 # Example script to update firmware using the DeviceClient
 
 import asyncio
+import logging
 from time import monotonic
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 firmware_received = asyncio.Event()
@@ -26,7 +34,7 @@ firmware_update_timeout = 30
 
 
 async def firmware_update_callback(_, payload):
-    print(f"Firmware update payload received: {payload}")
+    logger.info(f"Firmware update payload received: {payload}")
     firmware_received.set()
 
 

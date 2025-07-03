@@ -15,10 +15,19 @@
 # Example script to claim a device using ThingsBoard DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 # Constants for connection
@@ -28,6 +37,7 @@ DEVICE_ACCESS_TOKEN = "YOUR_ACCESS_TOKEN"  # Replace with your device's access t
 # Constants for claiming
 CLAIMING_DURATION = 120  # Default claiming duration in seconds
 CLAIMING_SECRET_KEY = "YOUR_SECRET_KEY"  # Replace with your actual secret key
+
 
 async def main():
     # Create device config
@@ -45,9 +55,9 @@ async def main():
     # Send claim request
     result: PublishResult = await client.claim_device(claim_request, wait_for_publish=True, timeout=CLAIMING_DURATION + 10)
     if result.is_successful():
-        print(f"Claiming request was sent successfully. Please use the secret key '{CLAIMING_SECRET_KEY}' to claim the device from the dashboard.")
+        logger.info(f"Claiming request was sent successfully. Please use the secret key '{CLAIMING_SECRET_KEY}' to claim the device from the dashboard.")
     else:
-        print(f"Failed to send claiming request. Result: {result}")
+        logger.error(f"Failed to send claiming request. Result: {result}")
 
     await client.stop()
 

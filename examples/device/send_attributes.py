@@ -15,9 +15,19 @@
 # Example script to send attributes to ThingsBoard using the DeviceClient
 
 import asyncio
+import logging
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
 
 async def main():
     config = DeviceConfig()
@@ -28,19 +38,28 @@ async def main():
     await client.connect()
 
     # Send attribute as raw dictionary
-    await client.send_attributes({
-        "firmwareVersion": "1.0.4",
+    raw_attributes = {
+        "firmwareVersion": "1.0.3",
         "hardwareModel": "TB-SDK-Device"
-    })
+    }
+    logger.info("Sending raw attributes: %s", raw_attributes)
+    await client.send_attributes(raw_attributes)
+    logger.info("Raw attributes sent successfully.")
 
     # Send single attribute entry
-    await client.send_attributes(AttributeEntry("mode", "normal"))
+    single_attribute = AttributeEntry("mode", "normal")
+    logger.info("Sending single attribute: %s", single_attribute)
+    await client.send_attributes(single_attribute)
+    logger.info("Single attribute sent successfully.")
 
     # Send list of attributes
-    await client.send_attributes([
-        AttributeEntry("maxTemperature", 85),
-        AttributeEntry("calibrated", True)
-    ])
+    attribute_list = [
+        AttributeEntry("location", "Building A"),
+        AttributeEntry("status", "active")
+    ]
+    logger.info("Sending list of attributes: %s", attribute_list)
+    await client.send_attributes(attribute_list)
+    logger.info("List of attributes sent successfully.")
 
     await client.stop()
 

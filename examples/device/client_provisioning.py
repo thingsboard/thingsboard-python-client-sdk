@@ -15,11 +15,19 @@
 # Example script to device provisioning using the DeviceClient
 
 import asyncio
+import logging
 from random import randint
 
 from tb_mqtt_client.entities.data.provisioning_request import AccessTokenProvisioningCredentials, ProvisioningRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 async def main():
@@ -31,16 +39,16 @@ async def main():
     provisioning_response = await DeviceClient.provision(provisioning_request)
 
     if provisioning_response.error is not None:
-        print(f"Provisioning failed: {provisioning_response.error}")
+        logger.error(f"Provisioning failed: {provisioning_response.error}")
         return
 
-    print('Provisined device config: ', provisioning_response)
+    logger.info('Provisioned device configuration: ', provisioning_response)
 
-    # Create a DeviceClient instance with the provisioned device config
+    # Create a DeviceClient instance with the provisioned device configuration
     client = DeviceClient(provisioning_response.result)
     await client.connect()
 
-    # Send single telemetry entry to provisioned device
+    # Send single telemetry entry to the provisioned device
     await client.send_timeseries(TimeseriesEntry("batteryLevel", randint(0, 100)))
 
     await client.stop()
