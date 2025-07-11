@@ -12,3 +12,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from enum import Enum
+
+class DeviceSessionState(Enum):
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    RECONNECTING = "RECONNECTING"
+    CONNECTION_LOST = "CONNECTION_LOST"
+    CONNECTION_FAILED = "CONNECTION_FAILED"
+
+    def is_connected(self) -> bool:
+        """
+        Check if the session state indicates a connected state.
+
+        Returns:
+            bool: True if the session is connected, False otherwise.
+        """
+        return self == DeviceSessionState.CONNECTED

@@ -20,7 +20,7 @@ import pytest
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
-from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 
@@ -194,7 +194,7 @@ def test_datapoint_setter_validation():
 
 @pytest.mark.asyncio
 async def test_split_attributes_grouping():
-    dispatcher = JsonMessageDispatcher(max_payload_size=200, max_datapoints=5)
+    dispatcher = JsonMessageAdapter(max_payload_size=200, max_datapoints=5)
 
     builder1 = DeviceUplinkMessageBuilder().set_device_name("deviceA").set_device_profile("default")
     builder2 = DeviceUplinkMessageBuilder().set_device_name("deviceA").set_device_profile("default")
@@ -220,7 +220,7 @@ async def test_split_attributes_grouping():
 
 @pytest.mark.asyncio
 async def test_split_attributes_different_devices_not_grouped():
-    dispatcher = JsonMessageDispatcher(max_payload_size=200, max_datapoints=100)
+    dispatcher = JsonMessageAdapter(max_payload_size=200, max_datapoints=100)
 
     builder1 = DeviceUplinkMessageBuilder().set_device_name("deviceA")
     builder2 = DeviceUplinkMessageBuilder().set_device_name("deviceB")

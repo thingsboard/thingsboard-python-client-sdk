@@ -35,7 +35,7 @@ from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 
 logger = get_logger(__name__)
 
@@ -51,7 +51,7 @@ class MQTTManager:
         self,
         client_id: str,
         main_stop_event: asyncio.Event,
-        message_dispatcher: MessageDispatcher,
+        message_adapter: MessageAdapter,
         on_connect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
         on_disconnect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
         on_publish_result: Optional[Callable[[PublishResult], Coroutine[Any, Any, None]]] = None,
@@ -59,7 +59,7 @@ class MQTTManager:
         rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
         self._main_stop_event = main_stop_event
-        self._message_dispatcher = message_dispatcher
+        self._message_dispatcher = message_adapter
         patch_gmqtt_protocol_connection_lost()
         patch_mqtt_handler_disconnect()
 

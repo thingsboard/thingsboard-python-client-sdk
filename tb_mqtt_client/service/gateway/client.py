@@ -13,29 +13,29 @@
 #  limitations under the License.
 
 from asyncio import sleep
-from random import choices
-from string import ascii_uppercase, digits
-from typing import Callable, Awaitable, Optional, Dict, Any, Union, List, Set
-
-from orjson import dumps, loads
+from time import monotonic
+from typing import Optional, Dict, Union
 
 from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
-from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
+from tb_mqtt_client.service.gateway.device_manager import DeviceManager
+from tb_mqtt_client.service.gateway.event_dispatcher import EventDispatcher
+from tb_mqtt_client.service.gateway.gateway_client_interface import GatewayClientInterface
+from tb_mqtt_client.service.gateway.handlers.gateway_attribute_updates_handler import GatewayAttributeUpdatesHandler
+from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter, JsonGatewayMessageAdapter
 
 logger = get_logger(__name__)
 
 
-class GatewayClient(DeviceClient):
+class GatewayClient(DeviceClient, GatewayClientInterface):
     """
     ThingsBoard Gateway MQTT client implementation.
     This class extends DeviceClient and adds gateway-specific functionality.
     """
+    SUBSCRIPTIONS_TIMEOUT = 1.0  # Timeout for subscribe/unsubscribe operations
 
     def __init__(self, config: Optional[Union[GatewayConfig, Dict]] = None):
         """
@@ -43,28 +43,24 @@ class GatewayClient(DeviceClient):
 
         :param config: Gateway configuration object or dictionary
         """
-        self._config = None
-        if isinstance(config, GatewayConfig):
-            self._config = config
-        else:
-            self._config = GatewayConfig()
-        if isinstance(config, dict):
-            for key, value in config.items():
-                if hasattr(self._config, key) and value is not None:
-                    setattr(self._config, key, value)
-
-        client_id = self._config.client_id or "tb-gateway-" + ''.join(choices(ascii_uppercase + digits, k=6))
-
-        # Initialize the DeviceClient with the gateway configuration
+        self._config = config if isinstance(config, GatewayConfig) else GatewayConfig(config)
         super().__init__(self._config)
 
-        # Gateway-specific rate limits
-        self._device_messages_rate_limit = RateLimit("0:0,", name="device_messages")
-        self._device_telemetry_rate_limit = RateLimit("0:0,", name="device_telemetry")
-        self._device_telemetry_dp_rate_limit = RateLimit("0:0,", name="device_telemetry_datapoints")
+        self._device_manager = DeviceManager()
+        self._event_dispatcher: EventDispatcher = EventDispatcher()
+        self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter()
 
-        # Set of connected devices
-        self._connected_devices: Set[str] = set()
+        self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
+        self._gateway_rpc_handler = None  # Placeholder for gateway RPC handler
+        self._gateway_attribute_updates_handler = GatewayAttributeUpdatesHandler(self._event_dispatcher,
+                                                                                 self._gateway_message_adapter,
+                                                                                 self._device_manager)
+        self._gateway_requested_attribute_response_handler = None  # Placeholder for gateway requested attribute response handler
+
+        # Gateway-specific rate limits
+        self._device_messages_rate_limit = RateLimit("10:1,", name="device_messages")
+        self._device_telemetry_rate_limit = RateLimit("10:1,", name="device_telemetry")
+        self._device_telemetry_dp_rate_limit = RateLimit("10:1,", name="device_telemetry_datapoints")
 
         # Callbacks
         self._device_attribute_update_callback = None
@@ -73,7 +69,7 @@ class GatewayClient(DeviceClient):
 
     async def connect(self):
         """
-        Connect to the ThingsBoard platform.
+        Connect to the platform.
         """
         logger.info("Connecting gateway to platform at %s:%s", self._host, self._port)
         await super().connect()
@@ -83,329 +79,63 @@ class GatewayClient(DeviceClient):
 
         logger.info("Gateway connected to ThingsBoard.")
 
+    async def disconnect(self):
+        """
+        Disconnect from the platform.
+        """
+        logger.info("Disconnecting gateway from platform at %s:%s", self._host, self._port)
+        await self._unsubscribe_from_gateway_topics()
+        await super().disconnect()
+        logger.info("Gateway disconnected from ThingsBoard.")
+
     async def _subscribe_to_gateway_topics(self):
         """
         Subscribe to gateway-specific MQTT topics.
         """
         logger.info("Subscribing to gateway topics")
 
-        # Subscribe to gateway attributes topic
         sub_future = await self._mqtt_manager.subscribe(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC, qos=1)
         while not sub_future.done():
             await sleep(0.01)
 
-        # Subscribe to gateway attributes response topic
         sub_future = await self._mqtt_manager.subscribe(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, qos=1)
         while not sub_future.done():
             await sleep(0.01)
 
-        # Subscribe to gateway RPC topic
         sub_future = await self._mqtt_manager.subscribe(mqtt_topics.GATEWAY_RPC_TOPIC, qos=1)
         while not sub_future.done():
             await sleep(0.01)
 
-        # Register handlers for gateway topics
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC, self._handle_gateway_attribute_update)
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_RPC_TOPIC, self._handle_gateway_rpc_request)
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, self._handle_gateway_attribute_response)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC, self._gateway_attribute_updates_handler.handle)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_RPC_TOPIC, self._gateway_rpc_handler.handle)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, self._gateway_requested_attribute_response_handler.handle)
 
-    async def _handle_gateway_attribute_update(self, topic: str, payload: bytes):
+    async def _unsubscribe_from_gateway_topics(self):
         """
-        Handle attribute updates for gateway devices.
-
-        :param topic: MQTT topic
-        :param payload: Message payload
+        Unsubscribe from gateway-specific MQTT topics.
         """
-        try:
-            data = loads(payload)
-            logger.debug("Received gateway attribute update: %s", data)
+        logger.info("Unsubscribing from gateway topics")
 
-            if self._device_attribute_update_callback:
-                for device_name, attributes in data.items():
-                    update = AttributeUpdate(device=device_name, attributes=attributes)
-                    await self._device_attribute_update_callback(update)
-        except Exception as e:
-            logger.exception("Error handling gateway attribute update: %s", e)
+        unsub_future = await self._mqtt_manager.unsubscribe(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC)
+        unsubscribe_start_time = monotonic()
+        while not unsub_future.done():
+            if monotonic() - unsubscribe_start_time > self.SUBSCRIPTIONS_TIMEOUT:
+                logger.warning("Unsubscribe from gateway attributes topic timed out")
+                break
+            await sleep(0.01)
 
-    async def _handle_gateway_rpc_request(self, topic: str, payload: bytes):
-        """
-        Handle RPC requests for gateway devices.
+        unsub_future = await self._mqtt_manager.unsubscribe(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC)
+        unsubscribe_start_time = monotonic()
+        while not unsub_future.done():
+            if monotonic() - unsubscribe_start_time > self.SUBSCRIPTIONS_TIMEOUT:
+                logger.warning("Unsubscribe from gateway attribute responses topic timed out")
+                break
+            await sleep(0.01)
 
-        :param topic: MQTT topic
-        :param payload: Message payload
-        """
-        try:
-            data = loads(payload)
-            logger.debug("Received gateway RPC request: %s", data)
-
-            if self._device_rpc_request_callback and 'device' in data and 'data' in data:
-                device_name = data['device']
-                rpc_data = data['data']
-
-                if 'id' in rpc_data and 'method' in rpc_data:
-                    request_id = rpc_data['id']
-                    method = rpc_data['method']
-                    params = rpc_data.get('params', {})
-
-                    result = await self._device_rpc_request_callback(device_name, method, params)
-
-                    # Send RPC response
-                    await self.gw_send_rpc_reply(device_name, request_id, result)
-        except Exception as e:
-            logger.exception("Error handling gateway RPC request: %s", e)
-
-    async def _handle_gateway_attribute_response(self, topic: str, payload: bytes):
-        """
-        Handle attribute responses for gateway devices.
-
-        :param topic: MQTT topic
-        :param payload: Message payload
-        """
-        try:
-            data = loads(payload)
-            logger.debug("Received gateway attribute response: %s", data)
-
-            # Process attribute response if needed
-            # This is typically used for handling responses to attribute requests
-        except Exception as e:
-            logger.exception("Error handling gateway attribute response: %s", e)
-
-    async def gw_connect_device(self, device_name: str):
-        """
-        Connect a device to the gateway.
-
-        :param device_name: Name of the device to connect
-        """
-        if device_name in self._connected_devices:
-            logger.warning("Device %s is already connected", device_name)
-            return
-
-        self._connected_devices.add(device_name)
-        logger.info("Device %s connected to gateway", device_name)
-
-    async def gw_disconnect_device(self, device_name: str):
-        """
-        Disconnect a device from the gateway.
-
-        :param device_name: Name of the device to disconnect
-        """
-        if device_name not in self._connected_devices:
-            logger.warning("Device %s is not connected", device_name)
-            return
-
-        self._connected_devices.remove(device_name)
-
-        # Publish device disconnect message
-        await self._mqtt_manager.publish(
-            mqtt_topics.GATEWAY_DISCONNECT_TOPIC,
-            dumps({"device": device_name}),
-            qos=1
-        )
-
-        logger.info("Device %s disconnected from gateway", device_name)
-
-        # Call disconnect callback if registered
-        if self._device_disconnect_callback:
-            await self._device_disconnect_callback(device_name)
-
-    async def gw_send_timeseries(self, device_name: str, telemetry: Union[Dict[str, Any], TimeseriesEntry, List[TimeseriesEntry]]):
-        """
-        Send telemetry on behalf of a connected device.
-
-        :param device_name: Name of the device
-        :param telemetry: Telemetry data to send
-        """
-        if device_name not in self._connected_devices:
-            logger.warning("Cannot send telemetry for disconnected device %s", device_name)
-            return
-
-        # Convert telemetry to the appropriate format
-        payload = self._prepare_telemetry_payload(device_name, telemetry)
-
-        # Publish telemetry
-        await self._mqtt_manager.publish(
-            mqtt_topics.GATEWAY_TELEMETRY_TOPIC,
-            dumps(payload),
-            qos=1
-        )
-
-        logger.debug("Sent telemetry for device %s: %s", device_name, payload)
-
-    async def gw_send_attributes(self, device_name: str, attributes: Union[Dict[str, Any], AttributeEntry, List[AttributeEntry]]):
-        """
-        Send attributes on behalf of a connected device.
-
-        :param device_name: Name of the device
-        :param attributes: Attributes to send
-        """
-        if device_name not in self._connected_devices:
-            logger.warning("Cannot send attributes for disconnected device %s", device_name)
-            return
-
-        # Convert attributes to the appropriate format
-        payload = self._prepare_attributes_payload(device_name, attributes)
-
-        # Publish attributes
-        await self._mqtt_manager.publish(
-            mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC,
-            dumps(payload),
-            qos=1
-        )
-
-        logger.debug("Sent attributes for device %s: %s", device_name, payload)
-
-    async def gw_send_rpc_reply(self, device_name: str, request_id: int, response: Dict[str, Any]):
-        """
-        Send an RPC response on behalf of a connected device.
-
-        :param device_name: Name of the device
-        :param request_id: ID of the RPC request
-        :param response: Response data
-        """
-        if device_name not in self._connected_devices:
-            logger.warning("Cannot send RPC reply for disconnected device %s", device_name)
-            return
-
-        # Prepare RPC response payload
-        payload = {
-            "device": device_name,
-            "id": request_id,
-            "data": response
-        }
-
-        # Publish RPC response
-        await self._mqtt_manager.publish(
-            mqtt_topics.GATEWAY_RPC_RESPONSE_TOPIC,
-            dumps(payload),
-            qos=1
-        )
-
-        logger.debug("Sent RPC response for device %s, request %s: %s", device_name, request_id, response)
-
-    async def gw_request_shared_attributes(self, device_name: str, keys: List[str], callback: Callable[[Dict[str, Any]], Awaitable[None]]):
-        """
-        Request shared attributes for a connected device.
-
-        :param device_name: Name of the device
-        :param keys: List of attribute keys to request
-        :param callback: Callback function to handle the response
-        """
-        if device_name not in self._connected_devices:
-            logger.warning("Cannot request attributes for disconnected device %s", device_name)
-            return
-
-        # TODO: Implement attribute request handling with callbacks
-
-        # Prepare attribute request payload
-        request_id = 1  # TODO: Generate unique request ID
-        payload = {
-            "device": device_name,
-            "keys": keys,
-            "id": request_id
-        }
-
-        # Publish attribute request
-        await self._mqtt_manager.publish(
-            mqtt_topics.GATEWAY_ATTRIBUTES_REQUEST_TOPIC,
-            dumps(payload),
-            qos=1
-        )
-
-        logger.debug("Requested shared attributes for device %s: %s", device_name, keys)
-
-    def set_device_attribute_update_callback(self, callback: Callable[[AttributeUpdate], Awaitable[None]]):
-        """
-        Set callback for device attribute updates.
-
-        :param callback: Callback function
-        """
-        self._device_attribute_update_callback = callback
-
-    def set_device_rpc_request_callback(self, callback: Callable[[str, str, Dict[str, Any]], Awaitable[Dict[str, Any]]]):
-        """
-        Set callback for device RPC requests.
-
-        :param callback: Callback function that takes device name, method, and params
-        """
-        self._device_rpc_request_callback = callback
-
-    def set_device_disconnect_callback(self, callback: Callable[[str], Awaitable[None]]):
-        """
-        Set callback for device disconnections.
-
-        :param callback: Callback function
-        """
-        self._device_disconnect_callback = callback
-
-    def _prepare_telemetry_payload(self, device_name: str, telemetry: Union[Dict[str, Any], TimeseriesEntry, List[TimeseriesEntry]]) -> Dict[str, Any]:
-        """
-        Prepare telemetry payload for gateway API.
-
-        :param device_name: Name of the device
-        :param telemetry: Telemetry data
-        :return: Formatted payload
-        """
-        if isinstance(telemetry, dict):
-            # Simple key-value telemetry
-            return {device_name: telemetry}
-
-        elif isinstance(telemetry, TimeseriesEntry):
-            # Single TimeseriesEntry
-            if telemetry.ts:
-                return {device_name: {"ts": telemetry.ts, "values": {telemetry.key: telemetry.value}}}
-            else:
-                return {device_name: {telemetry.key: telemetry.value}}
-
-        elif isinstance(telemetry, list):
-            # List of TimeseriesEntry objects
-            # Group by timestamp
-            ts_groups = {}
-            for entry in telemetry:
-                ts = entry.ts or 0
-                if ts not in ts_groups:
-                    ts_groups[ts] = {}
-                ts_groups[ts][entry.key] = entry.value
-
-            if len(ts_groups) == 1 and 0 in ts_groups:
-                # No timestamps, just values
-                return {device_name: ts_groups[0]}
-            else:
-                # With timestamps
-                result = []
-                for ts, values in ts_groups.items():
-                    if ts > 0:
-                        result.append({"ts": ts, "values": values})
-                    else:
-                        result.append({"values": values})
-                return {device_name: result}
-
-        # Fallback
-        logger.warning("Unsupported telemetry format: %s", type(telemetry))
-        return {device_name: {}}
-
-    def _prepare_attributes_payload(self, device_name: str, attributes: Union[Dict[str, Any], AttributeEntry, List[AttributeEntry]]) -> Dict[str, Any]:
-        """
-        Prepare attributes payload for gateway API.
-
-        :param device_name: Name of the device
-        :param attributes: Attributes data
-        :return: Formatted payload
-        """
-        if isinstance(attributes, dict):
-            # Simple key-value attributes
-            return {device_name: attributes}
-
-        elif isinstance(attributes, AttributeEntry):
-            # Single AttributeEntry
-            return {device_name: {attributes.key: attributes.value}}
-
-        elif isinstance(attributes, list):
-            # List of AttributeEntry objects
-            attrs = {}
-            for entry in attributes:
-                attrs[entry.key] = entry.value
-            return {device_name: attrs}
-
-        # Fallback
-        logger.warning("Unsupported attributes format: %s", type(attributes))
-        return {device_name: {}}
+        unsub_future = await self._mqtt_manager.unsubscribe(mqtt_topics.GATEWAY_RPC_TOPIC)
+        unsubscribe_start_time = monotonic()
+        while not unsub_future.done():
+            if monotonic() - unsubscribe_start_time > self.SUBSCRIPTIONS_TIMEOUT:
+                logger.warning("Unsubscribe from gateway rpc topic timed out")
+                break
+            await sleep(0.01)

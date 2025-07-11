@@ -17,7 +17,7 @@ from typing import Dict, Union, Awaitable, Callable, Optional, Tuple
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher, JsonMessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter, JsonMessageAdapter
 
 logger = get_logger(__name__)
 
@@ -29,21 +29,21 @@ class RPCResponseHandler:
     """
 
     def __init__(self):
-        self._message_dispatcher: Optional[MessageDispatcher] = None
+        self._message_adapter: Optional[MessageAdapter] = None
         self._pending_rpc_requests: Dict[Union[str, int],
                                          Tuple[asyncio.Future[RPCResponse],
                                                Optional[Callable[[RPCResponse], Awaitable[None]]]]] = {}
 
-    def set_message_dispatcher(self, message_dispatcher: MessageDispatcher):
+    def set_message_adapter(self, message_adapter: MessageAdapter):
         """
-        Sets the message dispatcher for handling incoming messages.
+        Sets the message adapter for handling incoming messages.
         This should be called before any requests are registered.
-        :param message_dispatcher: An instance of MessageDispatcher.
+        :param message_adapter: An instance of MessageAdapter.
         """
-        if not isinstance(message_dispatcher, MessageDispatcher):
-            raise ValueError("message_dispatcher must be an instance of MessageDispatcher.")
-        self._message_dispatcher = message_dispatcher
-        logger.debug("Message dispatcher set for RPCResponseHandler.")
+        if not isinstance(message_adapter, MessageAdapter):
+            raise ValueError("message_adapter must be an instance of MessageAdapter.")
+        self._message_adapter = message_adapter
+        logger.debug("Message adapter set for RPCResponseHandler.")
 
     def register_request(self, request_id: Union[str, int],
                          callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> asyncio.Future[RPCResponse]:
@@ -62,11 +62,11 @@ class RPCResponseHandler:
         The topic is expected to be: v1/devices/me/rpc/response/{request_id}
         """
         try:
-            if not self._message_dispatcher:
-                dummy_dispatcher = JsonMessageDispatcher()
-                rpc_response = dummy_dispatcher.parse_rpc_response(topic, payload)
+            if not self._message_adapter:
+                dummy_adapter = JsonMessageAdapter()
+                rpc_response = dummy_adapter.parse_rpc_response(topic, payload)
             else:
-                rpc_response = self._message_dispatcher.parse_rpc_response(topic, payload)
+                rpc_response = self._message_adapter.parse_rpc_response(topic, payload)
 
             request_details = self._pending_rpc_requests.pop(rpc_response.request_id, None)
             if not request_details:

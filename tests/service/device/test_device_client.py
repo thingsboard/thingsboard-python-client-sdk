@@ -352,7 +352,7 @@ async def test_initializes_dispatcher_and_queue_after_connection():
         await client.connect()
 
         assert client.max_payload_size == 65535
-        assert client._message_dispatcher is not None
+        assert client._message_adapter is not None
         assert client._message_queue is not None
 
         mock_queue.assert_called_once()
@@ -371,8 +371,8 @@ async def test_uses_default_max_payload_size_when_not_provided():
     client.max_payload_size = None
 
     splitter = FakeSplitter()
-    client._message_dispatcher = MagicMock()
-    client._message_dispatcher.splitter = splitter
+    client._message_adapter = MagicMock()
+    client._message_adapter.splitter = splitter
 
     resp = RPCResponse.build(1, result={"rateLimits": {}})
     await client._handle_rate_limit_response(resp)
@@ -385,7 +385,7 @@ async def test_uses_default_max_payload_size_when_not_provided():
 async def test_does_not_update_dispatcher_when_not_initialized():
     client = DeviceClient()
     client.max_payload_size = None
-    client._message_dispatcher = None
+    client._message_adapter = None
 
     resp = RPCResponse.build(1, result={"rateLimits": {}})
     await client._handle_rate_limit_response(resp)

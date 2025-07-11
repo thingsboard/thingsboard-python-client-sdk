@@ -12,6 +12,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+#  Copyright 2025 ThingsBoard
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
 import asyncio
 from abc import ABC, abstractmethod
 from itertools import chain
@@ -38,7 +52,7 @@ from tb_mqtt_client.service.message_splitter import MessageSplitter
 logger = get_logger(__name__)
 
 
-class MessageDispatcher(ABC):
+class MessageAdapter(ABC):
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         self._splitter = MessageSplitter(max_payload_size, max_datapoints)
         logger.trace("MessageDispatcher initialized with max_payload_size=%s, max_datapoints=%s",
@@ -103,7 +117,7 @@ class MessageDispatcher(ABC):
         pass
 
     @abstractmethod
-    def parse_attribute_request_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
+    def parse_requested_attribute_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
         """
         Parse the attribute request response payload into an AttributeRequestResponse.
         This method should be implemented to handle the specific format of the topic and payload.
@@ -143,7 +157,7 @@ class MessageDispatcher(ABC):
         pass
 
 
-class JsonMessageDispatcher(MessageDispatcher):
+class JsonMessageAdapter(MessageAdapter):
     """
     A concrete implementation of MessageDispatcher that operates with JSON payloads.
     """
@@ -151,7 +165,7 @@ class JsonMessageDispatcher(MessageDispatcher):
         super().__init__(max_payload_size, max_datapoints)
         logger.trace("JsonMessageDispatcher created.")
 
-    def parse_attribute_request_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
+    def parse_requested_attribute_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
         """
         Parse the attribute request response payload into a RequestedAttributeResponse.
         :param topic: The MQTT topic of the requested attribute response.
@@ -267,13 +281,13 @@ class JsonMessageDispatcher(MessageDispatcher):
                              device, len(telemetry_msgs), len(attr_msgs))
 
                 for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
-                    payload = JsonMessageDispatcher.build_payload(ts_batch, True)
+                    payload = JsonMessageAdapter.build_payload(ts_batch, True)
                     count = ts_batch.timeseries_datapoint_count()
                     result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
                     logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
 
                 for attr_batch in self._splitter.split_attributes(attr_msgs):
-                    payload = JsonMessageDispatcher.build_payload(attr_batch, False)
+                    payload = JsonMessageAdapter.build_payload(attr_batch, False)
                     count = len(attr_batch.attributes)
                     result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
                     logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
@@ -398,17 +412,17 @@ class JsonMessageDispatcher(MessageDispatcher):
         if msg.device_name:
             if build_timeseries_payload:
                 logger.trace("Packing timeseries for device='%s'", device_name)
-                result[msg.device_name] = JsonMessageDispatcher.pack_timeseries(msg)
+                result[msg.device_name] = JsonMessageAdapter.pack_timeseries(msg)
             else:
                 logger.trace("Packing attributes for device='%s'", device_name)
-                result[msg.device_name] = JsonMessageDispatcher.pack_attributes(msg)
+                result[msg.device_name] = JsonMessageAdapter.pack_attributes(msg)
         else:
             if build_timeseries_payload:
                 logger.trace("Packing timeseries")
-                result = JsonMessageDispatcher.pack_timeseries(msg)
+                result = JsonMessageAdapter.pack_timeseries(msg)
             else:
                 logger.trace("Packing attributes")
-                result = JsonMessageDispatcher.pack_attributes(msg)
+                result = JsonMessageAdapter.pack_attributes(msg)
 
         payload = dumps(result)
         logger.trace("Built payload size: %d bytes", len(payload))

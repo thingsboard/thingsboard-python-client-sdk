@@ -23,14 +23,14 @@ from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 from tb_mqtt_client.service.mqtt_manager import MQTTManager, IMPLEMENTATION_SPECIFIC_ERROR, QUOTA_EXCEEDED
 
 
 @pytest_asyncio.fixture
 async def setup_manager():
     stop_event = asyncio.Event()
-    message_dispatcher = MagicMock(spec=MessageDispatcher)
+    message_dispatcher = MagicMock(spec=MessageAdapter)
     on_connect = AsyncMock()
     on_disconnect = AsyncMock()
     on_publish_result = AsyncMock()
@@ -40,7 +40,7 @@ async def setup_manager():
     manager = MQTTManager(
         client_id="test-client",
         main_stop_event=stop_event,
-        message_dispatcher=message_dispatcher,
+        message_adapter=message_dispatcher,
         on_connect=on_connect,
         on_disconnect=on_disconnect,
         on_publish_result=on_publish_result,

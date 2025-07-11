@@ -17,7 +17,7 @@ from typing import Dict, Tuple, Awaitable, Callable
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 
 logger = get_logger(__name__)
 
@@ -28,18 +28,18 @@ class RequestedAttributeResponseHandler:
     """
 
     def __init__(self):
-        self._message_dispatcher = None
+        self._message_adapter = None
         self._pending_attribute_requests: Dict[int, Tuple[AttributeRequest, Callable[[RequestedAttributeResponse], Awaitable[None]]]] = {}
 
-    def set_message_dispatcher(self, message_dispatcher: MessageDispatcher):
+    def set_message_adapter(self, message_adapter: MessageAdapter):
         """
-        Sets the message dispatcher for handling incoming messages.
+        Sets the message adapter for handling incoming messages.
         This should be called before any requests are registered.
         """
-        if not isinstance(message_dispatcher, MessageDispatcher):
-            raise ValueError("message_dispatcher must be an instance of MessageDispatcher.")
-        self._message_dispatcher = message_dispatcher
-        logger.debug("Message dispatcher set for RequestedAttributeResponseHandler.")
+        if not isinstance(message_adapter, MessageAdapter):
+            raise ValueError("message_adapter must be an instance of MessageAdapter.")
+        self._message_adapter = message_adapter
+        logger.debug("Message adapter set for RequestedAttributeResponseHandler.")
 
     async def register_request(self, request: AttributeRequest, callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
         """
@@ -66,13 +66,13 @@ class RequestedAttributeResponseHandler:
         Handles the incoming attribute request response.
         """
         try:
-            if not self._message_dispatcher:
-                logger.error("Message dispatcher is not initialized. Cannot handle attribute response.")
+            if not self._message_adapter:
+                logger.error("Message adapter is not initialized. Cannot handle attribute response.")
                 request_id = topic.split('/')[-1]  # Assuming request ID is in the topic
                 self._pending_attribute_requests.pop(int(request_id), None)
                 return
 
-            requested_attribute_response = self._message_dispatcher.parse_attribute_request_response(topic, payload)
+            requested_attribute_response = self._message_adapter.parse_requested_attribute_response(topic, payload)
             pending_request_details = self._pending_attribute_requests.pop(requested_attribute_response.request_id, None)
             if not pending_request_details:
                 logger.warning("No future awaiting request ID %s. Ignoring.", requested_attribute_response.request_id)

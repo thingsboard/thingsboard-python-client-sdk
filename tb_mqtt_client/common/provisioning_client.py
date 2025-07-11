@@ -22,7 +22,7 @@ from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.constants.mqtt_topics import PROVISION_RESPONSE_TOPIC
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
-from tb_mqtt_client.service.message_dispatcher import JsonMessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
 
 logger = get_logger(__name__)
 
@@ -40,13 +40,13 @@ class ProvisioningClient:
         self._client.on_message = self._on_message
         self._provisioned = Event()
         self._device_config: Optional[Union[DeviceConfig, ProvisioningResponse]] = None
-        self.__message_dispatcher = JsonMessageDispatcher()
+        self.__message_adapter = JsonMessageAdapter()
 
     def _on_connect(self, client, _, rc, __):
         if rc == 0:
             self._log.debug("[Provisioning client] Connected to ThingsBoard")
             client.subscribe(PROVISION_RESPONSE_TOPIC)
-            topic, payload = self.__message_dispatcher.build_provision_request(self._provision_request)
+            topic, payload = self.__message_adapter.build_provision_request(self._provision_request)
             self._log.debug("[Provisioning client] Sending provisioning request %s" % payload)
             client.publish(topic, payload)
         else:
@@ -57,7 +57,7 @@ class ProvisioningClient:
             self._log.error("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % rc)
 
     async def _on_message(self, _, __, payload, ___, ____):
-        provisioning_response = self.__message_dispatcher.parse_provisioning_response(self._provision_request, payload)
+        provisioning_response = self.__message_adapter.parse_provisioning_response(self._provision_request, payload)
         self._device_config = provisioning_response.result
 
         await self._client.disconnect()

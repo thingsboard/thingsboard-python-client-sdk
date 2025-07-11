@@ -16,7 +16,7 @@ from typing import Awaitable, Callable, Optional
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 
 logger = get_logger(__name__)
 
@@ -27,20 +27,20 @@ class AttributeUpdatesHandler:
     """
 
     def __init__(self):
-        self._message_dispatcher = None
+        self._message_adapter = None
         self._callback: Optional[Callable[[AttributeUpdate], Awaitable[None]]] = None
 
-    def set_message_dispatcher(self, message_dispatcher: MessageDispatcher):
+    def set_message_adapter(self, message_adapter: MessageAdapter):
         """
-        Sets the message dispatcher for handling incoming messages.
+        Sets the message adapter for handling incoming messages.
         This should be called before any callbacks are set.
 
-        :param message_dispatcher: An instance of MessageDispatcher.
+        :param message_adapter: An instance of MessageAdapter.
         """
-        if not isinstance(message_dispatcher, MessageDispatcher):
-            raise ValueError("message_dispatcher must be an instance of MessageDispatcher.")
-        self._message_dispatcher = message_dispatcher
-        logger.debug("Message dispatcher set for AttributeUpdatesHandler.")
+        if not isinstance(message_adapter, MessageAdapter):
+            raise ValueError("message_adapter must be an instance of MessageAdapter.")
+        self._message_adapter = message_adapter
+        logger.debug("Message adapter set for AttributeUpdatesHandler.")
 
     def set_callback(self, callback: Callable[[AttributeUpdate], Awaitable[None]]):
         """
@@ -56,7 +56,7 @@ class AttributeUpdatesHandler:
             return
 
         try:
-            data = self._message_dispatcher.parse_attribute_update(payload)
+            data = self._message_adapter.parse_attribute_update(payload)
             logger.debug("Handling attribute update: %r", data)
             await self._callback(data)
         except Exception as e:

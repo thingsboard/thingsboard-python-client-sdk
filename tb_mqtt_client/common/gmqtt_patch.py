@@ -15,7 +15,6 @@
 import asyncio
 import struct
 from collections import defaultdict
-from types import MethodType
 from typing import Callable
 
 from gmqtt.mqtt.constants import MQTTCommands

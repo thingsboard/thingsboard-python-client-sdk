@@ -33,7 +33,7 @@ def real_request():
 
 @pytest.mark.asyncio
 @patch("tb_mqtt_client.common.provisioning_client.GMQTTClient")
-@patch("tb_mqtt_client.common.provisioning_client.JsonMessageDispatcher")
+@patch("tb_mqtt_client.common.provisioning_client.JsonMessageAdapter")
 async def test_successful_provisioning_flow(mock_dispatcher_cls, mock_gmqtt_cls, real_request):
     mock_client = AsyncMock()
     mock_gmqtt_cls.return_value = mock_client
@@ -63,7 +63,7 @@ async def test_successful_provisioning_flow(mock_dispatcher_cls, mock_gmqtt_cls,
 
 @pytest.mark.asyncio
 @patch("tb_mqtt_client.common.provisioning_client.GMQTTClient")
-@patch("tb_mqtt_client.common.provisioning_client.JsonMessageDispatcher")
+@patch("tb_mqtt_client.common.provisioning_client.JsonMessageAdapter")
 async def test_failed_connection(mock_dispatcher_cls, mock_gmqtt_cls, real_request, caplog):
     mock_client = AsyncMock()
     mock_gmqtt_cls.return_value = mock_client
@@ -81,7 +81,7 @@ async def test_failed_connection(mock_dispatcher_cls, mock_gmqtt_cls, real_reque
 
 @pytest.mark.asyncio
 @patch("tb_mqtt_client.common.provisioning_client.GMQTTClient")
-@patch("tb_mqtt_client.common.provisioning_client.JsonMessageDispatcher")
+@patch("tb_mqtt_client.common.provisioning_client.JsonMessageAdapter")
 async def test_provision_method_awaits_provisioned(mock_dispatcher_cls, mock_gmqtt_cls, real_request):
     mock_client = AsyncMock()
     mock_gmqtt_cls.return_value = mock_client

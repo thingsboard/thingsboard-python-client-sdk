@@ -17,7 +17,7 @@ from typing import Awaitable, Callable, Optional
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 
 logger = get_logger(__name__)
 
@@ -28,19 +28,19 @@ class RPCRequestsHandler:
     """
 
     def __init__(self):
-        self._message_dispatcher = None
+        self._message_adapter = None
         self._callback: Optional[Callable[[RPCRequest], Awaitable[RPCResponse]]] = None
 
-    def set_message_dispatcher(self, message_dispatcher: MessageDispatcher):
+    def set_message_adapter(self, message_adapter: MessageAdapter):
         """
-        Sets the message dispatcher for handling incoming messages.
+        Sets the message adapter for handling incoming messages.
         This should be called before any callbacks are set.
-        :param message_dispatcher: An instance of MessageDispatcher.
+        :param message_adapter: An instance of MessageAdapter.
         """
-        if not isinstance(message_dispatcher, MessageDispatcher):
-            raise ValueError("message_dispatcher must be an instance of MessageDispatcher.")
-        self._message_dispatcher = message_dispatcher
-        logger.debug("Message dispatcher set for RPCRequestsHandler.")
+        if not isinstance(message_adapter, MessageAdapter):
+            raise ValueError("message_adapter must be an instance of MessageAdapter.")
+        self._message_adapter = message_adapter
+        logger.debug("Message adapter set for RPCRequestsHandler.")
 
     def set_callback(self, callback: Callable[[RPCRequest], Awaitable[RPCResponse]]):
         """
@@ -59,12 +59,12 @@ class RPCRequestsHandler:
                          "You can add set callback using client.set_rpc_request_callback(your_method)")
             return None
 
-        if not self._message_dispatcher:
-            logger.error("Message dispatcher is not initialized. Cannot handle RPC request.")
+        if not self._message_adapter:
+            logger.error("Message adapter is not initialized. Cannot handle RPC request.")
             return None
 
         try:
-            rpc_request = self._message_dispatcher.parse_rpc_request(topic, payload)
+            rpc_request = self._message_adapter.parse_rpc_request(topic, payload)
             logger.debug("Handling RPC method id: %i - %s with params: %s",
                          rpc_request.request_id, rpc_request.method, rpc_request.params)
             result = await self._callback(rpc_request)

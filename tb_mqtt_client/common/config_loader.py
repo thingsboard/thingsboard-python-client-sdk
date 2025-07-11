@@ -22,7 +22,18 @@ class DeviceConfig:
     This class loads configuration options from environment variables, allowing for flexible deployment
     and easy customization of device connection settings.
     """
-    def __init__(self):
+    def __init__(self, config = None):
+        if config is not None:
+            self.host: str = config.get("host", "localhost")
+            self.port: int = config.get("port", 1883)
+            self.access_token: Optional[str] = config.get("access_token")
+            self.username: Optional[str] = config.get("username")
+            self.password: Optional[str] = config.get("password")
+            self.client_id: Optional[str] = config.get("client_id")
+            self.ca_cert: Optional[str] = config.get("ca_cert")
+            self.client_cert: Optional[str] = config.get("client_cert")
+            self.private_key: Optional[str] = config.get("private_key")
+
         self.host: str = os.getenv("TB_HOST")
         self.port: int = int(os.getenv("TB_PORT", 1883))
 
@@ -60,26 +71,37 @@ class GatewayConfig(DeviceConfig):
     Configuration class for ThingsBoard gateway clients.
     This class extends DeviceConfig to include additional options specific to gateways.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, config=None):
+        # TODO: REFACTOR, temporary solution for development
+        super().__init__(config)
 
-        # Gateway-specific options
-        self.gateway_name: Optional[str] = os.getenv("TB_GATEWAY_NAME")
+        if os.getenv("TB_GW_HOST") is not None:
+            self.host: str = os.getenv("TB_GW_HOST")
+        if os.getenv("TB_GW_PORT") is not None:
+            self.port: int = int(os.getenv("TB_GW_PORT", 1883))
 
-        # Rate limits for devices connected through the gateway
-        self.device_messages_rate_limit: Optional[str] = os.getenv("TB_DEVICE_MESSAGES_RATE_LIMIT")
-        self.device_telemetry_rate_limit: Optional[str] = os.getenv("TB_DEVICE_TELEMETRY_RATE_LIMIT")
-        self.device_telemetry_dp_rate_limit: Optional[str] = os.getenv("TB_DEVICE_TELEMETRY_DP_RATE_LIMIT")
+        if os.getenv("TB_GW_ACCESS_TOKEN") is not None:
+            self.access_token: Optional[str] = os.getenv("TB_GW_ACCESS_TOKEN")
+        if os.getenv("TB_GW_USERNAME") is not None:
+            self.username: Optional[str] = os.getenv("TB_GW_USERNAME")
+        if os.getenv("TB_GW_PASSWORD") is not None:
+            self.password: Optional[str] = os.getenv("TB_GW_PASSWORD")
 
-        # Default device type for auto-registered devices
-        self.default_device_type: Optional[str] = os.getenv("TB_DEFAULT_DEVICE_TYPE", "default")
+        if os.getenv("TB_GW_CLIENT_ID") is not None:
+            self.client_id: Optional[str] = os.getenv("TB_GW_CLIENT_ID")
 
-        # Whether to automatically register new devices
-        self.auto_register_devices: bool = os.getenv("TB_AUTO_REGISTER_DEVICES", "true").lower() == "true"
+        if os.getenv("TB_GW_CA_CERT") is not None:
+            self.ca_cert: Optional[str] = os.getenv("TB_GW_CA_CERT")
+        if os.getenv("TB_GW_CLIENT_CERT") is not None:
+            self.client_cert: Optional[str] = os.getenv("TB_GW_CLIENT_CERT")
+        if os.getenv("TB_GW_PRIVATE_KEY") is not None:
+            self.private_key: Optional[str] = os.getenv("TB_GW_PRIVATE_KEY")
+
+        if os.getenv("TB_GW_QOS") is not None:
+            self.qos: int = int(os.getenv("TB_GW_QOS", 1))
 
     def __repr__(self):
-        return (f"<GatewayConfig host={self.host} port={self.port} "
+        return (f"GatewayConfig(host={self.host}, port={self.port}, "
                 f"auth={'token' if self.access_token else 'user/pass'} "
-                f"gateway_name={self.gateway_name} "
-                f"auto_register={self.auto_register_devices} "
-                f"tls={self.use_tls()}>")
+                f"client_id={self.client_id} "
+                f"tls={self.use_tls()})")

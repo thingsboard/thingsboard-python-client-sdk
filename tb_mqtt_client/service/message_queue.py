@@ -21,7 +21,7 @@ from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.service.message_dispatcher import MessageDispatcher
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 from tb_mqtt_client.service.mqtt_manager import MQTTManager
 
 logger = get_logger(__name__)
@@ -36,7 +36,7 @@ class MessageQueue:
                  message_rate_limit: Optional[RateLimit],
                  telemetry_rate_limit: Optional[RateLimit],
                  telemetry_dp_rate_limit: Optional[RateLimit],
-                 message_dispatcher: MessageDispatcher,
+                 message_adapter: MessageAdapter,
                  max_queue_size: int = 1000000,
                  batch_collect_max_time_ms: int = 100,
                  batch_collect_max_count: int = 500):
@@ -57,7 +57,7 @@ class MessageQueue:
         self._wakeup_event = asyncio.Event()
         self._retry_tasks: set[asyncio.Task] = set()
         self._active.set()
-        self._dispatcher = message_dispatcher
+        self._adapter = message_adapter
         self._loop_task = asyncio.create_task(self._dequeue_loop())
         self._rate_limit_refill_task = asyncio.create_task(self._rate_limit_refill_loop())
         logger.debug("MessageQueue initialized: max_queue_size=%s, batch_time=%.3f, batch_count=%d",
@@ -125,7 +125,7 @@ class MessageQueue:
                     next_topic, next_payload, delivery_futures_or_none, datapoints, qos = self._queue.get_nowait()
                     if isinstance(next_payload, DeviceUplinkMessage):
                         msg_size = next_payload.size
-                        if batch_size + msg_size > self._dispatcher.splitter.max_payload_size:  # noqa
+                        if batch_size + msg_size > self._adapter.splitter.max_payload_size:  # noqa
                             logger.trace("Batch size threshold exceeded: current=%d, next=%d", batch_size, msg_size)
                             self._queue.put_nowait((next_topic, next_payload, delivery_futures_or_none, datapoints, qos))
                             break
@@ -141,7 +141,7 @@ class MessageQueue:
                 logger.trace("Batching completed: %d messages, total size=%d", len(batch), batch_size)
                 messages = [device_uplink_message for _, device_uplink_message, _, _, _ in batch]
 
-                topic_payloads = self._dispatcher.build_uplink_payloads(messages)
+                topic_payloads = self._adapter.build_uplink_payloads(messages)
 
                 for topic, payload, datapoints, delivery_futures in topic_payloads:
                     logger.trace("Dispatching batched message: topic=%s, size=%d, datapoints=%d, delivery_futures=%r",
