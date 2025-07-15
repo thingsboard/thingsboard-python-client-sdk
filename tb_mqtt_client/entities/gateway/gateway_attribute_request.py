@@ -16,10 +16,12 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Union
 from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
 from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayAttributeRequest:
+class GatewayAttributeRequest(BaseGatewayEvent):
     """
     Represents a request for device attributes, with optional client and shared attribute keys.
     Automatically assigns a unique request ID via the build() method.
@@ -28,6 +30,7 @@ class GatewayAttributeRequest:
     device_name: str
     shared_keys: Optional[List[str]] = None
     client_keys: Optional[List[str]] = None
+    event_type = GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVE
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of GatewayAttributeRequest is not allowed. Use 'await GatewayAttributeRequest.build(...)'.")

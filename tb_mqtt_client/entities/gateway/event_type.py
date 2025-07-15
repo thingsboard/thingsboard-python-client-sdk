@@ -19,18 +19,18 @@ class GatewayEventType(Enum):
     Enum representing different types of gateway events.
     Each event type corresponds to a specific action or state change in the gateway.
     """
-    DEVICE_ADDED = "DEVICE_ADDED"
-    DEVICE_REMOVED = "DEVICE_REMOVED"
-    DEVICE_UPDATED = "DEVICE_UPDATED"
-    DEVICE_SESSION_STATE_CHANGED = "DEVICE_SESSION_STATE_CHANGED"
-    DEVICE_RPC_REQUEST_RECEIVED = "DEVICE_RPC_REQUEST_RECEIVED"
-    DEVICE_RPC_RESPONSE_SENT = "DEVICE_RPC_RESPONSE_SENT"
-    DEVICE_ATTRIBUTE_UPDATE_RECEIVED = "DEVICE_ATTRIBUTE_UPDATE_RECEIVED"
-    DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVED = "DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVED"
-    RPC_REQUEST_RECEIVED = "RPC_REQUEST_RECEIVED"
-    RPC_RESPONSE_SENT = "RPC_RESPONSE_SENT"
-    GATEWAY_CONNECTED = "GATEWAY_CONNECTED"
-    GATEWAY_DISCONNECTED = "GATEWAY_DISCONNECTED"
+    GATEWAY_CONNECT = "gateway.connect"
+    GATEWAY_DISCONNECT = "gateway.disconnect"
+    DEVICE_ADD = "gateway.device.add"
+    DEVICE_REMOVE = "gateway.device.remove"
+    DEVICE_UPDATE = "gateway.device.update"
+    DEVICE_SESSION_STATE_CHANGE = "gateway.device.session.state.change"
+    DEVICE_RPC_REQUEST_RECEIVE = "gateway.device.rpc.request.receive"
+    DEVICE_RPC_RESPONSE_SEND = "gateway.device.rpc.response.send"
+    DEVICE_ATTRIBUTE_UPDATE_RECEIVE = "gateway.device.attribute.update.receive"
+    DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVE = "gateway.device.requested.attribute.response.receive"
+    RPC_REQUEST_RECEIVE = "device.rpc.request.receive"
+    RPC_RESPONSE_SEND = "device.rpc.response.send"
 
     def __str__(self) -> str:
         return self.value

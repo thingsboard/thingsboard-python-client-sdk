@@ -19,6 +19,7 @@ from typing import Callable, Awaitable, Dict, List, Union
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_event import GatewayEvent
+from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 EventCallback = Union[Callable[..., Awaitable[None]], Callable[..., None]]
 
@@ -43,7 +44,9 @@ class EventDispatcher:
             if not self._handlers[event_type]:
                 del self._handlers[event_type]
 
-    async def dispatch(self, event: GatewayEvent, *args, **kwargs):
+    async def dispatch(self, event: GatewayEvent, *args, device_session: DeviceSession=None, **kwargs):
+        if device_session is not None:
+            return await device_session.handle_event_to_device(event)
         async with self._lock:
             callbacks = list(self._handlers.get(event.event_type, []))
         for cb in callbacks:

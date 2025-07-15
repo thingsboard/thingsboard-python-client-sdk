@@ -35,7 +35,7 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
@@ -475,60 +475,6 @@ class DeviceClient(BaseClient):
             logger.trace("Publish successful: %r", publish_result)
         else:
             logger.error("Publish failed: %r", publish_result)
-
-    @staticmethod
-    def _build_uplink_message_for_telemetry(payload: Union[Dict[str, Any],
-    TimeseriesEntry,
-    List[TimeseriesEntry],
-    List[Dict[str, Any]]]) -> DeviceUplinkMessage:
-        timeseries_entries = []
-        if isinstance(payload, TimeseriesEntry):
-            timeseries_entries.append(payload)
-        elif isinstance(payload, dict):
-            timeseries_entries.extend(DeviceClient.__build_timeseries_entry_from_dict(payload))
-        elif isinstance(payload, list) and len(payload) > 0:
-            for item in payload:
-                if isinstance(item, dict):
-                    timeseries_entries.extend(DeviceClient.__build_timeseries_entry_from_dict(item))
-                elif isinstance(item, TimeseriesEntry):
-                    timeseries_entries.append(item)
-                else:
-                    raise ValueError(f"Unsupported item type in telemetry list: {type(item).__name__}")
-        else:
-            raise ValueError(f"Unsupported payload type for telemetry: {type(payload).__name__}")
-
-        builder = DeviceUplinkMessageBuilder()
-        builder.add_timeseries(timeseries_entries)
-        return builder.build()
-
-    @staticmethod
-    def __build_timeseries_entry_from_dict(data: Dict[str, JSONCompatibleType]) -> List[TimeseriesEntry]:
-        result = []
-        if TELEMETRY_TIMESTAMP_PARAMETER in data:
-            ts = data.pop(TELEMETRY_TIMESTAMP_PARAMETER)
-            values = data.pop(TELEMETRY_VALUES_PARAMETER, {})
-        else:
-            ts = time() * 1000
-            values = data
-
-        if not isinstance(values, dict):
-            raise ValueError(f"Expected {TELEMETRY_VALUES_PARAMETER} to be a dict, got {type(values).__name__}")
-
-        for key, value in values.items():
-            result.append(TimeseriesEntry(key, value, ts=ts))
-
-        return result
-
-    @staticmethod
-    def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],
-    AttributeEntry,
-    List[AttributeEntry]]) -> DeviceUplinkMessage:
-        if isinstance(payload, dict):
-            payload = [AttributeEntry(k, v) for k, v in payload.items()]
-
-        builder = DeviceUplinkMessageBuilder()
-        builder.add_attributes(payload)
-        return builder.build()
 
     @staticmethod
     async def provision(provision_request: 'ProvisioningRequest', timeout=BaseClient.DEFAULT_TIMEOUT):

@@ -40,7 +40,7 @@ from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
+from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest, ProvisioningCredentialsType
 from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
@@ -61,7 +61,7 @@ class MessageAdapter(ABC):
     @abstractmethod
     def build_uplink_payloads(
         self,
-        messages: List[DeviceUplinkMessage]
+        messages: List[GatewayUplinkMessage]
     ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
@@ -253,7 +253,7 @@ class JsonMessageAdapter(MessageAdapter):
     def splitter(self) -> MessageSplitter:
         return self._splitter
 
-    def build_uplink_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
+    def build_uplink_payloads(self, messages: List[GatewayUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string, payload bytes, the number of datapoints,
@@ -265,32 +265,28 @@ class JsonMessageAdapter(MessageAdapter):
                 return []
 
             result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]] = []
-            device_groups: Dict[str, List[DeviceUplinkMessage]] = defaultdict(list)
 
-            for msg in messages:
-                device_name = msg.device_name
-                device_groups[device_name].append(msg)
-                logger.trace("Queued message for device='%s'", device_name)
+            telemetry_msgs = []
+            attr_msgs = []
 
-            logger.trace("Processing %d device group(s).", len(device_groups))
+            for message in messages:
+                if message.has_timeseries():
+                    telemetry_msgs.append(message)
+                if message.has_attributes():
+                    attr_msgs.append(message)
+            logger.trace("Device - telemetry: %d, attributes: %d", len(telemetry_msgs), len(attr_msgs))
 
-            for device, device_msgs in device_groups.items():
-                telemetry_msgs = [m for m in device_msgs if m.has_timeseries()]
-                attr_msgs = [m for m in device_msgs if m.has_attributes()]
-                logger.trace("Device '%s' - telemetry: %d, attributes: %d",
-                             device, len(telemetry_msgs), len(attr_msgs))
+            for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
+                payload = JsonMessageAdapter.build_payload(ts_batch, True)
+                count = ts_batch.timeseries_datapoint_count()
+                result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
+                logger.trace("Built telemetry payload with %d datapoints", count)
 
-                for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
-                    payload = JsonMessageAdapter.build_payload(ts_batch, True)
-                    count = ts_batch.timeseries_datapoint_count()
-                    result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
-                    logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
-
-                for attr_batch in self._splitter.split_attributes(attr_msgs):
-                    payload = JsonMessageAdapter.build_payload(attr_batch, False)
-                    count = len(attr_batch.attributes)
-                    result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
-                    logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
+            for attr_batch in self._splitter.split_attributes(attr_msgs):
+                payload = JsonMessageAdapter.build_payload(attr_batch, False)
+                count = len(attr_batch.attributes)
+                result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
+                logger.trace("Built attribute payload with %d attributes", count)
 
             logger.trace("Generated %d topic-payload entries.", len(result))
 
@@ -404,37 +400,26 @@ class JsonMessageAdapter(MessageAdapter):
         return topic, payload
 
     @staticmethod
-    def build_payload(msg: DeviceUplinkMessage, build_timeseries_payload) -> bytes:
+    def build_payload(msg: GatewayUplinkMessage, build_timeseries_payload) -> bytes:
         result: Union[Dict[str, Any], List[Dict[str, Any]]] = {}
-        device_name = msg.device_name
-        logger.trace("Building payload for device='%s'", device_name)
-
-        if msg.device_name:
-            if build_timeseries_payload:
-                logger.trace("Packing timeseries for device='%s'", device_name)
-                result[msg.device_name] = JsonMessageAdapter.pack_timeseries(msg)
-            else:
-                logger.trace("Packing attributes for device='%s'", device_name)
-                result[msg.device_name] = JsonMessageAdapter.pack_attributes(msg)
+        if build_timeseries_payload:
+            logger.trace("Packing timeseries")
+            result = JsonMessageAdapter.pack_timeseries(msg)
         else:
-            if build_timeseries_payload:
-                logger.trace("Packing timeseries")
-                result = JsonMessageAdapter.pack_timeseries(msg)
-            else:
-                logger.trace("Packing attributes")
-                result = JsonMessageAdapter.pack_attributes(msg)
+            logger.trace("Packing attributes")
+            result = JsonMessageAdapter.pack_attributes(msg)
 
         payload = dumps(result)
         logger.trace("Built payload size: %d bytes", len(payload))
         return payload
 
     @staticmethod
-    def pack_attributes(msg: DeviceUplinkMessage) -> Dict[str, Any]:
+    def pack_attributes(msg: GatewayUplinkMessage) -> Dict[str, Any]:
         logger.trace("Packing %d attribute(s)", len(msg.attributes))
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def pack_timeseries(msg: 'DeviceUplinkMessage') -> List[Dict[str, Any]]:
+    def pack_timeseries(msg: 'GatewayUplinkMessage') -> List[Dict[str, Any]]:
         now_ts = int(datetime.now(UTC).timestamp() * 1000)
 
         packed = [

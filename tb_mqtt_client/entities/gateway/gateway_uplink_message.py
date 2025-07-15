@@ -34,6 +34,7 @@ from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
+from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
 logger = get_logger(__name__)
@@ -42,20 +43,16 @@ DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":""
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayUplinkMessage:
-    device_name: Optional[str]
-    device_profile: Optional[str]
-    attributes: Tuple[AttributeEntry]
-    timeseries: Mapping[int, Tuple[TimeseriesEntry]]
-    delivery_futures: List[Optional[asyncio.Future[PublishResult]]]
-    _size: int
+class GatewayUplinkMessage(GatewayUplinkMessage):
+    device_name: str
+    device_profile: str
 
     def __new__(cls, *args, **kwargs):
         raise TypeError(
-            "Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
+            "Direct instantiation of GatewayUplinkMessage is not allowed. Use GatewayUplinkMessageBuilder to construct instances.")
 
     def __repr__(self):
-        return (f"DeviceUplinkMessage(device_name={self.device_name}, "
+        return (f"GatewayUplinkMessage(device_name={self.device_name}, "
                 f"device_profile={self.device_profile}, "
                 f"attributes={self.attributes}, "
                 f"timeseries={self.timeseries}, "
@@ -68,7 +65,7 @@ class GatewayUplinkMessage:
               attributes: List[AttributeEntry],
               timeseries: Mapping[int, List[TimeseriesEntry]],
               delivery_futures: List[Optional[asyncio.Future]],
-              size: int) -> 'DeviceUplinkMessage':
+              size: int) -> 'GatewayUplinkMessage':
         self = object.__new__(cls)
         object.__setattr__(self, 'device_name', device_name)
         object.__setattr__(self, 'device_profile', device_profile)
@@ -151,7 +148,7 @@ class GatewayUplinkMessageBuilder:
         return self
 
     def add_delivery_futures(self, futures: Union[
-        asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
+        asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'GatewayUplinkMessageBuilder':
         if not isinstance(futures, list):
             futures = [futures]
         if futures:
@@ -159,10 +156,10 @@ class GatewayUplinkMessageBuilder:
             self._delivery_futures.extend(futures)
         return self
 
-    def build(self) -> DeviceUplinkMessage:
+    def build(self) -> GatewayUplinkMessage:
         if not self._delivery_futures:
             self._delivery_futures = [asyncio.get_event_loop().create_future()]
-        return DeviceUplinkMessage.build(
+        return GatewayUplinkMessage.build(
             device_name=self._device_name,
             device_profile=self._device_profile,
             attributes=self._attributes,

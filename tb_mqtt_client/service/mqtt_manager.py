@@ -14,6 +14,8 @@
 
 import asyncio
 import ssl
+import threading
+import time
 from asyncio import sleep
 from contextlib import suppress
 from time import monotonic
@@ -287,11 +289,16 @@ class MQTTManager:
         if reason_code == 142:
             logger.error("Session was taken over, looks like another client connected with the same credentials.")
             self._backpressure.notify_disconnect(delay_seconds=10)
-        if reason_code in (131, 142, 143, 151):
+        if reason_code in (131, 142, 143, 151): # 131, 142, 151 may be caused by rate limits or issue with the data
             reached_time = 1
             for rate_limit in self.__rate_limiter.values():
                 if isinstance(rate_limit, RateLimit):
-                    reached_limit = asyncio.get_event_loop().run_until_complete(rate_limit.reach_limit())
+                    try:
+                        reached_limit = self._run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
+                    except TimeoutError:
+                        logger.warning("Timeout while checking rate limit reaching.")
+                        reached_time = 10 # Default to 10 seconds if timeout occurs
+                        break
                     reached_index, reached_time, reached_duration = reached_limit if reached_limit else (None, None, 1)
             self._backpressure.notify_disconnect(delay_seconds=reached_time)
         elif reason_code != 0:
@@ -300,6 +307,41 @@ class MQTTManager:
 
         if self._on_disconnect_callback:
             asyncio.create_task(self._on_disconnect_callback())
+
+    def _run_coroutine_sync(self, coro_func, timeout: float = 3.0, raise_on_timeout: bool = False):
+        """
+        Run async coroutine and return its result from a sync function even if event loop is running.
+        :param coro_func: async function with no arguments (like: lambda: some_async_fn())
+        :param timeout: max wait time in seconds
+        :param raise_on_timeout: if True, raise TimeoutError on timeout; otherwise return None
+        """
+        result_container = {}
+        event = threading.Event()
+
+        async def wrapper():
+            try:
+                result = await coro_func()
+                result_container['result'] = result
+            except Exception as e:
+                result_container['error'] = e
+            finally:
+                event.set()
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(wrapper())
+
+        completed = event.wait(timeout=timeout)
+
+        if not completed:
+            logger.warning("Timeout while waiting for coroutine to finish: %s", coro_func)
+            if raise_on_timeout:
+                raise TimeoutError(f"Coroutine {coro_func} did not complete in {timeout} seconds.")
+            return None
+
+        if 'error' in result_container:
+            raise result_container['error']
+
+        return result_container.get('result')
 
     def _on_message_internal(self, client, topic: str, payload: bytes, qos, properties):
         logger.trace("Received message by client %r on topic %s with payload %r, qos %r, properties %r",

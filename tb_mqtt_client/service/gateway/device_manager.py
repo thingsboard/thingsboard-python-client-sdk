@@ -97,11 +97,6 @@ class DeviceManager:
         if session:
             session.set_rpc_request_callback(cb)
 
-    def set_rpc_response_callback(self, device_id: UUID, cb: Callable):
-        session = self._sessions_by_id.get(device_id)
-        if session:
-            session.set_rpc_response_callback(cb)
-
     def __state_change_callback(self, device_session: DeviceSession) -> None:
         if device_session.state.is_connected() and device_session.device_info.device_id not in self.__connected_devices:
             self.__connected_devices.add(device_session)

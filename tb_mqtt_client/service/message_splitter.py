@@ -18,7 +18,7 @@ from typing import List, Optional, Dict, Tuple
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
 logger = get_logger(__name__)
@@ -38,7 +38,7 @@ class MessageSplitter:
         logger.trace("MessageSplitter initialized with max_payload_size=%d, max_datapoints=%d",
                      self._max_payload_size, self._max_datapoints)
 
-    def split_timeseries(self, messages: List[DeviceUplinkMessage]) -> List[DeviceUplinkMessage]:
+    def split_timeseries(self, messages: List[GatewayUplinkMessage]) -> List[GatewayUplinkMessage]:
         logger.trace("Splitting timeseries for %d messages", len(messages))
 
         if (len(messages) == 1
@@ -47,9 +47,9 @@ class MessageSplitter:
                 and messages[0].size <= self._max_payload_size):
             return messages
 
-        result: List[DeviceUplinkMessage] = []
+        result: List[GatewayUplinkMessage] = []
 
-        grouped: Dict[Tuple[str, Optional[str]], List[DeviceUplinkMessage]] = defaultdict(list)
+        grouped: Dict[Tuple[str, Optional[str]], List[GatewayUplinkMessage]] = defaultdict(list)
         for msg in messages:
             key = (msg.device_name, msg.device_profile)
             grouped[key].append(msg)
@@ -113,9 +113,9 @@ class MessageSplitter:
         logger.trace("Total timeseries batches created: %d", len(result))
         return result
 
-    def split_attributes(self, messages: List[DeviceUplinkMessage]) -> List[DeviceUplinkMessage]:
+    def split_attributes(self, messages: List[GatewayUplinkMessage]) -> List[GatewayUplinkMessage]:
         logger.trace("Splitting attributes for %d messages", len(messages))
-        result: List[DeviceUplinkMessage] = []
+        result: List[GatewayUplinkMessage] = []
 
         if (len(messages) == 1
                 and ((messages[0].attributes_datapoint_count() + messages[
@@ -123,7 +123,7 @@ class MessageSplitter:
                 and messages[0].size <= self._max_payload_size):
             return messages
 
-        grouped: Dict[Tuple[str, Optional[str]], List[DeviceUplinkMessage]] = defaultdict(list)
+        grouped: Dict[Tuple[str, Optional[str]], List[GatewayUplinkMessage]] = defaultdict(list)
         for msg in messages:
             grouped[(msg.device_name, msg.device_profile)].append(msg)
 

@@ -15,13 +15,17 @@
 from dataclasses import dataclass
 from typing import Union, Optional, Dict, Any
 
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
+
 
 @dataclass(slots=True, frozen=True)
-class GatewayRPCRequest:
+class GatewayRPCRequest(BaseGatewayEvent):
     request_id: Union[int, str]
     device_name: str
     method: str
     params: Optional[Any] = None
+    event_type: GatewayEventType = GatewayEventType.RPC_REQUEST_RECEIVE
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of GatewayRPCRequest is not allowed. Use 'await GatewayRPCRequest.build(...)'.")

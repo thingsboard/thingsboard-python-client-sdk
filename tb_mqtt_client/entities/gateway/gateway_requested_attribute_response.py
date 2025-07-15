@@ -15,14 +15,18 @@
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 
+from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
+from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayRequestedAttributeResponse:
+class GatewayRequestedAttributeResponse(RequestedAttributeResponse):
 
-    device_name: str
-    request_id: int
+    device_name: str = ""
+    request_id: int = -1
     shared: Optional[List[AttributeEntry]] = None
     client: Optional[List[AttributeEntry]] = None
 
@@ -84,16 +88,3 @@ class GatewayRequestedAttributeResponse:
             'shared': [entry.as_dict() for entry in self.shared if self.shared is not None],
             'client': [entry.as_dict() for entry in self.client if self.client is not None],
         }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'GatewayRequestedAttributeResponse':
-        """
-        Deserialize dictionary into GatewayRequestedAttributeResponse object.
-        :param data: Dictionary containing 'device' with device name, 'shared' and 'client' attributes.
-        :return: GatewayRequestedAttributeResponse instance.
-        """
-        request_id = data.get('request_id', -1)
-        device_name = data.get('device', '')
-        shared = [AttributeEntry(k, v) for k, v in data.get('shared', {}).items()]
-        client = [AttributeEntry(k, v) for k, v in data.get('client', {}).items()]
-        return cls(device_name=device_name, shared=shared, client=client, request_id=request_id)

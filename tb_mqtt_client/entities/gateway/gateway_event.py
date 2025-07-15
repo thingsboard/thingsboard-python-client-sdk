@@ -14,18 +14,19 @@
 
 from typing import Union
 
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 
-class GatewayEvent:
+class GatewayEvent(BaseGatewayEvent):
     """
     Base class for all events in the gateway client.
     This class can be extended to create specific event types.
     """
 
     def __init__(self, event_type: GatewayEventType):
-        self.event_type = event_type
+        super().__init__(event_type)
         self.__device_session: Union[DeviceSession, None] = None
 
     def set_device_session(self, device_session: DeviceSession):

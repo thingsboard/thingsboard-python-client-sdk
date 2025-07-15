@@ -17,11 +17,13 @@ from traceback import format_exception
 from typing import Union, Optional, Dict, Any
 
 from tb_mqtt_client.constants.json_typing import validate_json_compatibility, JSONCompatibleType
-from tb_mqtt_client.entities.data.rpc_response import RPCStatus
+from tb_mqtt_client.entities.data.rpc_response import RPCStatus, RPCResponse
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayRPCResponse:
+class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
     """
     Represents a response to the RPC call.
 
@@ -31,20 +33,22 @@ class GatewayRPCResponse:
         result: Optional response payload (Any type allowed).
         error: Optional error information if the RPC failed.
     """
-    device_name: str
-    request_id: Union[int, str]
-    status: RPCStatus = None
-    result: Optional[Any] = None
-    error: Optional[Union[str, Dict[str, Any]]] = None
+    device_name: str = None
+    event_type: GatewayEventType = GatewayEventType.RPC_RESPONSE_SEND
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of GatewayRPCResponse is not allowed. Use GatewayRPCResponse.build(request_id, result, error).")
+        raise TypeError("Direct instantiation of GatewayRPCResponse is not allowed. Use GatewayRPCResponse.build(device_name, request_id, result, error).")
+
 
     def __repr__(self) -> str:
         return f"GatewayRPCResponse(request_id={self.request_id}, result={self.result}, error={self.error})"
 
     @classmethod
-    def build(cls, device_name: str, request_id: Union[int, str], result: Optional[Any] = None, error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'GatewayRPCResponse':
+    def build(cls, # noqa
+              device_name: str,
+              request_id: Union[int, str],
+              result: Optional[Any] = None,
+              error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'GatewayRPCResponse':
         """
         Constructs an GatewayRPCResponse explicitly.
         """

@@ -19,9 +19,11 @@ from typing import List, Optional, Union, Tuple, Dict, Callable
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
+from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.common.publish_result import PublishResult
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
+from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 from tb_mqtt_client.service.mqtt_manager import MQTTManager
 
 logger = get_logger(__name__)
@@ -39,7 +41,8 @@ class MessageQueue:
                  message_adapter: MessageAdapter,
                  max_queue_size: int = 1000000,
                  batch_collect_max_time_ms: int = 100,
-                 batch_collect_max_count: int = 500):
+                 batch_collect_max_count: int = 500,
+                 gateway_message_adapter: Optional[GatewayMessageAdapter] = None):
         self._main_stop_event = main_stop_event
         self._batch_max_time = batch_collect_max_time_ms / 1000
         self._batch_max_count = batch_collect_max_count
@@ -51,20 +54,21 @@ class MessageQueue:
         self._pending_ack_futures: Dict[int, asyncio.Future[PublishResult]] = {}
         self._pending_ack_callbacks: Dict[int, Callable[[bool], None]] = {}
         # Queue expects tuples of (topic, payload, delivery_futures, datapoints_count, qos)
-        self._queue: asyncio.Queue[Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
+        self._queue: asyncio.Queue[Tuple[str, Union[bytes, GatewayUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
         self._pending_queue_tasks: set[asyncio.Task] = set()
         self._active = asyncio.Event()
         self._wakeup_event = asyncio.Event()
         self._retry_tasks: set[asyncio.Task] = set()
         self._active.set()
         self._adapter = message_adapter
+        self._gateway_adapter = gateway_message_adapter
         self._loop_task = asyncio.create_task(self._dequeue_loop())
         self._rate_limit_refill_task = asyncio.create_task(self._rate_limit_refill_loop())
         logger.debug("MessageQueue initialized: max_queue_size=%s, batch_time=%.3f, batch_count=%d",
                      max_queue_size, self._batch_max_time, batch_collect_max_count)
 
-    async def publish(self, topic: str, payload: Union[bytes, DeviceUplinkMessage], datapoints_count: int, qos: int) -> Optional[List[asyncio.Future[PublishResult]]]:
-        delivery_futures = payload.get_delivery_futures() if isinstance(payload, DeviceUplinkMessage) else [asyncio.Future()]
+    async def publish(self, topic: str, payload: Union[bytes, GatewayUplinkMessage, GatewayUplinkMessage], datapoints_count: int, qos: int) -> Optional[List[asyncio.Future[PublishResult]]]:
+        delivery_futures = payload.get_delivery_futures() if isinstance(payload, GatewayUplinkMessage) or isinstance(payload, GatewayUplinkMessage) else [asyncio.Future()]
         try:
             logger.trace("publish() received delivery future id: %r for topic=%s",
                          id(delivery_futures[0]) if delivery_futures else -1, topic)
@@ -108,9 +112,10 @@ class MessageQueue:
             logger.trace("Dequeued message for batching: topic=%s, device=%s",
                          topic, getattr(payload, 'device_name', 'N/A'))
 
-            batch: List[Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = [(topic, payload, delivery_futures_or_none, datapoints, qos)]
+            batch: List[Tuple[str, Union[bytes, GatewayUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = [(topic, payload, delivery_futures_or_none, datapoints, qos)]
             start = asyncio.get_event_loop().time()
             batch_size = payload.size
+            batch_type = type(payload).__name__
 
             while not self._queue.empty():
                 elapsed = asyncio.get_event_loop().time() - start
@@ -123,7 +128,13 @@ class MessageQueue:
 
                 try:
                     next_topic, next_payload, delivery_futures_or_none, datapoints, qos = self._queue.get_nowait()
-                    if isinstance(next_payload, DeviceUplinkMessage):
+                    if isinstance(next_payload, GatewayUplinkMessage) or isinstance(next_payload, GatewayUplinkMessage):
+                        if batch_type is not None and batch_type != type(next_payload).__class__.__name__:
+                            logger.trace("Batch type mismatch: current=%s, next=%s, finalizing current",
+                                         batch_type, type(next_payload).__class__.__name__)
+                            self._queue.put_nowait((next_topic, next_payload, delivery_futures_or_none, datapoints, qos))
+                            break
+                        batch_type = type(next_payload).__name__
                         msg_size = next_payload.size
                         if batch_size + msg_size > self._adapter.splitter.max_payload_size:  # noqa
                             logger.trace("Batch size threshold exceeded: current=%d, next=%d", batch_size, msg_size)
@@ -137,11 +148,18 @@ class MessageQueue:
                 except asyncio.QueueEmpty:
                     break
 
+            if batch_type is None:
+                batch_type = type(payload).__name__
+
             if batch:
                 logger.trace("Batching completed: %d messages, total size=%d", len(batch), batch_size)
                 messages = [device_uplink_message for _, device_uplink_message, _, _, _ in batch]
 
-                topic_payloads = self._adapter.build_uplink_payloads(messages)
+                if batch_type == 'GatewayUplinkMessage' and self._gateway_adapter:
+                    logger.trace("Building gateway uplink payloads for %d messages", len(messages))
+                    topic_payloads = self._gateway_adapter.build_uplink_payloads(messages)
+                else:
+                    topic_payloads = self._adapter.build_uplink_payloads(messages)
 
                 for topic, payload, datapoints, delivery_futures in topic_payloads:
                     logger.trace("Dispatching batched message: topic=%s, size=%d, datapoints=%d, delivery_futures=%r",
@@ -163,6 +181,7 @@ class MessageQueue:
             delivery_futures_or_none = []
         is_message_with_telemetry_or_attributes = topic in (mqtt_topics.DEVICE_TELEMETRY_TOPIC,
                                                             mqtt_topics.DEVICE_ATTRIBUTES_TOPIC)
+        # TODO: Add topics check for gateways
 
         logger.trace("Attempting publish: topic=%s, datapoints=%d", topic, datapoints)
 
@@ -285,7 +304,7 @@ class MessageQueue:
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)
 
-    async def _wait_for_message(self) -> Tuple[str, Union[bytes, DeviceUplinkMessage], List[asyncio.Future[PublishResult]], int, int]:
+    async def _wait_for_message(self) -> Tuple[str, Union[bytes, GatewayUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]:
         while self._active.is_set():
             try:
                 if not self._queue.empty():
@@ -367,7 +386,7 @@ class MessageQueue:
                     topic=topic,
                     qos=qos,
                     message_id=-1,
-                    payload_size=message.size if isinstance(message, DeviceUplinkMessage) else len(message),
+                    payload_size=message.size if isinstance(message, GatewayUplinkMessage) or isinstance(message, GatewayUplinkMessage) else len(message),
                     reason_code=-1
                 ))
             self._queue.task_done()
@@ -391,3 +410,6 @@ class MessageQueue:
         for rl in (self._message_rate_limit, self._telemetry_rate_limit, self._telemetry_dp_rate_limit):
             if rl:
                 await rl.refill()
+
+    def set_gateway_message_adapter(self, message_adapter: GatewayMessageAdapter):
+        self._gateway_adapter = message_adapter

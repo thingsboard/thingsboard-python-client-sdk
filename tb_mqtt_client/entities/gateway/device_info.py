@@ -16,19 +16,28 @@ from dataclasses import dataclass, field
 import uuid
 
 
-@dataclass(frozen=True)
+@dataclass()
 class DeviceInfo:
     device_name: str
     device_profile: str
     original_name: str = field(init=False)
     device_id: uuid.UUID = field(default_factory=uuid.uuid4, init=False)
 
+    _initializing: bool = field(default=True, init=False, repr=False)
+
     def __post_init__(self):
         self.__setattr__("original_name", self.device_name)
+        self._initializing = False
+
+    def __setattr__(self, key, value):
+        if not self._initializing:
+            raise AttributeError(f"Cannot modify attribute '{key}' of frozen DeviceInfo instance. Use rename() method to change device_name.")
+        else:
+            super().__setattr__(key, value)
 
     def rename(self, new_name: str):
         if new_name != self.device_name:
-            self.__setattr__("device_name", new_name)
+            self.device_name = new_name
 
     @classmethod
     def from_dict(cls, data: dict) -> 'DeviceInfo':
