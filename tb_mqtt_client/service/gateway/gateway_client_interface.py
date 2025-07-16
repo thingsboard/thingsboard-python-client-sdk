@@ -17,6 +17,7 @@ from asyncio import Future
 from typing import Union, List, Tuple, Dict, Any
 
 from tb_mqtt_client.common.publish_result import PublishResult
+from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
@@ -38,13 +39,16 @@ class GatewayClientInterface(BaseClient, ABC):
     async def send_device_timeseries(self,
                                      device_session: DeviceSession,
                                      data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-                                     wait_for_publish: bool) -> List[Union[PublishResult, Future[PublishResult]]]: ...
+                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
 
     @abstractmethod
-    async def send_device_attributes(self,  device_session: DeviceSession, attributes: ..., wait_for_publish: bool) -> List[Union[PublishResult, Future[PublishResult]]]: ...
+    async def send_device_attributes(self,
+                                     device_session: DeviceSession,
+                                     attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
+                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
 
     @abstractmethod
     async def send_device_attributes_request(self,
                                              device_session: DeviceSession,
                                              attributes: Union[AttributeRequest, GatewayAttributeRequest],
-                                             wait_for_publish: bool) -> List[Union[PublishResult, Future[PublishResult]]]: ...
+                                             wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...

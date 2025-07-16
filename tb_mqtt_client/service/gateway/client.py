@@ -22,6 +22,7 @@ from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
+from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
@@ -183,8 +184,44 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         return results[0] if len(results) == 1 else results
 
 
-    async def send_device_attributes(self,  device_session: DeviceSession, data: ..., wait_for_publish: bool):
-        pass
+    async def send_device_attributes(self,
+                                     device_session: DeviceSession,
+                                     data: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
+                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+        """
+        Send attributes data to the platform for a specific device.
+        :param device_session: The DeviceSession object for the device
+        :param data: Attributes data to send, can be a single entry or a list of entries
+        :param wait_for_publish: Whether to wait for the publish result
+        """
+        logger.trace("Sending attributes data for device %s", device_session.device_info.device_name)
+        if not device_session or not data:
+            logger.warning("No device session or data provided for sending attributes")
+            return None
+
+        message = self._build_uplink_message_for_attributes(data, device_session)
+        topic = mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC
+        futures = await self._message_queue.publish(
+            topic=topic,
+            payload=message,
+            datapoints_count=message.attributes_datapoint_count(),
+            qos=self._config.qos
+        )
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return None
+        if not wait_for_publish:
+            return futures[0] if len(futures) == 1 else futures
+        results = []
+        for fut in futures:
+            try:
+                result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for attributes publish result")
+                result = PublishResult(topic, self._config.qos, -1, message.size, -1)
+            results.append(result)
+        return results[0] if len(results) == 1 else results
+
 
     async def send_device_attributes_request(self, device_session: DeviceSession, attributes: Union[AttributeRequest, GatewayAttributeRequest], wait_for_publish: bool):
         pass

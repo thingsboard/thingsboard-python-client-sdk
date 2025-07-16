@@ -152,7 +152,7 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                     gateway_timeseries_message[device] = []
                     gateway_timeseries_delivery_futures[device] = []
                 if device not in gateway_attributes_message and attr_msgs:
-                    gateway_attributes_message[device] = []
+                    gateway_attributes_message[device] = {}
                     gateway_attributes_delivery_futures[device] = []
                 logger.trace("Device '%s' - telemetry: %d, attributes: %d",
                              device, len(timeseries_msgs), len(attr_msgs))
@@ -169,8 +169,9 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                 for attr_batch in attr_msgs:
                     packed_attrs = JsonGatewayMessageAdapter.pack_attributes(attr_batch)
                     count = attr_batch.attributes_datapoint_count()
-                    gateway_attributes_message[device].extend(packed_attrs)
+                    gateway_attributes_message[device].update(packed_attrs)
                     gateway_attributes_device_datapoints_counts[device] = gateway_attributes_device_datapoints_counts.get(device, 0) + count
+                    gateway_attributes_delivery_futures[device] = attr_batch.get_delivery_futures()
                     logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
 
             if gateway_timeseries_message:
