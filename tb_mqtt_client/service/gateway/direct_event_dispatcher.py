@@ -26,7 +26,7 @@ EventCallback = Union[Callable[..., Awaitable[None]], Callable[..., None]]
 logger = get_logger(__name__)
 
 
-class EventDispatcher:
+class DirectEventDispatcher:
     """
     Direct event dispatcher for handling gateway events.
     """
@@ -52,8 +52,9 @@ class EventDispatcher:
         for cb in callbacks:
             try:
                 if asyncio.iscoroutinefunction(cb):
-                    await cb(event, *args, **kwargs)
+                    return await cb(event, *args, **kwargs)
                 else:
-                    cb(event, *args, **kwargs)
+                    return cb(event, *args, **kwargs)
             except Exception as e:
                 logger.error(f"[EventDispatcher] Exception in handler for '{event.event_type}': {e}")
+        return None

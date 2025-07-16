@@ -34,7 +34,7 @@ class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
         error: Optional error information if the RPC failed.
     """
     device_name: str = None
-    event_type: GatewayEventType = GatewayEventType.RPC_RESPONSE_SEND
+    event_type: GatewayEventType = GatewayEventType.DEVICE_RPC_RESPONSE
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of GatewayRPCResponse is not allowed. Use GatewayRPCResponse.build(device_name, request_id, result, error).")

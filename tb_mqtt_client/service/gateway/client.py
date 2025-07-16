@@ -26,18 +26,20 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder
 from tb_mqtt_client.service.device.client import DeviceClient
 from tb_mqtt_client.service.gateway.device_manager import DeviceManager
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
-from tb_mqtt_client.service.gateway.event_dispatcher import EventDispatcher
+from tb_mqtt_client.service.gateway.direct_event_dispatcher import DirectEventDispatcher
 from tb_mqtt_client.service.gateway.gateway_client_interface import GatewayClientInterface
 from tb_mqtt_client.service.gateway.handlers.gateway_attribute_updates_handler import GatewayAttributeUpdatesHandler
 from tb_mqtt_client.service.gateway.handlers.gateway_requested_attributes_response_handler import \
     GatewayRequestedAttributeResponseHandler
 from tb_mqtt_client.service.gateway.handlers.gateway_rpc_handler import GatewayRPCHandler
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter, JsonGatewayMessageAdapter
+from tb_mqtt_client.service.gateway.message_sender import GatewayMessageSender
 
 logger = get_logger(__name__)
 
@@ -60,8 +62,16 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         super().__init__(self._config)
 
         self._device_manager = DeviceManager()
-        self._event_dispatcher: EventDispatcher = EventDispatcher()
+
+        self._event_dispatcher: DirectEventDispatcher = DirectEventDispatcher()
+        self._uplink_message_sender = GatewayMessageSender()
+        self._event_dispatcher.register(GatewayEventType.DEVICE_CONNECT, self._uplink_message_sender.send_device_connect)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_DISCONNECT, self._uplink_message_sender.send_device_disconnect)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_UPLINK, self._uplink_message_sender.send_uplink_message)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_ATTRIBUTE_REQUEST, self._uplink_message_sender.send_attributes_request)
+
         self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter()
+        self._uplink_message_sender.set_message_adapter(self._gateway_message_adapter)
 
         self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
         self._gateway_rpc_handler = GatewayRPCHandler(event_dispatcher=self._event_dispatcher,
@@ -91,6 +101,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         logger.info("Connecting gateway to platform at %s:%s", self._host, self._port)
         await super().connect()
         self._message_queue.set_gateway_message_adapter(self._gateway_message_adapter)
+        self._uplink_message_sender.set_message_queue(self._message_queue)
 
         # Subscribe to gateway-specific topics
         await self._subscribe_to_gateway_topics()
@@ -98,25 +109,30 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         logger.info("Gateway connected to ThingsBoard.")
 
 
-    async def connect_device(self, device_name: str, device_profile: str, wait_for_publish=False) -> Tuple[DeviceSession, List[Union[PublishResult, Future[PublishResult]]]]:
+    async def connect_device(self,
+                             device_name_or_device_connect_message: Union[str, DeviceConnectMessage],
+                             device_profile: str,
+                             wait_for_publish=False) -> Tuple[DeviceSession, List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Connect a device to the gateway.
 
-        :param device_name: Name of the device to connect
+        :param device_name_or_device_connect_message: Name of the device or a DeviceConnectMessage object
         :param device_profile: Profile of the device
         :param wait_for_publish: Whether to wait for the publish result
         :return: Tuple containing the DeviceSession and an optional PublishResult or list of PublishResults
         """
-        logger.info("Connecting device %s with profile %s", device_name, device_profile)
-        device_session = self._device_manager.register(device_name, device_profile)
-        device_connect_message = DeviceConnectMessage.build(device_name, device_profile)
-        topic, payload = self._gateway_message_adapter.build_device_connect_message_payload(device_connect_message)
-        futures = await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=self._config.qos
-        )
+        if not isinstance(device_name_or_device_connect_message, DeviceConnectMessage):
+            device_name = device_name_or_device_connect_message
+            device_connect_message = DeviceConnectMessage.build(device_name, device_profile)
+        else:
+            device_connect_message = device_name_or_device_connect_message
+
+        logger.info("Connecting device %s with profile %s",
+                    device_connect_message.device_name,
+                    device_connect_message.device_profile)
+        device_session = self._device_manager.register(device_connect_message.device_name,
+                                                       device_connect_message.device_profile)
+        futures = await self._event_dispatcher.dispatch(device_connect_message, qos=self._config.qos)  # noqa
 
         if not futures:
             logger.warning("No publish futures were returned from message queue")
@@ -131,12 +147,12 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                 result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for telemetry publish result")
-                result = PublishResult(topic, self._config.qos, -1, len(payload), -1)
+                result = PublishResult(mqtt_topics.GATEWAY_CONNECT_TOPIC, self._config.qos, -1, -1, -1)
             results.append(result)
 
         return device_session, results[0] if len(results) == 1 else results
 
-    async def disconnect_device(self,  device_session: DeviceSession, wait_for_publish: bool):
+    async def disconnect_device(self, device_session: DeviceSession, wait_for_publish: bool):
         pass
 
     async def send_device_timeseries(self,
@@ -157,13 +173,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             return None
 
         message = self._build_uplink_message_for_telemetry(data, device_session)
-        topic = mqtt_topics.GATEWAY_TELEMETRY_TOPIC
-        futures = await self._message_queue.publish(
-            topic=topic,
-            payload=message,
-            datapoints_count=message.timeseries_datapoint_count(),
-            qos=self._config.qos
-        )
+        futures = await self._event_dispatcher.dispatch(message, qos=self._config.qos)  # noqa
 
         if not futures:
             logger.warning("No publish futures were returned from message queue")
@@ -178,7 +188,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                 result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for telemetry publish result")
-                result = PublishResult(topic, self._config.qos, -1, message.size, -1)
+                result = PublishResult(mqtt_topics.GATEWAY_TELEMETRY_TOPIC, self._config.qos, -1, message.size, -1)
             results.append(result)
 
         return results[0] if len(results) == 1 else results
@@ -200,13 +210,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             return None
 
         message = self._build_uplink_message_for_attributes(data, device_session)
-        topic = mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC
-        futures = await self._message_queue.publish(
-            topic=topic,
-            payload=message,
-            datapoints_count=message.attributes_datapoint_count(),
-            qos=self._config.qos
-        )
+        futures = await self._event_dispatcher.dispatch(message, qos=self._config.qos)  # noqa
         if not futures:
             logger.warning("No publish futures were returned from message queue")
             return None
@@ -218,13 +222,45 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                 result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for attributes publish result")
-                result = PublishResult(topic, self._config.qos, -1, message.size, -1)
+                result = PublishResult(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC, self._config.qos, -1, message.size, -1)
             results.append(result)
         return results[0] if len(results) == 1 else results
 
 
-    async def send_device_attributes_request(self, device_session: DeviceSession, attributes: Union[AttributeRequest, GatewayAttributeRequest], wait_for_publish: bool):
-        pass
+    async def send_device_attributes_request(self, device_session: DeviceSession, attribute_request: Union[AttributeRequest, GatewayAttributeRequest], wait_for_publish: bool):
+        """
+        Send a request for device attributes to the platform.
+        :param device_session: The DeviceSession object for the device
+        :param attribute_request: Attributes to request, can be a single AttributeRequest or GatewayAttributeRequest
+        :param wait_for_publish: Whether to wait for the publish result
+        """
+        logger.trace("Sending attributes request for device %s", device_session.device_info.device_name)
+        if not device_session or not attribute_request:
+            logger.warning("No device session or attributes provided for sending attributes request")
+            return None
+        if isinstance(attribute_request, AttributeRequest):
+            attribute_request = await GatewayAttributeRequest.from_attribute_request(device_session=device_session, attribute_request=attribute_request)
+
+        await self._gateway_requested_attribute_response_handler.register_request(attribute_request)
+        futures = await self._event_dispatcher.dispatch(attribute_request, qos=self._config.qos)
+
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return None
+
+        if not wait_for_publish:
+            return futures[0] if len(futures) == 1 else futures
+
+        results = []
+        for fut in futures:
+            try:
+                result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for attributes request publish result")
+                result = PublishResult(mqtt_topics.GATEWAY_ATTRIBUTES_REQUEST_TOPIC, self._config.qos, -1, -1, -1)
+            results.append(result)
+
+        return results[0] if len(results) == 1 else results
 
     async def disconnect(self):
         """

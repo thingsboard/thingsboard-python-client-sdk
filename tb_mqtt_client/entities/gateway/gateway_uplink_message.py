@@ -22,6 +22,8 @@ from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 logger = get_logger(__name__)
 
@@ -29,9 +31,10 @@ DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":""
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayUplinkMessage(DeviceUplinkMessage):
+class GatewayUplinkMessage(DeviceUplinkMessage, BaseGatewayEvent):
     device_name: str
     device_profile: str
+    event_type: GatewayEventType = GatewayEventType.DEVICE_UPLINK
 
     def __new__(cls, *args, **kwargs):
         raise TypeError(
@@ -60,6 +63,7 @@ class GatewayUplinkMessage(DeviceUplinkMessage):
                            MappingProxyType({ts: tuple(entries) for ts, entries in timeseries.items()}))
         object.__setattr__(self, 'delivery_futures', tuple(delivery_futures))
         object.__setattr__(self, '_size', size)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_UPLINK)
         return self
 
     @property

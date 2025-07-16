@@ -16,10 +16,12 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict
 from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
 from tb_mqtt_client.constants.json_typing import validate_json_compatibility
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 
 @dataclass(slots=True, frozen=True)
-class AttributeRequest:
+class AttributeRequest(BaseGatewayEvent):
     """
     Represents a request for device attributes, with optional client and shared attribute keys.
     Automatically assigns a unique request ID via the build() method.
@@ -27,6 +29,7 @@ class AttributeRequest:
     request_id: int
     shared_keys: Optional[List[str]] = None
     client_keys: Optional[List[str]] = None
+    event_type: GatewayEventType = GatewayEventType.DEVICE_ATTRIBUTE_REQUEST
 
     def __new__(self, *args, **kwargs):
         raise TypeError("Direct instantiation of AttributeRequest is not allowed. Use 'await AttributeRequest.build(...)'.")
@@ -46,6 +49,7 @@ class AttributeRequest:
         object.__setattr__(self, 'request_id', request_id)
         object.__setattr__(self, 'shared_keys', shared_keys)
         object.__setattr__(self, 'client_keys', client_keys)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_ATTRIBUTE_REQUEST)
         return self
 
     def to_payload_format(self) -> Dict[str, str]:

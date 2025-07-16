@@ -15,17 +15,21 @@
 from dataclasses import dataclass
 from typing import Dict
 
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
+
 
 @dataclass(slots=True, frozen=True)
-class DeviceConnectMessage:
+class DeviceConnectMessage(BaseGatewayEvent):
     """
     Represents a device connection message in the ThingsBoard Gateway MQTT client.
     This class is used to encapsulate the details of a device connection message.
     """
     device_name: str
     device_profile: str = 'default'
+    event_type: GatewayEventType = GatewayEventType.DEVICE_CONNECT
 
-    def __new__(self, *args, **kwargs):
+    def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of DeviceConnectMessage is not allowed. Use 'await DeviceConnectMessage.build(...)'.")
 
     def __repr__(self):
@@ -41,6 +45,7 @@ class DeviceConnectMessage:
         self = object.__new__(cls)
         object.__setattr__(self, 'device_name', device_name)
         object.__setattr__(self, 'device_profile', device_profile)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_CONNECT)
         return self
 
     def to_payload_format(self) -> Dict[str, str]:

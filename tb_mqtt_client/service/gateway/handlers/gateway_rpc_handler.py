@@ -19,7 +19,7 @@ from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_rpc_request import GatewayRPCRequest
 from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
 from tb_mqtt_client.service.gateway.device_manager import DeviceManager
-from tb_mqtt_client.service.gateway.event_dispatcher import EventDispatcher
+from tb_mqtt_client.service.gateway.direct_event_dispatcher import DirectEventDispatcher
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 
 logger = get_logger(__name__)
@@ -30,12 +30,12 @@ class GatewayRPCHandler:
     Handles incoming RPC request messages for a device connected through the gateway.
     """
 
-    def __init__(self, event_dispatcher: EventDispatcher, message_adapter: GatewayMessageAdapter, device_manager: DeviceManager):
+    def __init__(self, event_dispatcher: DirectEventDispatcher, message_adapter: GatewayMessageAdapter, device_manager: DeviceManager):
         self._event_dispatcher = event_dispatcher
         self._message_adapter = message_adapter
         self._device_manager = device_manager
         self._callback: Optional[Callable[[GatewayRPCRequest], Awaitable[GatewayRPCResponse]]] = None
-        self._event_dispatcher.register(GatewayEventType.RPC_REQUEST_RECEIVE, self.handle)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_REQUEST, self.handle)
 
     async def handle(self, topic: str, payload: bytes) -> Optional[GatewayRPCResponse]:
         """

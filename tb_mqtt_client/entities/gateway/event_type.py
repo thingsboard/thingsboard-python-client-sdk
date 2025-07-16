@@ -21,16 +21,21 @@ class GatewayEventType(Enum):
     """
     GATEWAY_CONNECT = "gateway.connect"
     GATEWAY_DISCONNECT = "gateway.disconnect"
-    DEVICE_ADD = "gateway.device.add"
-    DEVICE_REMOVE = "gateway.device.remove"
+
+    DEVICE_CONNECT = "gateway.device.connect"
+    DEVICE_DISCONNECT = "gateway.device.disconnect"
     DEVICE_UPDATE = "gateway.device.update"
+
+    DEVICE_UPLINK = "gateway.device.uplink"
+    DEVICE_ATTRIBUTE_REQUEST = "gateway.device.attribute.request"
+    DEVICE_ATTRIBUTE_UPDATE = "gateway.device.attribute.update"
+    DEVICE_REQUESTED_ATTRIBUTE_RESPONSE = "gateway.device.requested.attribute.response"
+
     DEVICE_SESSION_STATE_CHANGE = "gateway.device.session.state.change"
-    DEVICE_RPC_REQUEST_RECEIVE = "gateway.device.rpc.request.receive"
-    DEVICE_RPC_RESPONSE_SEND = "gateway.device.rpc.response.send"
-    DEVICE_ATTRIBUTE_UPDATE_RECEIVE = "gateway.device.attribute.update.receive"
-    DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVE = "gateway.device.requested.attribute.response.receive"
-    RPC_REQUEST_RECEIVE = "device.rpc.request.receive"
-    RPC_RESPONSE_SEND = "device.rpc.response.send"
+    DEVICE_RPC_REQUEST = "gateway.device.rpc.request"
+    DEVICE_RPC_RESPONSE = "gateway.device.rpc.response"
+    RPC_REQUEST_RECEIVE = "device.rpc.request"
+    RPC_RESPONSE_SEND = "device.rpc.response"
 
     def __str__(self) -> str:
         return self.value

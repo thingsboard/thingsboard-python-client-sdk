@@ -37,9 +37,9 @@ class DeviceSession:
     provisioned: bool = False
     state: DeviceSessionState = DeviceSessionState.CONNECTED
 
-    attribute_update_callback: Optional[Callable[['AttributeUpdate'], Awaitable[None]]] = None
-    attribute_response_callback: Optional[Callable[['RequestedAttributeResponse'], Awaitable[None]]] = None
-    rpc_request_callback: Optional[Callable[['GatewayRPCRequest'], Awaitable[Union['GatewayRPCResponse', None]]]] = None
+    attribute_update_callback: Optional[Callable[['DeviceSession','AttributeUpdate'], Awaitable[None]]] = None
+    attribute_response_callback: Optional[Callable[['DeviceSession','RequestedAttributeResponse'], Awaitable[None]]] = None
+    rpc_request_callback: Optional[Callable[['DeviceSession','GatewayRPCRequest'], Awaitable[Union['GatewayRPCResponse', None]]]] = None
 
     def update_state(self, new_state: DeviceSessionState):
         self.state = new_state
@@ -49,26 +49,26 @@ class DeviceSession:
     def update_last_seen(self):
         self.last_seen_at = int(time() * 1000)
 
-    def set_attribute_update_callback(self, cb: Callable[['AttributeUpdate'], Awaitable[None]]):
+    def set_attribute_update_callback(self, cb: Callable[['DeviceSession','AttributeUpdate'], Awaitable[None]]):
         self.attribute_update_callback = cb
 
-    def set_attribute_response_callback(self, cb: Callable[['RequestedAttributeResponse'], Awaitable[None]]):
+    def set_attribute_response_callback(self, cb: Callable[['DeviceSession','RequestedAttributeResponse'], Awaitable[None]]):
         self.attribute_response_callback = cb
 
-    def set_rpc_request_callback(self, cb: Callable[['GatewayRPCRequest'], Awaitable[Union['GatewayRPCResponse', None]]]):
+    def set_rpc_request_callback(self, cb: Callable[['DeviceSession','GatewayRPCRequest'], Awaitable[Union['GatewayRPCResponse', None]]]):
         self.rpc_request_callback = cb
 
     async def handle_event_to_device(self, event: BaseGatewayEvent) -> Optional[Awaitable[Union['GatewayRPCResponse', None]]]:
-        if GatewayEventType.DEVICE_ATTRIBUTE_UPDATE_RECEIVE == event.event_type \
+        if GatewayEventType.DEVICE_ATTRIBUTE_UPDATE == event.event_type \
                 and isinstance(event, AttributeUpdate):
             if self.attribute_update_callback:
-                return self.attribute_update_callback(event)
-        elif GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE_RECEIVE == event.event_type \
+                return await self.attribute_update_callback(self, event)
+        elif GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE == event.event_type \
                 and isinstance(event, RequestedAttributeResponse):
             if self.attribute_response_callback:
-                return self.attribute_response_callback(event)
-        elif GatewayEventType.RPC_REQUEST_RECEIVE == event.event_type \
+                return await self.attribute_response_callback(self, event)
+        elif GatewayEventType.DEVICE_RPC_REQUEST == event.event_type \
                 and isinstance(event, GatewayRPCRequest):
             if self.rpc_request_callback:
-                return self.rpc_request_callback(event)
+                return await self.rpc_request_callback(self, event)
         return None

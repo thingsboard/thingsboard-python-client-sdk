@@ -47,7 +47,7 @@ class GatewayRequestedAttributeResponseHandler:
         Called when a request is sent to the platform and a response is awaited.
         """
         request_id = request.request_id
-        device_name = request.device_name
+        device_name = request.device_session.device_info.device_name
         key = (device_name, request_id)
         if key in self._pending_attribute_requests:
             raise RuntimeError(f"Request ID {request.request_id} is already registered.")

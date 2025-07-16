@@ -24,7 +24,7 @@ from orjson import loads, dumps
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TELEMETRY_TOPIC, GATEWAY_ATTRIBUTES_TOPIC, \
-    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC
+    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
@@ -235,8 +235,9 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         """
         try:
             payload = dumps(attribute_request.to_payload_format())
-            logger.trace("Built gateway attribute request payload for device='%s'", attribute_request.device_name)
-            return GATEWAY_ATTRIBUTES_TOPIC, payload
+            logger.trace("Built gateway attribute request payload for device='%s'",
+                         attribute_request.device_session.device_info.device_name)
+            return GATEWAY_ATTRIBUTES_REQUEST_TOPIC, payload
         except Exception as e:
             logger.error("Failed to build gateway attribute request payload: %s", str(e))
             raise ValueError("Invalid gateway attribute request format") from e
@@ -268,16 +269,16 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                                data['value'])
                 return None
             elif 'value' in data:
-                if len(gateway_attribute_request.client_keys) == 1:
+                if gateway_attribute_request.client_keys is not None and len(gateway_attribute_request.client_keys) == 1:
                     client = [AttributeEntry(gateway_attribute_request.client_keys[0], data['value'])]
-                elif len(gateway_attribute_request.shared_keys) == 1:
+                elif gateway_attribute_request.shared_keys is not None and len(gateway_attribute_request.shared_keys) == 1:
                     shared = [AttributeEntry(gateway_attribute_request.shared_keys[0], data['value'])]
             elif 'values' in data:
-                if len(gateway_attribute_request.client_keys) > 0:
-                    client = [AttributeEntry(k, v) for k, v in data['data'].get('values', {}).items() if
+                if gateway_attribute_request.client_keys is not None and len(gateway_attribute_request.client_keys) > 0:
+                    client = [AttributeEntry(k, v) for k, v in data['values'].items() if
                               k in gateway_attribute_request.client_keys]
-                if len(gateway_attribute_request.shared_keys) > 0:
-                    shared = [AttributeEntry(k, v) for k, v in data['data'].get('values', {}).items() if
+                if gateway_attribute_request.shared_keys is not None and len(gateway_attribute_request.shared_keys) > 0:
+                    shared = [AttributeEntry(k, v) for k, v in data['values'].items() if
                               k in gateway_attribute_request.shared_keys]
             return GatewayRequestedAttributeResponse(device_name=device_name, request_id=gateway_attribute_request.request_id, shared=shared, client=client)
         except Exception as e:

@@ -24,7 +24,7 @@ class GatewayAttributeUpdate(GatewayEvent):
     """
 
     def __init__(self, device_name: str, attribute_update: AttributeUpdate):
-        super().__init__(event_type=GatewayEventType.DEVICE_ATTRIBUTE_UPDATE_RECEIVE)
+        super().__init__(event_type=GatewayEventType.DEVICE_ATTRIBUTE_UPDATE)
         self.device_name = device_name
         self.attribute_update = attribute_update
 

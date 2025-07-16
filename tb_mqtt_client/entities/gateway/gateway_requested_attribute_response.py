@@ -18,17 +18,20 @@ from typing import Dict, Any, List, Optional
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 logger = get_logger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayRequestedAttributeResponse(RequestedAttributeResponse):
+class GatewayRequestedAttributeResponse(RequestedAttributeResponse, BaseGatewayEvent):
 
     device_name: str = ""
     request_id: int = -1
     shared: Optional[List[AttributeEntry]] = None
     client: Optional[List[AttributeEntry]] = None
+    event_type: GatewayEventType = GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE
 
     def __repr__(self):
         return f"GatewayRequestedAttributeResponse(device_name={self.device_name},request_id={self.request_id}, shared={self.shared}, client={self.client})"

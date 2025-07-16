@@ -13,14 +13,14 @@
 #  limitations under the License.
 
 from tb_mqtt_client.service.gateway.device_manager import DeviceManager
-from tb_mqtt_client.service.gateway.event_dispatcher import EventDispatcher
+from tb_mqtt_client.service.gateway.direct_event_dispatcher import DirectEventDispatcher
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 
 
 class GatewayAttributeUpdatesHandler:
     """Handles shared attribute updates for devices connected to a gateway."""
     def __init__(self,
-                 event_dispatcher: EventDispatcher,
+                 event_dispatcher: DirectEventDispatcher,
                  message_adapter: GatewayMessageAdapter,
                  device_manager: DeviceManager):
         self.event_dispatcher = event_dispatcher
