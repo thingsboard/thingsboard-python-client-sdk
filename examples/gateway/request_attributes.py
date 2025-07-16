@@ -23,7 +23,7 @@ from tb_mqtt_client.service.gateway.client import GatewayClient
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 configure_logging()
-logger = get_logger("tb_mqtt_client")
+logger = get_logger(__name__)
 
 
 async def requested_attributes_handler(device_session: DeviceSession, response: RequestedAttributeResponse):

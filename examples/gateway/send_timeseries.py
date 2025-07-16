@@ -15,14 +15,13 @@
 import asyncio
 from time import time
 
-from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.gateway.client import GatewayClient
 
-
 configure_logging()
-logger = get_logger("tb_mqtt_client")
+logger = get_logger(__name__)
 
 
 async def main():
