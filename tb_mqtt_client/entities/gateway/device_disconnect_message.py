@@ -30,14 +30,18 @@
 from dataclasses import dataclass
 from typing import Dict
 
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
+
 
 @dataclass(slots=True, frozen=True)
-class DeviceDisconnectMessage:
+class DeviceDisconnectMessage(BaseGatewayEvent):
     """
     Represents a device disconnection message in the ThingsBoard Gateway MQTT client.
     This class is used to encapsulate the details of a device connection message.
     """
     device_name: str
+    event_type: GatewayEventType = GatewayEventType.DEVICE_DISCONNECT
 
     def __new__(self, *args, **kwargs):
         raise TypeError(
@@ -55,6 +59,7 @@ class DeviceDisconnectMessage:
             raise ValueError("Device name must not be empty.")
         self = object.__new__(cls)
         object.__setattr__(self, 'device_name', device_name)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_DISCONNECT)
         return self
 
     def to_payload_format(self) -> Dict[str, str]:

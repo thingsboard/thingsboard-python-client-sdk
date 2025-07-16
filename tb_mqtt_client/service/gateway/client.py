@@ -26,6 +26,7 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
+from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder
@@ -155,7 +156,39 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         return device_session, results[0] if len(results) == 1 else results
 
     async def disconnect_device(self, device_session: DeviceSession, wait_for_publish: bool):
-        pass
+        """
+        Disconnect a device from the gateway.
+
+        :param device_session: The DeviceSession object for the device
+        :param wait_for_publish: Whether to wait for the publish result
+        :return: PublishResult or Future[PublishResult] if successful, None if failed
+        """
+        logger.info("Disconnecting device %s", device_session.device_info.device_name)
+        if not device_session:
+            logger.warning("No device session provided for disconnecting")
+            return None
+        device_disconnect_message = DeviceDisconnectMessage.build(device_session.device_info.device_name)
+
+        futures = await self._event_dispatcher.dispatch(device_disconnect_message, qos=self._config.qos)  # noqa
+
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return device_session, []
+
+        if not wait_for_publish:
+            return device_session, futures
+
+        results = []
+        for fut in futures:
+            try:
+                result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for telemetry publish result")
+                result = PublishResult(mqtt_topics.GATEWAY_CONNECT_TOPIC, self._config.qos, -1, -1, -1)
+            results.append(result)
+
+        self.device_manager.unregister(device_session.device_info.device_id)
+        return device_session, results[0] if len(results) == 1 else results
 
     async def send_device_timeseries(self,
                                      device_session: DeviceSession,

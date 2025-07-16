@@ -60,6 +60,8 @@ async def main():
     await client.disconnect_device(device_session, wait_for_publish=True)
     logger.info("Device disconnected successfully: %s", device_name)
 
+    await asyncio.sleep(.1)  # Wait for the disconnect to complete
+
     # Disconnect client
     await client.disconnect()
 
