@@ -367,6 +367,7 @@ async def test_disconnect_reason_code_142_triggers_special_flow(setup_manager):
     manager._client = MagicMock()
     manager._backpressure = MagicMock()
     manager._on_disconnect_callback = AsyncMock()
+    manager._run_coroutine_sync = MagicMock(return_value=(None, 1, 1))
 
     rate_limit = MagicMock(spec=RateLimit)
     manager._MQTTManager__rate_limiter = {"messages": rate_limit}
@@ -374,15 +375,8 @@ async def test_disconnect_reason_code_142_triggers_special_flow(setup_manager):
     fut = asyncio.Future()
     manager._pending_publishes[42] = (fut, "topic", 1, 100, 0)
 
-    with patch("asyncio.get_event_loop") as mock_get_loop, \
-         patch("asyncio.create_task", side_effect=lambda coro: asyncio.ensure_future(coro)):
-
-        mock_loop = MagicMock()
-        mock_loop.run_until_complete.return_value = (None, 1, 1)  # simulate reached_time = 1
-        mock_get_loop.return_value = mock_loop
-
-        manager._on_disconnect_internal(manager._client, reason_code=142)
-        await asyncio.sleep(0.05)
+    manager._on_disconnect_internal(manager._client, reason_code=142)
+    await asyncio.sleep(0.05)
 
     assert fut.done()
     manager._backpressure.notify_disconnect.assert_has_calls([

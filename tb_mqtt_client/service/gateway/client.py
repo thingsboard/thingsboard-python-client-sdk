@@ -183,7 +183,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         return results[0] if len(results) == 1 else results
 
 
-    async def send_device_attributes(self,  device_session: DeviceSession, attributes: ..., wait_for_publish: bool):
+    async def send_device_attributes(self,  device_session: DeviceSession, data: ..., wait_for_publish: bool):
         pass
 
     async def send_device_attributes_request(self, device_session: DeviceSession, attributes: Union[AttributeRequest, GatewayAttributeRequest], wait_for_publish: bool):

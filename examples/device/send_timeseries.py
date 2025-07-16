@@ -17,6 +17,8 @@
 import asyncio
 import logging
 from random import uniform, randint
+from time import time
+
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
@@ -53,9 +55,12 @@ async def main():
     logger.info("Single timeseries entry sent successfully.")
 
     # Send a list of time series entries
+    ts = int(time() * 1000)
     entries = [
-        TimeseriesEntry("vibration", 0.05),
-        TimeseriesEntry("speed", 123)
+        TimeseriesEntry("vibration", 0.05, ts),
+        TimeseriesEntry("speed", 123, ts),
+        TimeseriesEntry("vibration", 0.01, ts - 1000),
+        TimeseriesEntry("speed", 120, ts - 1000),
     ]
     logger.info("Sending list of timeseries entries: %s", entries)
     await client.send_timeseries(entries)

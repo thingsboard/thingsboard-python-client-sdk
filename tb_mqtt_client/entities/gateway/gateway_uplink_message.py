@@ -12,29 +12,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-#  Copyright 2025 ThingsBoard
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#       http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
 import asyncio
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
+from typing import List, Optional, Union, OrderedDict, Mapping
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
-from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
 logger = get_logger(__name__)
@@ -43,7 +29,7 @@ DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":""
 
 
 @dataclass(slots=True, frozen=True)
-class GatewayUplinkMessage(GatewayUplinkMessage):
+class GatewayUplinkMessage(DeviceUplinkMessage):
     device_name: str
     device_profile: str
 
@@ -59,7 +45,7 @@ class GatewayUplinkMessage(GatewayUplinkMessage):
                 f"delivery_futures={self.delivery_futures})")
 
     @classmethod
-    def build(cls,
+    def build(cls,  # noqa
               device_name: Optional[str],
               device_profile: Optional[str],
               attributes: List[AttributeEntry],
@@ -159,7 +145,7 @@ class GatewayUplinkMessageBuilder:
     def build(self) -> GatewayUplinkMessage:
         if not self._delivery_futures:
             self._delivery_futures = [asyncio.get_event_loop().create_future()]
-        return GatewayUplinkMessage.build(
+        return GatewayUplinkMessage.build(  # noqa
             device_name=self._device_name,
             device_profile=self._device_profile,
             attributes=self._attributes,

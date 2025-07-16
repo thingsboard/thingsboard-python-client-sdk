@@ -15,7 +15,6 @@
 import asyncio
 import ssl
 import threading
-import time
 from asyncio import sleep
 from contextlib import suppress
 from time import monotonic

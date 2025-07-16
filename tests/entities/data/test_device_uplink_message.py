@@ -19,7 +19,7 @@ from types import MappingProxyType
 import pytest
 
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder, GatewayUplinkMessage, \
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder, DeviceUplinkMessage, \
     DEFAULT_FIELDS_SIZE
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
@@ -36,8 +36,8 @@ def timeseries_entry():
 
 def test_direct_instantiation_forbidden():
     with pytest.raises(TypeError, match="Direct instantiation of DeviceUplinkMessage is not allowed"):
-        GatewayUplinkMessage(device_name="test", device_profile="default", attributes=(), timeseries={},
-                             delivery_futures=[], _size=0)
+        DeviceUplinkMessage(device_name="test", device_profile="default", attributes=(), timeseries={},
+                            delivery_futures=[], _size=0)
 
 
 def test_build_empty_message():

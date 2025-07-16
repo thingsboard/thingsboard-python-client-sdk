@@ -16,7 +16,6 @@ import ssl
 from asyncio import sleep, wait_for, TimeoutError, Event, Future
 from random import choices
 from string import ascii_uppercase, digits
-from time import time
 from typing import Callable, Awaitable, Optional, Dict, Any, Union, List
 
 from orjson import dumps
@@ -29,13 +28,10 @@ from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.constants.json_typing import JSONCompatibleType
-from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER, TELEMETRY_VALUES_PARAMETER
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
-from tb_mqtt_client.entities.data.device_uplink_message import GatewayUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest

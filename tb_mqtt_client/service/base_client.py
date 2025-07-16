@@ -25,7 +25,7 @@ from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER,
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder, GatewayUplinkMessage
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder, DeviceUplinkMessage
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.common.publish_result import PublishResult
@@ -146,7 +146,7 @@ class BaseClient(ABC):
                                                      List[TimeseriesEntry],
                                                      List[Dict[str, Any]]],
                                             device_session: Optional[DeviceSession] = None,
-                                            ) -> GatewayUplinkMessage:
+                                            ) -> Union[DeviceUplinkMessage, GatewayUplinkMessage]:
         timeseries_entries = []
         if isinstance(payload, TimeseriesEntry):
             timeseries_entries.append(payload)
@@ -194,7 +194,7 @@ class BaseClient(ABC):
     def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],
                                              AttributeEntry,
                                              List[AttributeEntry]],
-                                             device_session = None) -> Union[GatewayUplinkMessage, GatewayUplinkMessage]:
+                                             device_session = None) -> Union[DeviceUplinkMessage, GatewayUplinkMessage]:
 
         if isinstance(payload, dict):
             payload = [AttributeEntry(k, v) for k, v in payload.items()]

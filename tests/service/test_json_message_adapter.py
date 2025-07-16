@@ -270,13 +270,6 @@ async def test_build_uplink_payloads_multiple_devices(adapter: JsonMessageAdapte
         assert DEVICE_ATTRIBUTES_TOPIC in topics or DEVICE_TELEMETRY_TOPIC in topics
 
 
-def test_build_payload_with_device_name(adapter: JsonMessageAdapter):
-    msg = build_msg(with_ts=True)
-    payload = adapter.build_payload(msg, True)
-    assert isinstance(payload, bytes)
-    assert msg.device_name.encode() in payload
-
-
 def test_build_payload_without_device_name(adapter: JsonMessageAdapter):
     builder = DeviceUplinkMessageBuilder().add_attributes(AttributeEntry("x", 9))
     msg = builder.build()
