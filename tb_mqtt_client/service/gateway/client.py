@@ -61,7 +61,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._config = config if isinstance(config, GatewayConfig) else GatewayConfig(config)
         super().__init__(self._config)
 
-        self._device_manager = DeviceManager()
+        self.device_manager = DeviceManager()
 
         self._event_dispatcher: DirectEventDispatcher = DirectEventDispatcher()
         self._uplink_message_sender = GatewayMessageSender()
@@ -76,13 +76,13 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
         self._gateway_rpc_handler = GatewayRPCHandler(event_dispatcher=self._event_dispatcher,
                                                       message_adapter=self._gateway_message_adapter,
-                                                      device_manager=self._device_manager)
+                                                      device_manager=self.device_manager)
         self._gateway_attribute_updates_handler = GatewayAttributeUpdatesHandler(event_dispatcher=self._event_dispatcher,
                                                                                  message_adapter=self._gateway_message_adapter,
-                                                                                 device_manager=self._device_manager)
+                                                                                 device_manager=self.device_manager)
         self._gateway_requested_attribute_response_handler = GatewayRequestedAttributeResponseHandler(event_dispatcher=self._event_dispatcher,
                                                                                                       message_adapter=self._gateway_message_adapter,
-                                                                                                      device_manager=self._device_manager)
+                                                                                                      device_manager=self.device_manager)
 
         # Gateway-specific rate limits
         self._device_messages_rate_limit = RateLimit("10:1,", name="device_messages")
@@ -130,8 +130,8 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         logger.info("Connecting device %s with profile %s",
                     device_connect_message.device_name,
                     device_connect_message.device_profile)
-        device_session = self._device_manager.register(device_connect_message.device_name,
-                                                       device_connect_message.device_profile)
+        device_session = self.device_manager.register(device_connect_message.device_name,
+                                                      device_connect_message.device_profile)
         futures = await self._event_dispatcher.dispatch(device_connect_message, qos=self._config.qos)  # noqa
 
         if not futures:
