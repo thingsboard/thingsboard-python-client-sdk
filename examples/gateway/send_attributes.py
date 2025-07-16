@@ -41,6 +41,7 @@ async def main():
     if not device_session:
         logger.error("Failed to register device: %s", device_name)
         return
+
     logger.info("Device connected successfully: %s", device_name)
 
     # Send attributes as raw dictionary

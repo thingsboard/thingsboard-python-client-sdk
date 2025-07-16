@@ -16,11 +16,14 @@ from dataclasses import dataclass
 from typing import Dict, Any, List
 
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
+from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 
 @dataclass(slots=True)
-class AttributeUpdate:
+class AttributeUpdate(BaseGatewayEvent):
     entries: List[AttributeEntry]
+    event_type: GatewayEventType = GatewayEventType.DEVICE_ATTRIBUTE_UPDATE
 
     def __repr__(self):
         return f"AttributeUpdate(entries={self.entries})"

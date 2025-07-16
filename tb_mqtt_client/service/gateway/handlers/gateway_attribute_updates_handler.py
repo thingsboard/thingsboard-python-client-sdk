@@ -27,7 +27,7 @@ class GatewayAttributeUpdatesHandler:
         self.message_adapter = message_adapter
         self.device_manager = device_manager
 
-    def handle(self, topic: str, payload: bytes):
+    async def handle(self, topic: str, payload: bytes):
         """
         Handles the gateway attribute update event by dispatching the attribute update
         """
@@ -36,4 +36,4 @@ class GatewayAttributeUpdatesHandler:
         device_session = self.device_manager.get_by_name(gateway_attribute_update.device_name)
         if device_session:
             gateway_attribute_update.set_device_session(device_session)
-        self.event_dispatcher.dispatch(gateway_attribute_update)
+        await self.event_dispatcher.dispatch(gateway_attribute_update.attribute_update, device_session=device_session)  # noqa

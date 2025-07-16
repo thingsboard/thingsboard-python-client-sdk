@@ -66,12 +66,13 @@ async def main():
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)
 
-    # Register callback for requested attributes
-    client.device_manager.set_rpc_request_callback(device_session.device_info.device_id, device_rpc_request_handler)
-
     if not device_session:
         logger.error("Failed to register device: %s", device_name)
         return
+
+    # Register callback for requested attributes
+    client.device_manager.set_rpc_request_callback(device_session.device_info.device_id, device_rpc_request_handler)
+
     logger.info("Device connected successfully: %s", device_name)
 
     # Loop to keep the client running and processing RPC requests

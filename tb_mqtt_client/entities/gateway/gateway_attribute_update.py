@@ -13,11 +13,11 @@
 #  limitations under the License.
 
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
-from tb_mqtt_client.entities.gateway.gateway_event import GatewayEvent
 
 
-class GatewayAttributeUpdate(GatewayEvent):
+class GatewayAttributeUpdate(BaseGatewayEvent):
     """
     Represents an attribute update event for a device connected to a gateway.
     This event is used to notify about changes in device shared attributes.

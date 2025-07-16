@@ -53,12 +53,13 @@ async def main():
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)
 
-    # Register callback for requested attributes
-    client.device_manager.set_attribute_response_callback(device_session.device_info.device_id, requested_attributes_handler)
-
     if not device_session:
         logger.error("Failed to register device: %s", device_name)
         return
+
+    # Register callback for requested attributes
+    client.device_manager.set_attribute_response_callback(device_session.device_info.device_id, requested_attributes_handler)
+
     logger.info("Device connected successfully: %s", device_name)
 
     # Send attributes to request them later
