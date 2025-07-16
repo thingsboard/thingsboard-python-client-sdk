@@ -130,6 +130,25 @@ class GatewayMessageSender:
             qos=qos
         )
 
+    async def send_rpc_response(self, rpc_response: 'GatewayRPCResponse', qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+        """
+        Sends an RPC response message to the platform.
+
+        :param rpc_response: GatewayRPCResponse object containing the RPC response details.
+        :param qos: Quality of Service level for the MQTT message.
+        :returns: List of PublishResult or Future[PublishResult] if successful, None if failed.
+        """
+        if self._message_queue is None:
+            logger.error("Cannot send RPC response. Message queue is not set, do you connected to the platform?")
+            return None
+        topic, payload = self._message_adapter.build_rpc_response_payload(rpc_response=rpc_response)
+        return await self._message_queue.publish(
+            topic=topic,
+            payload=payload,
+            datapoints_count=1,
+            qos=qos
+        )
+
     def set_message_queue(self, message_queue: MessageQueue):
         """
         Sets the message queue for sending uplink messages.

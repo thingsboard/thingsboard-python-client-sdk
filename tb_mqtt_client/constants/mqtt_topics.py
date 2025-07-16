@@ -46,8 +46,6 @@ GATEWAY_ATTRIBUTES_TOPIC = BASE_GATEWAY_TOPIC + "/attributes"
 GATEWAY_ATTRIBUTES_REQUEST_TOPIC = GATEWAY_ATTRIBUTES_TOPIC + REQUEST_TOPIC_SUFFIX
 GATEWAY_ATTRIBUTES_RESPONSE_TOPIC = GATEWAY_ATTRIBUTES_TOPIC + RESPONSE_TOPIC_SUFFIX
 GATEWAY_RPC_TOPIC = BASE_GATEWAY_TOPIC + "/rpc"
-GATEWAY_RPC_REQUEST_TOPIC = GATEWAY_RPC_TOPIC + REQUEST_TOPIC_SUFFIX
-GATEWAY_RPC_RESPONSE_TOPIC = GATEWAY_RPC_TOPIC + RESPONSE_TOPIC_SUFFIX
 GATEWAY_CLAIM_TOPIC = BASE_GATEWAY_TOPIC + "/claim"
 
 # Topic Builders
@@ -63,18 +61,6 @@ def build_device_rpc_request_topic(request_id: int) -> str:
 
 def build_device_rpc_response_topic(request_id: int) -> str:
     return DEVICE_RPC_RESPONSE_TOPIC + str(request_id)
-
-
-def build_gateway_device_telemetry_topic() -> str:
-    return GATEWAY_TELEMETRY_TOPIC
-
-
-def build_gateway_device_attributes_topic() -> str:
-    return GATEWAY_ATTRIBUTES_TOPIC
-
-
-def build_gateway_rpc_topic() -> str:
-    return GATEWAY_RPC_TOPIC
 
 
 def build_firmware_update_request_topic(request_id: int, current_chunk: int) -> str:

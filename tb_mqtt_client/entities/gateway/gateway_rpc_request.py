@@ -21,7 +21,7 @@ from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 @dataclass(slots=True, frozen=True)
 class GatewayRPCRequest(BaseGatewayEvent):
-    request_id: Union[int, str]
+    request_id: int
     device_name: str
     method: str
     params: Optional[Any] = None
@@ -31,6 +31,9 @@ class GatewayRPCRequest(BaseGatewayEvent):
         raise TypeError("Direct instantiation of GatewayRPCRequest is not allowed. Use 'await GatewayRPCRequest.build(...)'.")
 
     def __repr__(self):
+        return f"RPCRequest(id={self.request_id}, device_name={self.device_name}, method={self.method}, params={self.params})"
+
+    def __str__(self):
         return f"RPCRequest(id={self.request_id}, device_name={self.device_name}, method={self.method}, params={self.params})"
 
     @classmethod
@@ -52,5 +55,6 @@ class GatewayRPCRequest(BaseGatewayEvent):
         object.__setattr__(self, 'request_id', request_id)
         object.__setattr__(self, 'method', data["method"])
         object.__setattr__(self, 'params', data.get("params"))
-        object.__setattr__(self, 'device', device_name)
+        object.__setattr__(self, 'device_name', device_name)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_RPC_REQUEST)
         return self

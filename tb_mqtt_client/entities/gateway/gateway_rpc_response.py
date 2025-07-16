@@ -39,14 +39,13 @@ class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
     def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of GatewayRPCResponse is not allowed. Use GatewayRPCResponse.build(device_name, request_id, result, error).")
 
-
     def __repr__(self) -> str:
-        return f"GatewayRPCResponse(request_id={self.request_id}, result={self.result}, error={self.error})"
+        return f"GatewayRPCResponse(device_name={self.device_name}, request_id={self.request_id}, result={self.result}, error={self.error})"
 
     @classmethod
     def build(cls, # noqa
               device_name: str,
-              request_id: Union[int, str],
+              request_id: int,
               result: Optional[Any] = None,
               error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'GatewayRPCResponse':
         """
@@ -56,6 +55,7 @@ class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
             raise ValueError("Device name must be a non-empty string")
         self = object.__new__(cls)
         object.__setattr__(self, 'request_id', request_id)
+        object.__setattr__(self, 'device_name', device_name)
 
         if error is not None:
             if not isinstance(error, (str, dict, BaseException)):
@@ -82,6 +82,7 @@ class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
             validate_json_compatibility(result)
 
         object.__setattr__(self, 'result', result)
+        object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_RPC_RESPONSE)
         return self
 
     def to_payload_format(self) -> Dict[str, Any]:

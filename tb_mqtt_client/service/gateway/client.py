@@ -69,6 +69,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._event_dispatcher.register(GatewayEventType.DEVICE_DISCONNECT, self._uplink_message_sender.send_device_disconnect)
         self._event_dispatcher.register(GatewayEventType.DEVICE_UPLINK, self._uplink_message_sender.send_uplink_message)
         self._event_dispatcher.register(GatewayEventType.DEVICE_ATTRIBUTE_REQUEST, self._uplink_message_sender.send_attributes_request)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_RESPONSE, self._uplink_message_sender.send_rpc_response)
 
         self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter()
         self._uplink_message_sender.set_message_adapter(self._gateway_message_adapter)
@@ -76,7 +77,8 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
         self._gateway_rpc_handler = GatewayRPCHandler(event_dispatcher=self._event_dispatcher,
                                                       message_adapter=self._gateway_message_adapter,
-                                                      device_manager=self.device_manager)
+                                                      device_manager=self.device_manager,
+                                                      stop_event=self._stop_event)
         self._gateway_attribute_updates_handler = GatewayAttributeUpdatesHandler(event_dispatcher=self._event_dispatcher,
                                                                                  message_adapter=self._gateway_message_adapter,
                                                                                  device_manager=self.device_manager)

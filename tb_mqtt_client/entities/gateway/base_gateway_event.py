@@ -29,3 +29,6 @@ class BaseGatewayEvent:
     @property
     def device_session(self):
         return self.__device_session
+
+    def __str__(self) -> str:
+        return self.__repr__()

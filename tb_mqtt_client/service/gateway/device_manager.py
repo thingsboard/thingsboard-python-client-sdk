@@ -30,7 +30,6 @@ class DeviceManager:
         self._ids_by_original_name: Dict[str, UUID] = {}
         self.__connected_devices: Set[DeviceSession] = set()
 
-
     def register(self, device_name: str, device_profile: str = "default") -> DeviceSession:
         session = self.get_by_name(device_name)
         if session:

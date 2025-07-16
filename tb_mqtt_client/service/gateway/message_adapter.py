@@ -24,9 +24,10 @@ from orjson import loads, dumps
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TELEMETRY_TOPIC, GATEWAY_ATTRIBUTES_TOPIC, \
-    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC
+    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, GATEWAY_RPC_TOPIC
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
@@ -75,6 +76,14 @@ class GatewayMessageAdapter(ABC):
     def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest) -> Tuple[str, bytes]:
         """
         Build the payload for a gateway attribute request.
+        This method should be implemented to handle the specific format of the payload.
+        """
+        pass
+
+    @abstractmethod
+    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse) -> Tuple[str, bytes]:
+        """
+        Build the payload for a gateway RPC response.
         This method should be implemented to handle the specific format of the payload.
         """
         pass
@@ -241,6 +250,20 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         except Exception as e:
             logger.error("Failed to build gateway attribute request payload: %s", str(e))
             raise ValueError("Invalid gateway attribute request format") from e
+
+    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse) -> Tuple[str, bytes]:
+        """
+        Build the payload for a gateway RPC response.
+        This method serializes the GatewayRPCResponse to JSON format.
+        """
+        try:
+            payload = dumps(rpc_response.to_payload_format())
+            logger.trace("Built RPC response payload for device='%s', request_id=%i",
+                         rpc_response.device_name, rpc_response.request_id)
+            return GATEWAY_RPC_TOPIC, payload
+        except Exception as e:
+            logger.error("Failed to build RPC response payload: %s", str(e))
+            raise ValueError("Invalid RPC response format") from e
 
     def parse_attribute_update(self, data: Dict[str, Any]) -> GatewayAttributeUpdate:
         try:
