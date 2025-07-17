@@ -411,10 +411,15 @@ class JsonMessageAdapter(MessageAdapter):
     @staticmethod
     def pack_timeseries(msg: 'DeviceUplinkMessage') -> List[Dict[str, Any]]:
         now_ts = int(datetime.now(UTC).timestamp() * 1000)
-
-        packed = [
-            {"ts": entry.ts or now_ts, "values": {entry.key: entry.value}}
-            for entry in chain.from_iterable(msg.timeseries.values())
-        ]
+        if all(entry.ts is None for entry in chain.from_iterable(msg.timeseries.values())):
+            packed = {
+                "ts": now_ts,
+                "values": {entry.key: entry.value for entry in chain.from_iterable(msg.timeseries.values())}
+            }
+        else:
+            packed = [
+                {"ts": entry.ts or now_ts, "values": {entry.key: entry.value}}
+                for entry in chain.from_iterable(msg.timeseries.values())
+            ]
 
         return packed

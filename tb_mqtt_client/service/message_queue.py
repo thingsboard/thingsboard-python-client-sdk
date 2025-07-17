@@ -51,8 +51,6 @@ class MessageQueue:
         self._telemetry_rate_limit = telemetry_rate_limit
         self._telemetry_dp_rate_limit = telemetry_dp_rate_limit
         self._backpressure = self._mqtt_manager.backpressure
-        self._pending_ack_futures: Dict[int, asyncio.Future[PublishResult]] = {}
-        self._pending_ack_callbacks: Dict[int, Callable[[bool], None]] = {}
         # Queue expects tuples of (topic, payload, delivery_futures, datapoints_count, qos)
         self._queue: asyncio.Queue[Tuple[str, Union[bytes, DeviceUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
         self._pending_queue_tasks: set[asyncio.Task] = set()
@@ -254,6 +252,9 @@ class MessageQueue:
                 def resolve_attached(publish_future: asyncio.Future):
                     try:
                         publish_result = publish_future.result()
+                    except asyncio.CancelledError:
+                        logger.trace("Publish future was cancelled: %r, id: %r", publish_future, id(publish_future))
+                        publish_result = PublishResult(topic, qos, -1, len(payload), -1)
                     except Exception as exc:
                         logger.warning("Publish failed with exception: %s", exc)
                         logger.debug("Resolving delivery futures with failure:", exc_info=exc)
