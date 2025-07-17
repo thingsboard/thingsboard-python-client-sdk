@@ -29,7 +29,7 @@ from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnect
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
-from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder
+from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
 from tb_mqtt_client.service.device.client import DeviceClient
 from tb_mqtt_client.service.gateway.device_manager import DeviceManager
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
@@ -71,6 +71,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._event_dispatcher.register(GatewayEventType.DEVICE_UPLINK, self._uplink_message_sender.send_uplink_message)
         self._event_dispatcher.register(GatewayEventType.DEVICE_ATTRIBUTE_REQUEST, self._uplink_message_sender.send_attributes_request)
         self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_RESPONSE, self._uplink_message_sender.send_rpc_response)
+        self._event_dispatcher.register(GatewayEventType.GATEWAY_CLAIM_REQUEST, self._uplink_message_sender.send_claim_request)
 
         self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter()
         self._uplink_message_sender.set_message_adapter(self._gateway_message_adapter)
@@ -114,7 +115,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
 
     async def connect_device(self,
                              device_name_or_device_connect_message: Union[str, DeviceConnectMessage],
-                             device_profile: str,
+                             device_profile: str = 'default',
                              wait_for_publish=False) -> Tuple[DeviceSession, List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Connect a device to the gateway.
@@ -293,6 +294,41 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             except TimeoutError:
                 logger.warning("Timeout while waiting for attributes request publish result")
                 result = PublishResult(mqtt_topics.GATEWAY_ATTRIBUTES_REQUEST_TOPIC, self._config.qos, -1, -1, -1)
+            results.append(result)
+
+        return results[0] if len(results) == 1 else results
+
+    async def send_device_claim_request(self,
+                                        device_session: DeviceSession,
+                                        gateway_claim_request: GatewayClaimRequest,
+                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+        """
+        Send a claim request for a device to the platform.
+        :param device_session: The DeviceSession object for the device
+        :param gateway_claim_request: Claim request data
+        :param wait_for_publish: Whether to wait for the publish result
+        """
+        logger.trace("Sending claim request for device %s", device_session.device_info.device_name)
+        if not device_session or not gateway_claim_request:
+            logger.warning("No device session or claim request provided for sending claim request")
+            return None
+
+        futures = await self._event_dispatcher.dispatch(gateway_claim_request, qos=self._config.qos)  # noqa
+
+        if not futures:
+            logger.warning("No publish futures were returned from message queue")
+            return None
+
+        if not wait_for_publish:
+            return futures[0] if len(futures) == 1 else futures
+
+        results = []
+        for fut in futures:
+            try:
+                result = await await_or_stop(fut, timeout=self.OPERATIONAL_TIMEOUT, stop_event=self._stop_event)
+            except TimeoutError:
+                logger.warning("Timeout while waiting for claim request publish result")
+                result = PublishResult(mqtt_topics.GATEWAY_CLAIM_TOPIC, self._config.qos, -1, -1, -1)
             results.append(result)
 
         return results[0] if len(results) == 1 else results

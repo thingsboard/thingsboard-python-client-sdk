@@ -24,9 +24,11 @@ from orjson import loads, dumps
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TELEMETRY_TOPIC, GATEWAY_ATTRIBUTES_TOPIC, \
-    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, GATEWAY_RPC_TOPIC
+    GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, GATEWAY_RPC_TOPIC, \
+    GATEWAY_CLAIM_TOPIC
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
+from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
 from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
@@ -84,6 +86,14 @@ class GatewayMessageAdapter(ABC):
     def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse) -> Tuple[str, bytes]:
         """
         Build the payload for a gateway RPC response.
+        This method should be implemented to handle the specific format of the payload.
+        """
+        pass
+
+    @abstractmethod
+    def build_claim_request_payload(self, claim_request: GatewayClaimRequest) -> Tuple[str, bytes]:
+        """
+        Build the payload for a gateway claim request.
         This method should be implemented to handle the specific format of the payload.
         """
         pass
@@ -264,6 +274,19 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         except Exception as e:
             logger.error("Failed to build RPC response payload: %s", str(e))
             raise ValueError("Invalid RPC response format") from e
+
+    def build_claim_request_payload(self, claim_request: GatewayClaimRequest) -> Tuple[str, bytes]:
+        """
+        Build the payload for a gateway claim request.
+        This method serializes the GatewayClaimRequest to JSON format.
+        """
+        try:
+            payload = dumps(claim_request.to_payload_format())
+            logger.trace("Built claim request payload for devices: %s", list(claim_request.devices_requests.keys()))
+            return GATEWAY_CLAIM_TOPIC, payload
+        except Exception as e:
+            logger.error("Failed to build claim request payload: %s", str(e))
+            raise ValueError("Invalid claim request format") from e
 
     def parse_attribute_update(self, data: Dict[str, Any]) -> GatewayAttributeUpdate:
         try:

@@ -28,7 +28,7 @@ async def attribute_update_handler(device_session: DeviceSession, attribute_upda
     """
     Callback to handle attribute updates.
     :param device_session: Device session for which attributes were requested.
-    :param attribute_update: Updated attributes .
+    :param attribute_update: Updated attributes object that contains attribute entries.
     """
     logger.info("Received attribute update for device %s: %s",
                 device_session.device_info.device_name, attribute_update.entries)

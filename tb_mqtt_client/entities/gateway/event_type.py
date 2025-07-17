@@ -34,6 +34,9 @@ class GatewayEventType(Enum):
     DEVICE_SESSION_STATE_CHANGE = "gateway.device.session.state.change"
     DEVICE_RPC_REQUEST = "gateway.device.rpc.request"
     DEVICE_RPC_RESPONSE = "gateway.device.rpc.response"
+
+    GATEWAY_CLAIM_REQUEST = "gateway.gateway.claim"
+
     RPC_REQUEST_RECEIVE = "device.rpc.request"
     RPC_RESPONSE_SEND = "device.rpc.response"
 

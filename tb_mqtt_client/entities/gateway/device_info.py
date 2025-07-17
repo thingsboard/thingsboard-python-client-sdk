@@ -63,3 +63,20 @@ class DeviceInfo:
                 f"device_name={self.device_name}, "
                 f"device_profile={self.device_profile}, "
                 f"original_name={self.original_name})")
+
+    def __repr__(self) -> str:
+        return (f"DeviceInfo(device_id={self.device_id!r}, "
+                f"device_name={self.device_name!r}, "
+                f"device_profile={self.device_profile!r}, "
+                f"original_name={self.original_name!r})")
+
+    def __eq__(self, other):
+        if not isinstance(other, DeviceInfo):
+            return NotImplemented
+        return (self.device_id == other.device_id and
+                self.device_name == other.device_name and
+                self.device_profile == other.device_profile and
+                self.original_name == other.original_name)
+
+    def __hash__(self):
+        return hash((self.device_id, self.device_name, self.device_profile, self.original_name))

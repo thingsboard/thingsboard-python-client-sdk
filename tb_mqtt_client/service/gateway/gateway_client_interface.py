@@ -21,6 +21,7 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
+from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
 from tb_mqtt_client.service.base_client import BaseClient
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
@@ -52,3 +53,9 @@ class GatewayClientInterface(BaseClient, ABC):
                                              device_session: DeviceSession,
                                              attributes: Union[AttributeRequest, GatewayAttributeRequest],
                                              wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
+
+    @abstractmethod
+    async def send_device_claim_request(self,
+                                        device_session: DeviceSession,
+                                        gateway_claim_request: GatewayClaimRequest,
+                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...

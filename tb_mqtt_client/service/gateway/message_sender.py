@@ -21,6 +21,8 @@ from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
+from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
+from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 from tb_mqtt_client.service.message_queue import MessageQueue
@@ -130,7 +132,7 @@ class GatewayMessageSender:
             qos=qos
         )
 
-    async def send_rpc_response(self, rpc_response: 'GatewayRPCResponse', qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_rpc_response(self, rpc_response: GatewayRPCResponse, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
         """
         Sends an RPC response message to the platform.
 
@@ -142,6 +144,25 @@ class GatewayMessageSender:
             logger.error("Cannot send RPC response. Message queue is not set, do you connected to the platform?")
             return None
         topic, payload = self._message_adapter.build_rpc_response_payload(rpc_response=rpc_response)
+        return await self._message_queue.publish(
+            topic=topic,
+            payload=payload,
+            datapoints_count=1,
+            qos=qos
+        )
+
+    async def send_claim_request(self, claim_request: GatewayClaimRequest, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+        """
+        Sends a claim request message to the platform.
+
+        :param claim_request: GatewayClaimRequest object containing the claim request details.
+        :param qos: Quality of Service level for the MQTT message.
+        :returns: List of PublishResult or Future[PublishResult] if successful, None if failed.
+        """
+        if self._message_queue is None:
+            logger.error("Cannot send claim request. Message queue is not set, do you connected to the platform?")
+            return None
+        topic, payload = self._message_adapter.build_claim_request_payload(claim_request=claim_request)
         return await self._message_queue.publish(
             topic=topic,
             payload=payload,

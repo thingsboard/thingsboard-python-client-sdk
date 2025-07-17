@@ -80,3 +80,11 @@ class DeviceSession:
             return await cb(self, event)
         else:
             return cb(self, event)
+
+    def __eq__(self, other):
+        if not isinstance(other, DeviceSession):
+            return NotImplemented
+        return self.device_info.device_id == other.device_info.device_id
+
+    def __hash__(self):
+        return hash(self.device_info)
