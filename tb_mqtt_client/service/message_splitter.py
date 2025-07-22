@@ -13,10 +13,12 @@
 #  limitations under the License.
 
 import asyncio
-from collections import defaultdict
-from typing import List, Optional, Dict, Tuple
+from collections import defaultdict, deque
+from typing import List, Optional, Dict, Tuple, Set
+from uuid import uuid4
 
-from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.async_utils import future_map
+from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
@@ -42,8 +44,8 @@ class MessageSplitter:
         logger.trace("Splitting timeseries for %d messages", len(messages))
 
         if (len(messages) == 1
-                and ((messages[0].attributes_datapoint_count() + messages[
-                    0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count()
+                      <= self._max_datapoints) or self._max_datapoints == 0)
                 and messages[0].size <= self._max_payload_size):
             return messages
 
@@ -51,37 +53,41 @@ class MessageSplitter:
 
         grouped: Dict[Tuple[str, Optional[str]], List[DeviceUplinkMessage]] = defaultdict(list)
         for msg in messages:
-            key = (msg.device_name, msg.device_profile)
-            grouped[key].append(msg)
+            grouped[(msg.device_name, msg.device_profile)].append(msg)
 
         for (device_name, device_profile), group_msgs in grouped.items():
-            logger.trace("Processing group: device='%s', profile='%s', messages=%d", device_name, device_profile,
-                         len(group_msgs))
+            logger.trace("Processing group: device='%s', profile='%s', messages=%d",
+                         device_name, device_profile, len(group_msgs))
 
-            all_ts: List[TimeseriesEntry] = []
-            delivery_futures: List[asyncio.Future] = []
+            all_ts_entries: List[TimeseriesEntry] = []
+            parent_futures: List[asyncio.Future] = []
+
             for msg in group_msgs:
-                if msg.has_timeseries():
-                    for ts_group in msg.timeseries.values():
-                        all_ts.extend(ts_group)
-                delivery_futures.extend(msg.get_delivery_futures())
+                for ts_group in msg.timeseries.values():
+                    all_ts_entries.extend(ts_group)
+                parent_futures.extend(msg.get_delivery_futures() or [])
 
             builder: Optional[DeviceUplinkMessageBuilder] = None
             size = 0
             point_count = 0
-            batch_futures = []
 
-            for ts_kv in all_ts:
+            for ts_kv in all_ts_entries:
                 exceeds_size = builder and size + ts_kv.size > self._max_payload_size
                 exceeds_points = 0 < self._max_datapoints <= point_count
 
                 if not builder or exceeds_size or exceeds_points:
                     if builder:
+                        shared_future = asyncio.Future()
+                        shared_future.uuid = uuid4()
+                        builder.add_delivery_futures(shared_future)
+
                         built = builder.build()
                         result.append(built)
-                        batch_futures.extend(built.get_delivery_futures())
-                        logger.trace("Flushed batch with %d points (size=%d)", len(built.timeseries), size)
+                        for parent in parent_futures:
+                            future_map.register(parent, [shared_future])
 
+                        logger.trace("Flushed batch with %d datapoints (size=%d)",
+                                     built.timeseries_datapoint_count(), size)
                     builder = DeviceUplinkMessageBuilder() \
                         .set_device_name(device_name) \
                         .set_device_profile(device_profile)
@@ -93,22 +99,17 @@ class MessageSplitter:
                 point_count += 1
 
             if builder and builder._timeseries:  # noqa
+                shared_future = asyncio.Future()
+                shared_future.uuid = uuid4()
+                builder.add_delivery_futures(shared_future)
+
                 built = builder.build()
                 result.append(built)
-                batch_futures.extend(built.get_delivery_futures())
-                logger.trace("Flushed final batch with %d points (size=%d)", len(built.timeseries), size)
+                for parent in parent_futures:
+                    future_map.register(parent, [shared_future])
 
-            if delivery_futures:
-                original_future = delivery_futures[0]
-                logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
-                             [id(f) for f in batch_futures])
-
-                async def resolve_original():
-                    logger.trace("Resolving original future with batch futures: %r", [id(f) for f in batch_futures])
-                    results = await asyncio.gather(*batch_futures, return_exceptions=False)
-                    original_future.set_result(all(results))
-
-                asyncio.create_task(resolve_original())
+                logger.trace("Flushed final batch with %d datapoints (size=%d)",
+                             built.timeseries_datapoint_count(), size)
 
         logger.trace("Total timeseries batches created: %d", len(result))
         return result
@@ -118,8 +119,8 @@ class MessageSplitter:
         result: List[DeviceUplinkMessage] = []
 
         if (len(messages) == 1
-                and ((messages[0].attributes_datapoint_count() + messages[
-                    0].timeseries_datapoint_count() <= self._max_datapoints) or self._max_datapoints == 0)  # noqa
+                and ((messages[0].attributes_datapoint_count() + messages[0].timeseries_datapoint_count()
+                      <= self._max_datapoints) or self._max_datapoints == 0)
                 and messages[0].size <= self._max_payload_size):
             return messages
 
@@ -128,34 +129,40 @@ class MessageSplitter:
             grouped[(msg.device_name, msg.device_profile)].append(msg)
 
         for (device_name, device_profile), group_msgs in grouped.items():
-            logger.trace("Processing attribute group: device='%s', profile='%s', messages=%d", device_name,
-                         device_profile, len(group_msgs))
+            logger.trace("Processing attribute group: device='%s', profile='%s', messages=%d",
+                         device_name, device_profile, len(group_msgs))
 
             all_attrs: List[AttributeEntry] = []
-            delivery_futures: List[asyncio.Future] = []
+            parent_futures: List[asyncio.Future] = []
 
             for msg in group_msgs:
                 if msg.has_attributes():
                     all_attrs.extend(msg.attributes)
-                delivery_futures.extend(msg.get_delivery_futures())
+                parent_futures.extend(msg.get_delivery_futures())
 
-            builder = None
+            builder: Optional[DeviceUplinkMessageBuilder] = None
             size = 0
             point_count = 0
-            batch_futures = []
 
             for attr in all_attrs:
                 exceeds_size = builder and size + attr.size > self._max_payload_size
                 exceeds_points = 0 < self._max_datapoints <= point_count
 
                 if not builder or exceeds_size or exceeds_points:
-                    if builder:
+                    if builder and builder._attributes:  # noqa
+                        shared_future = asyncio.Future()
+                        shared_future.uuid = uuid4()
+                        builder.add_delivery_futures(shared_future)
+
                         built = builder.build()
                         result.append(built)
-                        batch_futures.extend(built.get_delivery_futures())
+                        for parent in parent_futures:
+                            future_map.register(parent, [shared_future])
+
                         logger.trace("Flushed attribute batch (count=%d, size=%d)", len(built.attributes), size)
-                    builder = DeviceUplinkMessageBuilder().set_device_name(device_name).set_device_profile(
-                        device_profile)
+                    builder = DeviceUplinkMessageBuilder() \
+                        .set_device_name(device_name) \
+                        .set_device_profile(device_profile)
                     size = 0
                     point_count = 0
 
@@ -164,21 +171,16 @@ class MessageSplitter:
                 point_count += 1
 
             if builder and builder._attributes:  # noqa
+                shared_future = asyncio.Future()
+                shared_future.uuid = uuid4()
+                builder.add_delivery_futures(shared_future)
+
                 built = builder.build()
                 result.append(built)
-                batch_futures.extend(built.get_delivery_futures())
+                for parent in parent_futures:
+                    future_map.register(parent, [shared_future])
+
                 logger.trace("Flushed final attribute batch (count=%d, size=%d)", len(built.attributes), size)
-
-            if delivery_futures:
-                original_future = delivery_futures[0]
-                logger.trace("Adding futures to original future: %s, futures ids: %r", id(original_future),
-                             [id(batch_future) for batch_future in batch_futures])
-
-                async def resolve_original():
-                    results = await asyncio.gather(*batch_futures, return_exceptions=False)
-                    original_future.set_result(all(results))
-
-                asyncio.create_task(resolve_original())
 
         logger.trace("Total attribute batches created: %d", len(result))
         return result

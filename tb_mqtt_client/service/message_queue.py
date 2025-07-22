@@ -14,9 +14,10 @@
 
 import asyncio
 from contextlib import suppress
-from typing import List, Optional, Union, Tuple, Dict, Callable
+from typing import List, Optional
 
-from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
@@ -51,8 +52,8 @@ class MessageQueue:
         self._telemetry_rate_limit = telemetry_rate_limit
         self._telemetry_dp_rate_limit = telemetry_dp_rate_limit
         self._backpressure = self._mqtt_manager.backpressure
-        # Queue expects tuples of (topic, payload, delivery_futures, datapoints_count, qos)
-        self._queue: asyncio.Queue[Tuple[str, Union[bytes, DeviceUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = asyncio.Queue(maxsize=max_queue_size)
+        # Queue expects tuples of (mqtt_message, delivery_futures)
+        self._queue: asyncio.Queue[MqttPublishMessage] = asyncio.Queue(maxsize=max_queue_size)
         self._pending_queue_tasks: set[asyncio.Task] = set()
         self._active = asyncio.Event()
         self._wakeup_event = asyncio.Event()
@@ -62,136 +63,125 @@ class MessageQueue:
         self._gateway_adapter = gateway_message_adapter
         self._loop_task = asyncio.create_task(self._dequeue_loop())
         self._rate_limit_refill_task = asyncio.create_task(self._rate_limit_refill_loop())
+        asyncio.create_task(self.print_queue_statistics())
         logger.debug("MessageQueue initialized: max_queue_size=%s, batch_time=%.3f, batch_count=%d",
                      max_queue_size, self._batch_max_time, batch_collect_max_count)
 
-    async def publish(self, topic: str, payload: Union[bytes, DeviceUplinkMessage, GatewayUplinkMessage], datapoints_count: int, qos: int) -> Optional[List[asyncio.Future[PublishResult]]]:
-        delivery_futures = payload.get_delivery_futures() if isinstance(payload, DeviceUplinkMessage) or isinstance(payload, GatewayUplinkMessage) else [asyncio.Future()]
+    async def publish(self, message: MqttPublishMessage) -> Optional[List[asyncio.Future[PublishResult]]]:
         try:
-            logger.trace("publish() received delivery future id: %r for topic=%s",
-                         id(delivery_futures[0]) if delivery_futures else -1, topic)
-            self._queue.put_nowait((topic, payload, delivery_futures, datapoints_count, qos))
-            logger.trace("Enqueued message: topic=%s, datapoints=%d, type=%s",
-                         topic, datapoints_count, type(payload).__name__)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.trace(f"Pushing message to queue with delivery futures: {[f.uuid for f in message.delivery_futures]}")
+            self._queue.put_nowait(message)
         except asyncio.QueueFull:
-            logger.error("Message queue full. Dropping message for topic %s", topic)
-            for future in delivery_futures:
+            logger.error("Message queue full. Dropping message for topic %s", message.topic)
+            for future in message.delivery_futures:
                 if future:
-                    future.set_result(PublishResult(topic, qos, -1, len(payload), -1))
-        return delivery_futures or None
+                    future.set_result(PublishResult(message.topic, message.qos, -1, len(message.payload), -1))
 
     async def _dequeue_loop(self):
         logger.debug("MessageQueue dequeue loop started.")
         while self._active.is_set() and not self._main_stop_event.is_set():
             try:
-                # topic, payload, delivery_futures_or_none, count = await asyncio.wait_for(asyncio.get_event_loop().create_task(self._queue.get()), timeout=self._BATCH_TIMEOUT)
-                topic, payload, delivery_futures_or_none, datapoints, qos = await self._wait_for_message()
-                logger.trace("MessageQueue dequeue: topic=%s, payload=%r, count=%d",
-                             topic, payload, datapoints)
-                logger.trace("Dequeued message: delivery_future id: %r topic=%s, type=%s, datapoints=%d",
-                                 id(delivery_futures_or_none[0]) if delivery_futures_or_none else -1,
-                             topic, type(payload).__name__, datapoints)
-                await asyncio.sleep(0)  # cooperative yield
-            except asyncio.TimeoutError:
-                logger.trace("Dequeue wait timed out. Yielding...")
-                await asyncio.sleep(0.001)
-                continue
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning("Unexpected error in dequeue loop: %s", e)
-                continue
-
-            if isinstance(payload, bytes):
-                logger.trace("Dequeued immediate publish: topic=%s (raw bytes)", topic)
-                await self._try_publish(topic, payload, datapoints, delivery_futures_or_none)
-                continue
-
-            logger.trace("Dequeued message for batching: topic=%s, device=%s",
-                         topic, getattr(payload, 'device_name', 'N/A'))
-
-            batch: List[Tuple[str, Union[bytes, DeviceUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]] = [(topic, payload, delivery_futures_or_none, datapoints, qos)]
-            start = asyncio.get_event_loop().time()
-            batch_size = payload.size
-            batch_type = type(payload).__name__
-
-            while not self._queue.empty():
-                elapsed = asyncio.get_event_loop().time() - start
-                if elapsed >= self._batch_max_time:
-                    logger.trace("Batch time threshold reached: %.3fs", elapsed)
-                    break
-                if len(batch) >= self._batch_max_count:
-                    logger.trace("Batch count threshold reached: %d messages", len(batch))
-                    break
-
                 try:
-                    next_topic, next_payload, delivery_futures_or_none, datapoints, qos = self._queue.get_nowait()
-                    if isinstance(next_payload, DeviceUplinkMessage) or isinstance(next_payload, GatewayUplinkMessage):
-                        if batch_type is not None and batch_type != type(next_payload).__name__:
-                            logger.trace("Batch type mismatch: current=%s, next=%s, finalizing current",
-                                         batch_type, type(next_payload).__class__.__name__)
-                            self._queue.put_nowait((next_topic, next_payload, delivery_futures_or_none, datapoints, qos))
-                            break
-                        batch_type = type(next_payload).__name__
-                        msg_size = next_payload.size
-                        if batch_size + msg_size > self._adapter.splitter.max_payload_size:  # noqa
-                            logger.trace("Batch size threshold exceeded: current=%d, next=%d", batch_size, msg_size)
-                            self._queue.put_nowait((next_topic, next_payload, delivery_futures_or_none, datapoints, qos))
-                            break
-                        batch.append((next_topic, next_payload, delivery_futures_or_none, datapoints, qos))
-                        batch_size += msg_size
-                    else:
-                        logger.trace("Immediate publish encountered in queue while batching: topic=%s", next_topic)
-                        await self._try_publish(next_topic, next_payload, datapoints)
-                except asyncio.QueueEmpty:
+                    message = await self._wait_for_message()
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.trace(f"Dequed message with delivery futures: {[f.uuid for f in message.delivery_futures]}")
+                    await asyncio.sleep(0)  # cooperative yield
+                except asyncio.TimeoutError:
+                    logger.trace("Dequeue wait timed out. Yielding...")
+                    await asyncio.sleep(0.001)
+                    continue
+                except asyncio.CancelledError:
                     break
+                except Exception as e:
+                    logger.warning("Unexpected error in dequeue loop: %s", e)
+                    continue
 
-            if batch_type is None:
-                batch_type = type(payload).__name__
+                if isinstance(message, MqttPublishMessage) and isinstance(message.payload, bytes):
+                    logger.trace("Dequeued immediate publish: topic=%s (raw bytes)", message.topic)
+                    await self._try_publish(message)
+                    continue
 
-            if batch:
-                logger.trace("Batching completed: %d messages, total size=%d", len(batch), batch_size)
-                messages = [device_uplink_message for _, device_uplink_message, _, _, _ in batch]
+                logger.trace("Dequeued message for batching: topic=%s, device=%s",
+                             message.topic, getattr(message.payload, 'device_name', 'N/A'))
 
-                if batch_type == 'GatewayUplinkMessage' and self._gateway_adapter:
-                    logger.trace("Building gateway uplink payloads for %d messages", len(messages))
-                    topic_payloads = self._gateway_adapter.build_uplink_payloads(messages)
-                else:
-                    topic_payloads = self._adapter.build_uplink_payloads(messages)
+                batch: List[MqttPublishMessage] = [message]
+                start = asyncio.get_event_loop().time()
+                batch_size = message.payload.size
+                batch_type = type(message.payload).__name__
 
-                for topic, payload, datapoints, delivery_futures in topic_payloads:
-                    logger.trace("Dispatching batched message: topic=%s, size=%d, datapoints=%d, delivery_futures=%r",
-                                 topic, len(payload), datapoints, [id(f) for f in delivery_futures])
-                    await self._try_publish(topic=topic,
-                                            payload=payload,
-                                            datapoints=datapoints,
-                                            delivery_futures_or_none=delivery_futures,
-                                            qos=qos)
+                while not self._queue.empty():
+                    elapsed = asyncio.get_event_loop().time() - start
+                    if elapsed >= self._batch_max_time:
+                        logger.trace("Batch time threshold reached: %.3fs", elapsed)
+                        break
+                    if len(batch) >= self._batch_max_count:
+                        logger.trace("Batch count threshold reached: %d messages", len(batch))
+                        break
 
-    async def _try_publish(self,
-                           topic: str,
-                           payload: bytes,
-                           datapoints: int,
-                           delivery_futures_or_none: List[Optional[asyncio.Future[PublishResult]]] = None,
-                           qos: int = 1):
-        if delivery_futures_or_none is None:
-            logger.trace("No delivery futures associated! This publish result will not be tracked.")
+                    try:
+                        next_message = self._queue.get_nowait()
+                        if isinstance(next_message.payload, DeviceUplinkMessage) or isinstance(next_message.payload, GatewayUplinkMessage):
+                            if batch_type is not None and batch_type != type(next_message.payload).__name__:
+                                logger.trace("Batch type mismatch: current=%s, next=%s, finalizing current",
+                                             batch_type, type(next_message.payload).__class__.__name__)
+                                self._queue.put_nowait(next_message)
+                                break
+                            batch_type = type(next_message.payload).__name__
+                            msg_size = next_message.payload.size
+                            if batch_size + msg_size > self._adapter.splitter.max_payload_size:  # noqa
+                                logger.trace("Batch size threshold exceeded: current=%d, next=%d", batch_size, msg_size)
+                                self._queue.put_nowait(next_message)
+                                break
+                            batch.append(next_message)
+                            batch_size += msg_size
+                        else:
+                            logger.trace("Immediate publish encountered in queue while batching: topic=%s", next_message.topic)
+                            await self._try_publish(next_message)
+                    except asyncio.QueueEmpty:
+                        break
+
+                if batch_type is None:
+                    batch_type = type(message.payload).__name__
+
+                if batch:
+                    logger.trace("Batching completed: %d messages, total size=%d", len(batch), batch_size)
+
+                    if batch_type == 'GatewayUplinkMessage' and self._gateway_adapter:
+                        logger.trace("Building gateway uplink payloads for %d messages", len(batch))
+                        topic_payloads = self._gateway_adapter.build_uplink_messages(batch)
+                    else:
+                        topic_payloads = self._adapter.build_uplink_messages(batch)
+
+                    for built_message in topic_payloads:
+                        logger.trace("Dispatching batched message: topic=%s, size=%d, datapoints=%d, delivery_futures=%r",
+                                     built_message.topic,
+                                     len(built_message.payload),
+                                     built_message.datapoints,
+                                     [f.uuid for f in built_message.delivery_futures])
+                        await self._try_publish(built_message)
+
+            except Exception as e:
+                logger.error("Error in dequeue loop:", exc_info=e)
+                logger.debug("Dequeue loop error details:", exc_info=e)
+                if isinstance(e, asyncio.CancelledError):
+                    break
+                continue
+
+    async def _try_publish(self, message: MqttPublishMessage):
+        if not message.delivery_futures:
+            logger.error("No delivery futures associated! This publish result will not be tracked.")
             delivery_futures_or_none = []
-        is_message_with_telemetry_or_attributes = topic in (mqtt_topics.DEVICE_TELEMETRY_TOPIC,
-                                                            mqtt_topics.DEVICE_ATTRIBUTES_TOPIC)
+        is_message_with_telemetry_or_attributes = message.topic in (mqtt_topics.DEVICE_TELEMETRY_TOPIC,
+                                                                    mqtt_topics.DEVICE_ATTRIBUTES_TOPIC)
         # TODO: Add topics check for gateways
 
-        logger.trace("Attempting publish: topic=%s, datapoints=%d", topic, datapoints)
+        logger.trace("Attempting publish: topic=%s, datapoints=%d", message.topic, message.datapoints)
 
         # Check backpressure first - if active, don't even try to check rate limits
         if self._backpressure.should_pause():
-            logger.debug("Backpressure active, delaying publish of topic=%s for %.1f seconds", topic, 1.0)
-            self._schedule_delayed_retry(topic=topic,
-                                         payload=payload,
-                                         datapoints=datapoints,
-                                         qos=qos,
-                                         delay=1.0,
-                                         delivery_futures=delivery_futures_or_none)
+            logger.debug("Backpressure active, delaying publish of topic=%s for %.1f seconds", message.topic, 1.0)
+            self._schedule_delayed_retry(message)
             return
 
         # Check and consume rate limits atomically before publishing
@@ -204,28 +194,18 @@ class MessageQueue:
                 triggered_rate_limit = await self._telemetry_rate_limit.try_consume(1)
                 if triggered_rate_limit:
                     logger.debug("Telemetry message rate limit hit for topic %s: %r per %r seconds",
-                                 topic, triggered_rate_limit[0], triggered_rate_limit[1])
+                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
                     retry_delay = self._telemetry_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(topic=topic,
-                                                 payload=payload,
-                                                 datapoints=datapoints,
-                                                 qos=qos,
-                                                 delay=retry_delay,
-                                                 delivery_futures=delivery_futures_or_none)
+                    self._schedule_delayed_retry(message, delay=retry_delay)
                     return
 
             if self._telemetry_dp_rate_limit:
-                triggered_rate_limit = await self._telemetry_dp_rate_limit.try_consume(datapoints)
+                triggered_rate_limit = await self._telemetry_dp_rate_limit.try_consume(message.datapoints)
                 if triggered_rate_limit:
                     logger.debug("Telemetry datapoint rate limit hit for topic %s: %r per %r seconds",
-                                 topic, triggered_rate_limit[0], triggered_rate_limit[1])
+                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
                     retry_delay = self._telemetry_dp_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(topic=topic,
-                                                 payload=payload,
-                                                 datapoints=datapoints,
-                                                 qos=qos,
-                                                 delay=retry_delay,
-                                                 delivery_futures=delivery_futures_or_none)
+                    self._schedule_delayed_retry(message, delay=retry_delay)
                     return
         else:
             # For non-telemetry messages, we only need to check the message rate limit
@@ -233,71 +213,42 @@ class MessageQueue:
                 triggered_rate_limit = await self._message_rate_limit.try_consume(1)
                 if triggered_rate_limit:
                     logger.debug("Generic message rate limit hit for topic %s: %r per %r seconds",
-                                 topic, triggered_rate_limit[0], triggered_rate_limit[1])
+                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
                     retry_delay = self._message_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(topic=topic,
-                                                 payload=payload,
-                                                 datapoints=datapoints,
-                                                 qos=qos,
-                                                 delay=retry_delay,
-                                                 delivery_futures=delivery_futures_or_none)
+                    self._schedule_delayed_retry(message, delay=retry_delay)
                     return
         try:
-            logger.trace("Trying to publish topic=%s, payload size=%d, attached future id=%r",
-                             topic, len(payload), id(delivery_futures_or_none[0]) if delivery_futures_or_none else -1)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.trace("Trying to publish topic=%s, payload size=%d, attached future id=%r",
+                                 message.topic, len(message.payload), [f.uuid for f in message.delivery_futures])
 
-            mqtt_future = await self._mqtt_manager.publish(message_or_topic=topic, payload=payload, qos=qos)
+            await self._mqtt_manager.publish(message)
 
-            if delivery_futures_or_none is not None:
-                def resolve_attached(publish_future: asyncio.Future):
-                    try:
-                        publish_result = publish_future.result()
-                    except asyncio.CancelledError:
-                        logger.trace("Publish future was cancelled: %r, id: %r", publish_future, id(publish_future))
-                        publish_result = PublishResult(topic, qos, -1, len(payload), -1)
-                    except Exception as exc:
-                        logger.warning("Publish failed with exception: %s", exc)
-                        logger.debug("Resolving delivery futures with failure:", exc_info=exc)
-                        publish_result = PublishResult(topic, qos, -1, len(payload), -1)
-
-                    for i, f in enumerate(delivery_futures_or_none):
-                        if f is not None and not f.done():
-                            f.set_result(publish_result)
-                            logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r, %r",
-                                         i, id(f), publish_result, id(publish_future), publish_future)
-
-                logger.trace("Adding done callback to main publish future: %r, main publish future done state: %r", id(mqtt_future), mqtt_future.done())
-                if mqtt_future.done():
-                    logger.debug("Main publish future is already done, resolving immediately.")
-                    resolve_attached(mqtt_future)
-                else:
-                    mqtt_future.add_done_callback(resolve_attached)
         except Exception as e:
-            logger.warning("Failed to publish to topic %s: %s. Scheduling retry.", topic, e)
+            logger.warning("Failed to publish to topic %s: %s. Scheduling retry.", message.topic, e)
             logger.debug("Scheduling retry for topic=%s, payload size=%d, qos=%d",
-                         topic, len(payload), qos)
+                         message.topic, len(message.payload), message.qos)
             logger.debug("error details: %s", e, exc_info=True)
-            self._schedule_delayed_retry(topic, payload, datapoints, qos, delay=.1, delivery_futures=delivery_futures_or_none)
+            self._schedule_delayed_retry(message, delay=.1)
 
-    def _schedule_delayed_retry(self, topic: str, payload: bytes, datapoints: int, qos: int, delay: float,
-                                delivery_futures: Optional[List[Optional[asyncio.Future[PublishResult]]]] = None):
+    def _schedule_delayed_retry(self, message: MqttPublishMessage, delay: float = 0.1):
         if not self._active.is_set() or self._main_stop_event.is_set():
-            logger.debug("MessageQueue is not active or main stop event is set. Not scheduling retry for topic=%s", topic)
+            logger.debug("MessageQueue is not active or main stop event is set. Not scheduling retry for topic=%s", message.topic)
             return
-        logger.trace("Scheduling retry: topic=%s, delay=%.2f", topic, delay)
+        logger.trace("Scheduling retry: topic=%s, delay=%.2f", message.topic, delay)
 
         async def retry():
             try:
-                logger.debug("Retrying publish: topic=%s", topic)
+                logger.debug("Retrying publish: topic=%s", message.topic)
                 await asyncio.sleep(delay)
                 if not self._active.is_set() or self._main_stop_event.is_set():
-                    logger.debug("MessageQueue is not active or main stop event is set. Not re-enqueuing message for topic=%s", topic)
+                    logger.debug("MessageQueue is not active or main stop event is set. Not re-enqueuing message for topic=%s", message.topic)
                     return
-                self._queue.put_nowait((topic, payload, delivery_futures, datapoints, qos))
+                self._queue.put_nowait(message)
                 self._wakeup_event.set()
-                logger.debug("Re-enqueued message after delay: topic=%s", topic)
+                logger.debug("Re-enqueued message after delay: topic=%s", message.topic)
             except asyncio.QueueFull:
-                logger.warning("Retry queue full. Dropping retried message: topic=%s", topic)
+                logger.warning("Retry queue full. Dropping retried message: topic=%s", message.topic)
             except Exception as e:
                 logger.debug("Unexpected error during delayed retry: %s", e)
 
@@ -305,7 +256,7 @@ class MessageQueue:
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)
 
-    async def _wait_for_message(self) -> Tuple[str, Union[bytes, DeviceUplinkMessage, GatewayUplinkMessage], List[asyncio.Future[PublishResult]], int, int]:
+    async def _wait_for_message(self) -> MqttPublishMessage:
         while self._active.is_set():
             try:
                 if not self._queue.empty():
@@ -320,9 +271,7 @@ class MessageQueue:
 
                 wake_task = asyncio.create_task(self._wakeup_event.wait())
 
-                done, pending = await asyncio.wait(
-                    [queue_task, wake_task], return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait([queue_task, wake_task], return_when=asyncio.FIRST_COMPLETED)
 
                 for task in pending:
                     task.cancel()
@@ -368,7 +317,8 @@ class MessageQueue:
                         self._queue.qsize())
         self.clear()
 
-    async def _cancel_tasks(self, tasks: set[asyncio.Task]):
+    @staticmethod
+    async def _cancel_tasks(tasks: set[asyncio.Task]):
         for task in list(tasks):
             task.cancel()
         with suppress(asyncio.CancelledError):
@@ -414,3 +364,18 @@ class MessageQueue:
 
     def set_gateway_message_adapter(self, message_adapter: GatewayMessageAdapter):
         self._gateway_adapter = message_adapter
+
+
+    async def print_queue_statistics(self):
+        """
+        Prints the current statistics of the message queue.
+        """
+        while self._active.is_set() and not self._main_stop_event.is_set():
+            queue_size = self._queue.qsize()
+            pending_tasks = len(self._pending_queue_tasks)
+            retry_tasks = len(self._retry_tasks)
+            active = self._active.is_set()
+            logger.info("MessageQueue Statistics: "
+                        "Queue Size: %d, Pending Tasks: %d, Retry Tasks: %d, Active: %s",
+                        queue_size, pending_tasks, retry_tasks, active)
+            await asyncio.sleep(60)

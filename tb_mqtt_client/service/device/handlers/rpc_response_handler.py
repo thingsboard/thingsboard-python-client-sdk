@@ -14,6 +14,7 @@
 
 import asyncio
 from typing import Dict, Union, Awaitable, Callable, Optional, Tuple
+from uuid import uuid4
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
@@ -53,6 +54,7 @@ class RPCResponseHandler:
         if request_id in self._pending_rpc_requests:
             raise RuntimeError(f"Request ID {request_id} is already registered.")
         future = asyncio.get_event_loop().create_future()
+        future.uuid = uuid4()
         self._pending_rpc_requests[request_id] = future, callback
         return future
 

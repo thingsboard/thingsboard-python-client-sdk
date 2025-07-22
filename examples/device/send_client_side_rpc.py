@@ -46,7 +46,7 @@ async def main():
     rpc_request = await RPCRequest.build("getTime", {})
     try:
         response = await client.send_rpc_request(rpc_request)
-        logger.info("Received response:", response)
+        logger.info("Received response: %r", response)
     except TimeoutError:
         logger.info("RPC request timed out")
 
@@ -58,4 +58,7 @@ async def main():
     await client.stop()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")

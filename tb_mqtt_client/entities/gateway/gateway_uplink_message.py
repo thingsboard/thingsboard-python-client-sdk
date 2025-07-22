@@ -16,6 +16,7 @@ import asyncio
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import List, Optional, Union, OrderedDict, Mapping
+from uuid import uuid4
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
@@ -148,7 +149,9 @@ class GatewayUplinkMessageBuilder:
 
     def build(self) -> GatewayUplinkMessage:
         if not self._delivery_futures:
-            self._delivery_futures = [asyncio.get_event_loop().create_future()]
+            delivery_future = asyncio.get_event_loop().create_future()
+            delivery_future.uuid = uuid4()
+            self._delivery_futures = [delivery_future]
         return GatewayUplinkMessage.build(  # noqa
             device_name=self._device_name,
             device_profile=self._device_profile,

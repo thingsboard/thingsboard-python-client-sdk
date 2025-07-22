@@ -16,8 +16,9 @@ import asyncio
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
+from uuid import uuid4
 
-from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
@@ -140,13 +141,17 @@ class DeviceUplinkMessageBuilder:
         if not isinstance(futures, list):
             futures = [futures]
         if futures:
-            logger.debug("Created delivery futures: %r", [id(future) for future in futures])
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.debug("Created delivery futures: %r", [future.uuid for future in futures])
             self._delivery_futures.extend(futures)
         return self
 
     def build(self) -> DeviceUplinkMessage:
         if not self._delivery_futures:
-            self._delivery_futures = [asyncio.get_event_loop().create_future()]
+            delivery_future = asyncio.get_event_loop().create_future()
+            delivery_future.uuid = uuid4()
+            logger.trace("No delivery futures provided, creating a default future: %r", delivery_future.uuid)
+            self._delivery_futures = [delivery_future]
         return DeviceUplinkMessage.build(
             device_name=self._device_name,
             device_profile=self._device_profile,

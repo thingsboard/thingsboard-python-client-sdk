@@ -31,7 +31,7 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
-    logger.info("Received RPC:", request)
+    logger.info("Received RPC: %r", request)
 
     if request.method == "ping":
         return RPCResponse.build(request_id=request.request_id, result={"pong": True})
@@ -51,7 +51,7 @@ async def main():
     try:
         while True:
             await asyncio.sleep(1)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Shutting down...")
 
     await client.stop()

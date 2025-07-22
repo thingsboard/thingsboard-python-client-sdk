@@ -19,6 +19,8 @@ from tb_mqtt_client.constants.json_typing import JSONCompatibleType, validate_js
 
 
 class DataEntry:
+    __slots__ = ("__key", "__value", "__ts", "__size")
+
     def __init__(self, key: str, value: JSONCompatibleType, ts: Optional[int] = None):
         validate_json_compatibility(value)
         self.__key = key
@@ -30,10 +32,9 @@ class DataEntry:
         return f"DataEntry(key={self.key}, value={self.value}, ts={self.ts})"
 
     def __estimate_size(self) -> int:
-        if self.ts is not None:
-            return len(dumps({"ts": self.ts, "values": {self.key: self.value}}))
-        else:
-            return len(dumps({self.key: self.value}))
+        if self.__ts is not None:
+            return len(dumps({"ts": self.__ts, "values": {self.__key: self.__value}}))
+        return len(dumps({self.__key: self.__value}))
 
     @property
     def size(self) -> int:

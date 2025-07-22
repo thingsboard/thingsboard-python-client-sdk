@@ -15,13 +15,15 @@
 import asyncio
 from abc import ABC, abstractmethod
 from itertools import chain
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import UTC, datetime
-from typing import Any, Dict, List, Tuple, Optional, Union
+from typing import Any, Dict, List, Tuple, Optional, Union, DefaultDict, Set
 
 from orjson import dumps, loads
 
-from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.async_utils import await_and_resolve_original, future_map
+from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
@@ -32,7 +34,6 @@ from tb_mqtt_client.entities.data.provisioning_response import ProvisioningRespo
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 logger = get_logger(__name__)
@@ -45,10 +46,9 @@ class MessageAdapter(ABC):
                      max_payload_size, max_datapoints)
 
     @abstractmethod
-    def build_uplink_payloads(
+    def build_uplink_messages(
         self,
-        messages: List[DeviceUplinkMessage]
-    ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
+        messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string, payload bytes, the number of datapoints,
@@ -57,7 +57,7 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_attribute_request(self, request: AttributeRequest) -> Tuple[str, bytes]:
+    def build_attribute_request(self, request: AttributeRequest) -> MqttPublishMessage:
         """
         Build the payload for an attribute request response.
         This method should return a tuple of topic and payload bytes.
@@ -65,14 +65,14 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_claim_request(self, claim_request) -> Tuple[str, bytes]:
+    def build_claim_request(self, claim_request) -> MqttPublishMessage:
         """
         Build the payload for a claim request.
         This method should return a tuple of topic and payload bytes.
         """
 
     @abstractmethod
-    def build_rpc_request(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+    def build_rpc_request(self, rpc_request: RPCRequest) -> MqttPublishMessage:
         """
         Build the payload for an RPC request.
         This method should return a tuple of topic and payload bytes.
@@ -80,7 +80,7 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response(self, rpc_response: RPCResponse) -> MqttPublishMessage:
         """
         Build the payload for an RPC response.
         This method should return a tuple of topic and payload bytes.
@@ -239,54 +239,84 @@ class JsonMessageAdapter(MessageAdapter):
     def splitter(self) -> MessageSplitter:
         return self._splitter
 
-    def build_uplink_payloads(self, messages: List[DeviceUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
-        """
-        Build a list of topic-payload pairs from the given messages.
-        Each pair consists of a topic string, payload bytes, the number of datapoints,
-        and a list of futures for delivery confirmation.
-        """
-        try:
-            if not messages:
-                logger.trace("No messages to process in build_topic_payloads.")
-                return []
+    def build_uplink_messages(self, messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
+        if not messages:
+            logger.trace("No messages to process in build_uplink_messages.")
+            return []
 
-            result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]] = []
-            device_groups: Dict[str, List[DeviceUplinkMessage]] = defaultdict(list)
+        result: List[MqttPublishMessage] = []
+        device_groups = defaultdict(list)
+        qos = messages[0].qos
 
-            for msg in messages:
-                device_name = msg.device_name
-                device_groups[device_name].append(msg)
-                logger.trace("Queued message for device='%s'", device_name)
+        for mqtt_msg in messages:
+            payload = mqtt_msg.payload
+            if isinstance(payload, DeviceUplinkMessage):
+                device_groups[payload.device_name].append(mqtt_msg)
+                logger.trace("Queued DeviceUplinkMessage for device='%s'", payload.device_name)
+            else:
+                logger.warning("Unsupported payload type '%s', skipping", type(payload).__name__)
 
-            logger.trace("Processing %d device group(s).", len(device_groups))
+        for device_name, group_msgs in device_groups.items():
+            telemetry_msgs = [m for m in group_msgs if m.payload.has_timeseries()]
+            attr_msgs = [m for m in group_msgs if m.payload.has_attributes()]
 
-            for device, device_msgs in device_groups.items():
-                telemetry_msgs = [m for m in device_msgs if m.has_timeseries()]
-                attr_msgs = [m for m in device_msgs if m.has_attributes()]
-                logger.trace("Device '%s' - telemetry: %d, attributes: %d",
-                             device, len(telemetry_msgs), len(attr_msgs))
+            built_child_messages: List[MqttPublishMessage] = []
 
-                for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
-                    payload = JsonMessageAdapter.build_payload(ts_batch, True)
+            if telemetry_msgs:
+                ts_messages = [m.payload for m in telemetry_msgs]
+                for ts_batch in self._splitter.split_timeseries(ts_messages):
+                    payload_bytes = JsonMessageAdapter.build_payload(ts_batch, True)
                     count = ts_batch.timeseries_datapoint_count()
-                    result.append((DEVICE_TELEMETRY_TOPIC, payload, count, ts_batch.get_delivery_futures()))
-                    logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
+                    child_futures = ts_batch.get_delivery_futures() or []
 
-                for attr_batch in self._splitter.split_attributes(attr_msgs):
-                    payload = JsonMessageAdapter.build_payload(attr_batch, False)
+                    mqtt_msg = MqttPublishMessage(
+                        topic=DEVICE_TELEMETRY_TOPIC,
+                        payload=payload_bytes,
+                        qos=qos,
+                        datapoints=count,
+                        delivery_futures=child_futures
+                    )
+                    result.append(mqtt_msg)
+                    built_child_messages.append(mqtt_msg)
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.trace(
+                            "Built telemetry payload for '%s' with %d datapoints, futures=%r",
+                            device_name, count, [f.uuid for f in child_futures]
+                        )
+
+            if attr_msgs:
+                attr_messages = [m.payload for m in attr_msgs]
+                for attr_batch in self._splitter.split_attributes(attr_messages):
+                    payload_bytes = JsonMessageAdapter.build_payload(attr_batch, False)
                     count = len(attr_batch.attributes)
-                    result.append((DEVICE_ATTRIBUTES_TOPIC, payload, count, attr_batch.get_delivery_futures()))
-                    logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
+                    child_futures = attr_batch.get_delivery_futures() or []
 
-            logger.trace("Generated %d topic-payload entries.", len(result))
+                    mqtt_msg = MqttPublishMessage(
+                        topic=DEVICE_ATTRIBUTES_TOPIC,
+                        payload=payload_bytes,
+                        qos=qos,
+                        datapoints=count,
+                        delivery_futures=child_futures
+                    )
+                    result.append(mqtt_msg)
+                    built_child_messages.append(mqtt_msg)
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.trace(
+                            "Built attribute payload for '%s' with %d attributes, futures=%r",
+                            device_name, count, [f.uuid for f in child_futures]
+                        )
 
-            return result
-        except Exception as e:
-            logger.error("Error building topic-payloads: %s", str(e))
-            logger.debug("Exception details: %s", e, exc_info=True)
-            raise
+            # Register child futures to all original parent futures
+            parent_futures = [f for m in group_msgs for f in (m.delivery_futures or [])]
+            for parent in parent_futures:
+                for child_msg in built_child_messages:
+                    for child in child_msg.delivery_futures or []:
+                        future_map.register(parent, [child])
 
-    def build_attribute_request(self, request: AttributeRequest) -> Tuple[str, bytes]:
+        logger.trace("Generated %d topic-payload entries.", len(result))
+        return result
+
+    def build_attribute_request(self, request: AttributeRequest) -> MqttPublishMessage:
         """
         Build the payload for an attribute request response.
         :param request: The AttributeRequest to build the payload for.
@@ -298,9 +328,9 @@ class JsonMessageAdapter(MessageAdapter):
         topic = mqtt_topics.build_device_attributes_request_topic(request.request_id)
         payload = dumps(request.to_payload_format())
         logger.trace("Built attribute request payload for request: %r", request)
-        return topic, payload
+        return MqttPublishMessage(topic=topic, payload=payload, qos=1, datapoints=1)
 
-    def build_claim_request(self, claim_request) -> Tuple[str, bytes]:
+    def build_claim_request(self, claim_request) -> MqttPublishMessage:
         """
         Build the payload for a claim request.
         :param claim_request: The ClaimRequest to build the payload for.
@@ -312,9 +342,9 @@ class JsonMessageAdapter(MessageAdapter):
         topic = mqtt_topics.DEVICE_CLAIM_TOPIC
         payload = dumps(claim_request.to_payload_format())
         logger.trace("Built claim request payload: %r", claim_request)
-        return topic, payload
+        return MqttPublishMessage(topic=topic, payload=payload, qos=1, datapoints=1)
 
-    def build_rpc_request(self, rpc_request: RPCRequest) -> Tuple[str, bytes]:
+    def build_rpc_request(self, rpc_request: RPCRequest) -> MqttPublishMessage:
         """
         Build the payload for an RPC request.
         :param rpc_request: The RPC request to build the payload for.
@@ -327,9 +357,10 @@ class JsonMessageAdapter(MessageAdapter):
         topic = mqtt_topics.DEVICE_RPC_REQUEST_TOPIC + str(rpc_request.request_id)
         logger.trace("Built RPC request payload for request ID=%d with payload: %r",
                      rpc_request.request_id, payload)
-        return topic, payload
+        message_to_send = MqttPublishMessage(topic=topic, payload=payload, qos=1, datapoints=1)
+        return message_to_send
 
-    def build_rpc_response(self, rpc_response: RPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response(self, rpc_response: RPCResponse) -> MqttPublishMessage:
         """
         Build the payload for an RPC response.
         :param rpc_response: The RPC response to build the payload for.
@@ -341,7 +372,7 @@ class JsonMessageAdapter(MessageAdapter):
         payload = dumps(rpc_response.to_payload_format())
         topic = mqtt_topics.DEVICE_RPC_RESPONSE_TOPIC + str(rpc_response.request_id)
         logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
-        return topic, payload
+        return MqttPublishMessage(topic=topic, payload=payload, qos=1, datapoints=1)
 
     def build_provision_request(self, provision_request: 'ProvisioningRequest') -> Tuple[str, bytes]:
         """
@@ -409,17 +440,17 @@ class JsonMessageAdapter(MessageAdapter):
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def pack_timeseries(msg: 'DeviceUplinkMessage') -> List[Dict[str, Any]]:
+    def pack_timeseries(msg: 'DeviceUplinkMessage') -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         now_ts = int(datetime.now(UTC).timestamp() * 1000)
-        if all(entry.ts is None for entry in chain.from_iterable(msg.timeseries.values())):
-            packed = {
-                "ts": now_ts,
-                "values": {entry.key: entry.value for entry in chain.from_iterable(msg.timeseries.values())}
-            }
-        else:
-            packed = [
-                {"ts": entry.ts or now_ts, "values": {entry.key: entry.value}}
-                for entry in chain.from_iterable(msg.timeseries.values())
-            ]
 
-        return packed
+        entries = list(chain.from_iterable(msg.timeseries.values()))
+
+        if all(entry.ts is None for entry in entries):
+            return {entry.key: entry.value for entry in entries}
+
+        grouped: Dict[int, Dict[str, Any]] = defaultdict(dict)
+        for entry in entries:
+            ts = entry.ts or now_ts
+            grouped[ts][entry.key] = entry.value
+
+        return [{"ts": ts, "values": values} for ts, values in grouped.items()]

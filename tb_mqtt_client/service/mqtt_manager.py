@@ -19,13 +19,14 @@ from asyncio import sleep
 from contextlib import suppress
 from time import monotonic
 from typing import Optional, Callable, Dict, Union, Tuple, Coroutine, Any
+from uuid import uuid4
 
-from gmqtt import Client as GMQTTClient, Message, Subscription
+from gmqtt import Client as GMQTTClient, Subscription
 
-from tb_mqtt_client.common.async_utils import await_or_stop
-from tb_mqtt_client.common.gmqtt_patch import patch_gmqtt_puback, patch_gmqtt_protocol_connection_lost, \
-    patch_mqtt_handler_disconnect, patch_handle_connack, PatchUtils
-from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.async_utils import await_or_stop, future_map
+from tb_mqtt_client.common.gmqtt_patch import PatchUtils
+from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer, AttributeRequestIdProducer
@@ -61,12 +62,14 @@ class MQTTManager:
     ):
         self._main_stop_event = main_stop_event
         self._message_dispatcher = message_adapter
-        patch_gmqtt_protocol_connection_lost()
-        patch_mqtt_handler_disconnect()
+        self._patch_utils: PatchUtils = PatchUtils(None, self._main_stop_event, 1)
+        self._patch_utils.patch_gmqtt_protocol_connection_lost()
+        self._patch_utils.patch_mqtt_handler_disconnect()
 
         self._client = GMQTTClient(client_id)
-        patch_gmqtt_puback(self._client, self._handle_puback_reason_code)
-        patch_handle_connack(self._client, self._on_connect_internal)
+        self._patch_utils.client = self._client
+        self._patch_utils.patch_handle_connack(self._on_connect_internal)
+        self._patch_utils.apply(self._handle_puback_reason_code)
         self._client.on_connect = self._on_connect_internal
         self._client.on_disconnect = self._on_disconnect_internal
         self._client.on_message = self._on_message_internal
@@ -82,7 +85,7 @@ class MQTTManager:
         self._connect_params = None  # Will be set in connect method
         self._handlers: Dict[str, Callable[[str, bytes], Coroutine[Any, Any, None]]] = {}
 
-        self._pending_publishes: Dict[int, Tuple[asyncio.Future[PublishResult], str, int, int, float]] = {}
+        self._pending_publishes: Dict[int, Tuple[asyncio.Future[PublishResult], MqttPublishMessage, float]] = {}
         self._publish_monitor_task = asyncio.create_task(self._monitor_ack_timeouts())
 
         self._pending_subscriptions: Dict[int, asyncio.Future] = {}
@@ -154,11 +157,10 @@ class MQTTManager:
         self.__is_waiting_for_rate_limits_publish = True
         self._rate_limits_ready_event.clear()
 
-    async def publish(self, message_or_topic: Union[str, Message],
-                      payload: Optional[bytes] = None,
+    async def publish(self,
+                      message: MqttPublishMessage,
                       qos: int = 1,
-                      retain: bool = False,
-                      force=False) -> asyncio.Future:
+                      force=False):
 
         if not force:
             if not self.__rate_limits_retrieved and not self.__is_waiting_for_rate_limits_publish:
@@ -167,31 +169,68 @@ class MQTTManager:
                 if not self._rate_limits_ready_event.is_set():
                     await await_or_stop(self._rate_limits_ready_event.wait(), self._main_stop_event, timeout=10)
             except asyncio.TimeoutError:
+                if not self.__is_waiting_for_rate_limits_publish:
+                    logger.warning("Timeout waiting for rate limits, requesting them now.")
+                    await self.__request_rate_limits()
                 raise RuntimeError("Timeout waiting for rate limits.")
 
         if not force and self._backpressure.should_pause():
             logger.trace("Backpressure active. Publishing suppressed.")
             raise RuntimeError("Publishing temporarily paused due to backpressure.")
 
-        if isinstance(message_or_topic, Message):
-            message = message_or_topic
-        else:
-            message = Message(message_or_topic, payload, qos=qos, retain=retain)
+
+        mqtt_future = asyncio.get_event_loop().create_future()
+        mqtt_future.uuid = uuid4()
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.trace("Publishing message with topic: %s, qos: %d, payload size: %d, mqtt_future id: %r, delivery futures: %r",
+                        message.topic, qos, len(message.payload), mqtt_future.uuid, [f.uuid for f in message.delivery_futures])
+        if message.delivery_futures is not None:
+            def resolve_attached(publish_future: asyncio.Future):
+                try:
+                    try:
+                        publish_result = publish_future.result()
+                    except asyncio.CancelledError:
+                        logger.info("Publish future was cancelled: %r, id: %r", publish_future, publish_future.uuid)
+                        publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
+                    except Exception as exc:
+                        logger.warning("Publish failed with exception: %s", exc)
+                        logger.debug("Resolving delivery futures with failure:", exc_info=exc)
+                        publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
+
+                    for i, f in enumerate(message.delivery_futures or []):
+                        if f is not None and not f.done():
+                            f.set_result(publish_result)
+                            future_map.child_resolved(f)
+                            logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
+                                        i, f.uuid, publish_result, publish_future.uuid)
+                except Exception as e:
+                    logger.error("Error resolving delivery futures: %s", str(e))
+                    for i, f in enumerate(message.delivery_futures or []):
+                        if f is not None and not f.done():
+                            f.set_exception(e)
+                            logger.debug("Set exception for delivery future #%d id=%r", i, f.uuid)
+
+            logger.trace("Adding done callback to main publish future: %r, main publish future done state: %r", mqtt_future.uuid, mqtt_future.done())
+            if mqtt_future.done():
+                logger.debug("Main publish future is already done, resolving immediately.")
+                resolve_attached(mqtt_future)
+            else:
+                mqtt_future.add_done_callback(resolve_attached)
 
         mid, package = self._client._connection.publish(message)  # noqa
 
-        future = asyncio.get_event_loop().create_future()
-        if qos > 0:
-            logger.trace("Publishing mid=%s, storing publish main future with id: %r", mid, id(future))
-            self._pending_publishes[mid] = (future, message.topic, message.qos, message.payload_size, monotonic())
-            self._client._persistent_storage.push_message_nowait(mid, package)  # noqa
-        else:
-            future.set_result(True)
+        message.mark_as_sent(mid)
 
-        return future
+        if qos > 0:
+            logger.trace("Publishing mid=%s, storing publish main future with id: %r", mid, mqtt_future.uuid)
+            self._pending_publishes[mid] = (mqtt_future, message, monotonic())
+            self._client._persistent_storage.push_message_nowait(mid, message)  # noqa
+        else:
+            mqtt_future.set_result(True)
 
     async def subscribe(self, topic: Union[str, Subscription], qos: int = 1) -> asyncio.Future:
         sub_future = asyncio.get_event_loop().create_future()
+        sub_future.uuid = uuid4()
         subscription = Subscription(topic, qos=qos) if isinstance(topic, str) else topic
 
         if self.__rate_limiter:
@@ -202,6 +241,7 @@ class MQTTManager:
 
     async def unsubscribe(self, topic: str) -> asyncio.Future:
         unsubscribe_future = asyncio.get_event_loop().create_future()
+        unsubscribe_future.uuid = uuid4()
         if self.__rate_limiter:
             await self.__rate_limiter[MESSAGES_RATE_LIMIT].consume()
         mid = self._client._connection.unsubscribe(topic)  # noqa
@@ -265,12 +305,12 @@ class MQTTManager:
         if exc:
             logger.warning("Disconnect exception: %s", exc)
 
-        for mid, (future, topic, qos, payload_size, publishing_time) in list(self._pending_publishes.items()):
+        for mid, (future, mqtt_message, publishing_time) in list(self._pending_publishes.items()):
             if not future.done():
                 publish_result = PublishResult(
-                    topic=topic,
-                    qos=qos,
-                    payload_size=payload_size,
+                    topic=mqtt_message.topic,
+                    qos=mqtt_message.qos,
+                    payload_size=mqtt_message.payload_size,
                     message_id=-1,
                     reason_code=reason_code or 0
                 )
@@ -280,8 +320,6 @@ class MQTTManager:
 
         RPCRequestIdProducer.reset()
         AttributeRequestIdProducer.reset()
-        self._rpc_response_handler.clear()
-        self._handlers.clear()
         self.__rate_limits_retrieved = False
         self.__is_waiting_for_rate_limits_publish = True
         self._rate_limits_ready_event.clear()
@@ -360,20 +398,22 @@ class MQTTManager:
         if pending_future_data is None:
             logger.error("Missing future for mid=%s", mid)
             return
-        future, topic, qos, payload_size, publishing_time = pending_future_data
+        future, mqtt_message, publishing_time = pending_future_data
         publish_result = PublishResult(
-            topic=topic,
-            qos=qos,
-            payload_size=payload_size,
+            topic=mqtt_message.topic,
+            qos=mqtt_message.qos,
+            payload_size=mqtt_message.payload_size,
             message_id=mid,
-            reason_code=reason_code
+            reason_code=reason_code,
+            datapoints_count=mqtt_message.datapoints
         )
-        logger.trace("Received result for publish future (id: %r): %r", id(future), publish_result)
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.trace("Received result for publish future (id: %r): %r", future.uuid, publish_result)
         if not future.done():
             future.set_result(publish_result)
         else:
             logger.warning("Future (id: %r) for mid=%s was already done, skipping setting result",
-                           id(future), mid)
+                           future.uuid, mid)
 
         if reason_code == QUOTA_EXCEEDED:
             logger.warning("PUBACK received with QUOTA_EXCEEDED for mid=%s", mid)
@@ -427,11 +467,11 @@ class MQTTManager:
         logger.debug("Publishing rate limits request to server...")
 
         request = await RPCRequest.build("getSessionLimits")
-        topic, payload = self._message_dispatcher.build_rpc_request(request)
+        mqtt_message: MqttPublishMessage = self._message_dispatcher.build_rpc_request(request)
         response_future = self._rpc_response_handler.register_request(request.request_id, self.__rate_limits_handler)
 
         try:
-            await self.publish(topic, payload, qos=1, force=True)
+            await self.publish(mqtt_message, qos=1, force=True)
             await await_or_stop(response_future, self._main_stop_event, timeout=10)
             logger.info("Successfully processed rate limits.")
             self.__rate_limits_retrieved = True
@@ -471,16 +511,37 @@ class MQTTManager:
 
     async def check_pending_publishes(self, time_to_check):
         expired = []
-        for mid, (future, topic, qos, payload_size, timestamp) in list(self._pending_publishes.items()):
+        for mid, (future, message, timestamp) in list(self._pending_publishes.items()):
             if self._main_stop_event.is_set():
                 with suppress(asyncio.CancelledError):
                     future.cancel()
                 continue
             if time_to_check - timestamp > self._PUBLISH_TIMEOUT:
                 if not future.done():
-                    logger.warning("Publish timeout: mid=%s, topic=%s", mid, topic)
-                    result = PublishResult(topic, qos, payload_size, mid, reason_code=408)
+                    logger.warning("Publish timeout: mid=%s, topic=%s", mid, message.topic)
+                    result = PublishResult(message.topic, message.qos, message.payload_size, mid, reason_code=408)
                     future.set_result(result)
                 expired.append(mid)
         for mid in expired:
             self._pending_publishes.pop(mid, None)
+
+    async def stop(self):
+        """
+        Cleanly stop the MQTT manager and background tasks.
+        """
+        if hasattr(self, '_patch_utils'):
+            await self._patch_utils.stop_retry_task()
+
+        if hasattr(self, '_publish_monitor_task'):
+            self._publish_monitor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._publish_monitor_task
+
+        if self._client.is_connected:
+            await self._client.disconnect()
+
+    async def failed_messages_reprocessing(self):
+        """
+        Reprocess failed messages that were not acknowledged by the server.
+        Using internal Gmqtt queue to get messages that were not acknowledged.
+        """

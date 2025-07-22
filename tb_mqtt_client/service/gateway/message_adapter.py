@@ -22,6 +22,7 @@ from typing import List, Optional, Tuple, Dict, Any, Union
 from orjson import loads, dumps
 
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TELEMETRY_TOPIC, GATEWAY_ATTRIBUTES_TOPIC, \
     GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, GATEWAY_RPC_TOPIC, \
@@ -47,10 +48,10 @@ class GatewayMessageAdapter(ABC):
     """
 
     @abstractmethod
-    def build_uplink_payloads(
+    def build_uplink_messages(
         self,
         messages: List[GatewayUplinkMessage]
-    ) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
+    ) -> List[MqttPublishMessage]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string, payload bytes, the number of datapoints,
@@ -137,7 +138,7 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
     Builds uplink payloads from uplink message objects and parses JSON payloads into GatewayEvent objects.
     """
 
-    def build_uplink_payloads(self, messages: List[GatewayUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
+    def build_uplink_messages(self, messages: List[GatewayUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string, payload bytes, the number of datapoints,

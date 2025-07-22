@@ -30,7 +30,7 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 async def attribute_update_callback(update: AttributeUpdate):
-    logger.info("Received attribute update:", update)
+    logger.info("Received attribute update: %r", update)
 
 
 async def main():

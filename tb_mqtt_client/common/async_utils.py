@@ -12,24 +12,63 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import Union, Optional, Any
+from typing import Union, Optional, Any, List, Set, Dict
 import asyncio
 
+from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.publish_result import PublishResult
+
+logger = get_logger(__name__)
+
+
+class FutureMap:
+    def __init__(self):
+        self._child_to_parents: Dict[asyncio.Future, Set[asyncio.Future]] = {}
+        self._parent_to_remaining: Dict[asyncio.Future, Set[asyncio.Future]] = {}
+
+    def register(self, parent: asyncio.Future, children: List[asyncio.Future]):
+        if parent in self._parent_to_remaining:
+            self._parent_to_remaining[parent].update(children)
+        else:
+            self._parent_to_remaining[parent] = set(children)
+
+        for child in children:
+            self._child_to_parents.setdefault(child, set()).add(parent)
+
+    def get_parents(self, child: asyncio.Future) -> List[asyncio.Future]:
+        return list(self._child_to_parents.get(child, []))
+
+    def child_resolved(self, child: asyncio.Future):
+        parents = self._child_to_parents.pop(child, set())
+        for parent in parents:
+            remaining = self._parent_to_remaining.get(parent)
+            if remaining is not None:
+                remaining.discard(child)
+                if not remaining and not parent.done():
+                    all_children = list(remaining) + [child]
+                    results = []
+                    for f in all_children:
+                        if f.done() and not f.cancelled():
+                            result = f.result()
+                            if isinstance(result, PublishResult):
+                                results.append(result)
+
+                    if results:
+                        parent.set_result(PublishResult.merge(results))
+                    else:
+                        parent.set_result(None)
+                    self._parent_to_remaining.pop(parent, None)
+
+future_map = FutureMap()
 
 async def await_or_stop(future_or_coroutine: Union[asyncio.Future, asyncio.Task, Any],
                         stop_event: asyncio.Event,
                         timeout: Optional[float]) -> Optional[Any]:
-    """
-    Await the given future/coroutine until it completes, timeout expires, or stop_event is set.
-
-    :param future_or_coroutine: An awaitable coroutine, asyncio.Future, or asyncio.Task.
-    :param stop_event: asyncio.Event that signals shutdown.
-    :param timeout: Optional timeout in seconds, -1 for no timeout, or None to wait indefinitely.
-    :return: The result if completed successfully, or None on timeout/stop.
-    """
     if asyncio.iscoroutine(future_or_coroutine):
         main_task = asyncio.create_task(future_or_coroutine)
     elif asyncio.isfuture(future_or_coroutine):
+        if future_or_coroutine.done():
+            return future_or_coroutine.result()
         main_task = future_or_coroutine
     else:
         raise TypeError("Expected coroutine or Future/Task")
@@ -57,3 +96,34 @@ async def await_or_stop(future_or_coroutine: Union[asyncio.Future, asyncio.Task,
     finally:
         if not stop_task.done():
             stop_task.cancel()
+
+async def await_and_resolve_original(
+    parent_futures: List[asyncio.Future],
+    child_futures: List[asyncio.Future]
+):
+    try:
+        results = await asyncio.gather(*child_futures, return_exceptions=True)
+
+        for child in child_futures:
+            future_map.child_resolved(child)
+
+        for i, f in enumerate(parent_futures):
+            if f is not None and not f.done():
+                first_result = next((r for r in results if not isinstance(r, Exception)), None)
+                first_exception = next((r for r in results if isinstance(r, Exception)), None)
+
+                if first_exception and not first_result:
+                    f.set_exception(first_exception)
+                    logger.debug("Set exception for parent future #%d id=%r from child exception: %r",
+                                 i, getattr(f, 'uuid', f), first_exception)
+                else:
+                    f.set_result(first_result)
+                    logger.trace("Resolved parent future #%d id=%r with result: %r",
+                                 i, getattr(f, 'uuid', f), first_result)
+
+    except Exception as e:
+        logger.error("Unexpected error while resolving parent delivery futures: %s", e)
+        for i, f in enumerate(parent_futures):
+            if f is not None and not f.done():
+                f.set_exception(e)
+                logger.debug("Set fallback exception for parent future #%d id=%r", i, getattr(f, 'uuid', f))

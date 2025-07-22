@@ -29,9 +29,11 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
+response_received = asyncio.Event()
 
 async def attribute_request_callback(response: RequestedAttributeResponse):
-    logger.info("Received attribute response:", response)
+    logger.info("Received attribute response: %r", response)
+    response_received.set()
 
 async def main():
     config = DeviceConfig()
@@ -41,12 +43,20 @@ async def main():
     client = DeviceClient(config)
     await client.connect()
 
+    # Send client attribute to have it available for request
+    await client.send_attributes({"currentTemperature": 22.5})
+
+    await asyncio.sleep(.1)
+
     # Request specific attributes
     request = await AttributeRequest.build(["targetTemperature"], ["currentTemperature"])
     await client.send_attribute_request(request, attribute_request_callback)
 
     logger.info("Attribute request sent. Waiting for response...")
-    await asyncio.sleep(5)
+    try:
+        await asyncio.wait_for(response_received.wait(), timeout=10)
+    except (asyncio.CancelledError, TimeoutError):
+        logger.info("Attribute request cancelled.")
 
     await client.stop()
 

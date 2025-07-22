@@ -75,3 +75,6 @@ class RPCRequest:
         if self.params is not None:
             data["params"] = self.params
         return data
+
+    def __str__(self):
+        return f"RPCRequest(id={self.request_id}, method={self.method}, params={self.params})"
