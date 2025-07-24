@@ -13,8 +13,7 @@
 #  limitations under the License.
 
 import asyncio
-from contextlib import suppress
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from unittest.mock import Mock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -23,9 +22,9 @@ from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage, GatewayUplinkMessageBuilder
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder
 from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
 from tb_mqtt_client.service.message_queue import MessageQueue
 

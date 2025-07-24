@@ -20,6 +20,7 @@ from typing import Callable, Awaitable, Dict, Any, Union, List, Optional
 import uvloop
 
 from tb_mqtt_client.common.exceptions import exception_handler
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.json_typing import JSONCompatibleType
 from tb_mqtt_client.constants.service_keys import TELEMETRY_TIMESTAMP_PARAMETER, TELEMETRY_VALUES_PARAMETER
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
@@ -28,7 +29,6 @@ from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder, DeviceUplinkMessage
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder, GatewayUplinkMessage
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
 

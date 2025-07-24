@@ -13,12 +13,12 @@
 #  limitations under the License.
 
 import asyncio
-from collections import defaultdict, deque
-from typing import List, Optional, Dict, Tuple, Set
+from collections import defaultdict
+from typing import List, Optional, Dict, Tuple
 from uuid import uuid4
 
 from tb_mqtt_client.common.async_utils import future_map
-from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
+from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
@@ -91,7 +91,8 @@ class MessageSplitter:
                                      built.timeseries_datapoint_count(), size)
                     builder = DeviceUplinkMessageBuilder() \
                         .set_device_name(device_name) \
-                        .set_device_profile(device_profile)
+                        .set_device_profile(device_profile) \
+                        .set_main_ts(group_msgs[0].main_ts if group_msgs else None)
                     size = 0
                     point_count = 0
 
@@ -163,7 +164,8 @@ class MessageSplitter:
                         logger.trace("Flushed attribute batch (count=%d, size=%d)", len(built.attributes), size)
                     builder = DeviceUplinkMessageBuilder() \
                         .set_device_name(device_name) \
-                        .set_device_profile(device_profile)
+                        .set_device_profile(device_profile) \
+                        .set_main_ts(group_msgs[0].main_ts if group_msgs else None)
                     size = 0
                     point_count = 0
 

@@ -13,7 +13,8 @@
 #  limitations under the License.
 
 from asyncio import Future
-from typing import Union, List
+from time import time
+from typing import Union, Optional
 from uuid import uuid4
 
 from gmqtt import Message
@@ -37,14 +38,18 @@ class MqttPublishMessage(Message):
                  retain: bool = False,
                  datapoints: int = 0,
                  delivery_futures = None,
+                 main_ts: Optional[int] = None,
                  **kwargs):
         """
         Initialize the MqttMessage with topic, payload, QoS, retain flag, and datapoints.
         """
         self.prepared = False
         self.payload = payload
+        self.main_ts = main_ts if main_ts is not None else int(time() * 1000)
         if isinstance(payload, bytes):
             super().__init__(topic, payload, qos, retain)
+        else:
+            payload.set_main_ts(self.main_ts)
         self.topic = topic
         self.qos = qos
         if self.qos < 0 or self.qos > 1:

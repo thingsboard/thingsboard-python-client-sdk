@@ -12,16 +12,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import asyncio
 from abc import ABC, abstractmethod
-from itertools import chain
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any, Dict, List, Tuple, Optional, Union, DefaultDict, Set
+from itertools import chain
+from typing import Any, Dict, List, Optional, Union
 
 from orjson import dumps, loads
 
-from tb_mqtt_client.common.async_utils import await_and_resolve_original, future_map
+from tb_mqtt_client.common.async_utils import future_map
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.constants import mqtt_topics
@@ -34,6 +33,7 @@ from tb_mqtt_client.entities.data.provisioning_response import ProvisioningRespo
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
 logger = get_logger(__name__)
@@ -274,7 +274,8 @@ class JsonMessageAdapter(MessageAdapter):
                         payload=payload_bytes,
                         qos=qos,
                         datapoints=count,
-                        delivery_futures=child_futures
+                        delivery_futures=child_futures,
+                        main_ts=ts_batch.main_ts
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)
@@ -296,7 +297,8 @@ class JsonMessageAdapter(MessageAdapter):
                         payload=payload_bytes,
                         qos=qos,
                         datapoints=count,
-                        delivery_futures=child_futures
+                        delivery_futures=child_futures,
+                        main_ts=attr_batch.main_ts
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)
@@ -447,16 +449,24 @@ class JsonMessageAdapter(MessageAdapter):
 
     @staticmethod
     def pack_timeseries(msg: 'DeviceUplinkMessage') -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        now_ts = int(datetime.now(UTC).timestamp() * 1000)
+        entries = [e for entries in msg.timeseries.values() for e in entries]
+        if not entries:
+            return {}
 
-        entries = list(chain.from_iterable(msg.timeseries.values()))
+        all_ts_none = True
+        for e in entries:
+            if e.ts is not None:
+                all_ts_none = False
+                break
 
-        if all(entry.ts is None for entry in entries):
-            return {entry.key: entry.value for entry in entries}
+        if all_ts_none:
+            result = {e.key: e.value for e in entries}
+            return [{"ts": msg.main_ts, "values": result}] if msg.main_ts is not None else result
 
-        grouped: Dict[int, Dict[str, Any]] = defaultdict(dict)
-        for entry in entries:
-            ts = entry.ts or now_ts
-            grouped[ts][entry.key] = entry.value
+        now_ts = msg.main_ts if msg.main_ts is not None else int(datetime.now(UTC).timestamp() * 1000)
+        grouped = defaultdict(dict)
+        for e in entries:
+            ts = e.ts if e.ts is not None else now_ts
+            grouped[ts][e.key] = e.value
 
         return [{"ts": ts, "values": values} for ts, values in grouped.items()]

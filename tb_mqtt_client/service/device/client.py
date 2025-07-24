@@ -376,6 +376,7 @@ class DeviceClient(BaseClient):
         })
 
         future = self._rpc_response_handler.register_request(request_id)
+        # TODO: Use MQTT message instead of raw payload
         await self._mqtt_manager.publish(topic, payload, qos=1)
 
         try:

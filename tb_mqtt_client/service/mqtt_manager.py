@@ -27,6 +27,7 @@ from tb_mqtt_client.common.async_utils import await_or_stop, future_map
 from tb_mqtt_client.common.gmqtt_patch import PatchUtils
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer, AttributeRequestIdProducer
@@ -35,7 +36,6 @@ from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT, TELEMETRY
     TELEMETRY_DATAPOINTS_RATE_LIMIT
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 
@@ -201,7 +201,7 @@ class MQTTManager:
                         if f is not None and not f.done():
                             f.set_result(publish_result)
                             future_map.child_resolved(f)
-                            logger.error("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
+                            logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
                                         i, f.uuid, publish_result, publish_future.uuid)
                 except Exception as e:
                     logger.error("Error resolving delivery futures: %s", str(e))

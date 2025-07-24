@@ -18,10 +18,10 @@ from typing import List, Optional
 
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter

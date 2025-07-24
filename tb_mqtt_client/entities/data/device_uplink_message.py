@@ -14,6 +14,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from time import time
 from types import MappingProxyType
 from typing import List, Optional, Union, OrderedDict, Tuple, Mapping
 from uuid import uuid4
@@ -36,6 +37,7 @@ class DeviceUplinkMessage:
     timeseries: Mapping[int, Tuple[TimeseriesEntry]]
     delivery_futures: List[Optional[asyncio.Future[PublishResult]]]
     _size: int
+    main_ts: Optional[int] = None
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
@@ -54,7 +56,8 @@ class DeviceUplinkMessage:
               attributes: List[AttributeEntry],
               timeseries: Mapping[int, List[TimeseriesEntry]],
               delivery_futures: List[Optional[asyncio.Future]],
-              size: int) -> 'DeviceUplinkMessage':
+              size: int,
+              main_ts: Optional[int]) -> 'DeviceUplinkMessage':
         self = object.__new__(cls)
         object.__setattr__(self, 'device_name', device_name)
         object.__setattr__(self, 'device_profile', device_profile)
@@ -63,6 +66,7 @@ class DeviceUplinkMessage:
                            MappingProxyType({ts: tuple(entries) for ts, entries in timeseries.items()}))
         object.__setattr__(self, 'delivery_futures', tuple(delivery_futures))
         object.__setattr__(self, '_size', size)
+        object.__setattr__(self, 'main_ts', main_ts)
         return self
 
     @property
@@ -84,6 +88,15 @@ class DeviceUplinkMessage:
     def get_delivery_futures(self) -> List[Optional[asyncio.Future[PublishResult]]]:
         return self.delivery_futures
 
+    def set_main_ts(self, main_ts: int) -> 'DeviceUplinkMessage':
+        """
+        Set the main timestamp for the message.
+        :param main_ts: The main timestamp to set.
+        :return: The updated DeviceUplinkMessage instance.
+        """
+        object.__setattr__(self, 'main_ts', main_ts)
+        return self
+
 
 class DeviceUplinkMessageBuilder:
     def __init__(self):
@@ -93,6 +106,7 @@ class DeviceUplinkMessageBuilder:
         self._timeseries: OrderedDict[int, List[TimeseriesEntry]] = OrderedDict()
         self._delivery_futures: List[Optional[asyncio.Future[PublishResult]]] = []
         self.__size = DEFAULT_FIELDS_SIZE
+        self._main_ts: Optional[int] = None
 
     def set_device_name(self, device_name: str) -> 'DeviceUplinkMessageBuilder':
         self._device_name = device_name
@@ -146,6 +160,10 @@ class DeviceUplinkMessageBuilder:
             self._delivery_futures.extend(futures)
         return self
 
+    def set_main_ts(self, main_ts: int) -> 'DeviceUplinkMessageBuilder':
+        self._main_ts = main_ts
+        return self
+
     def build(self) -> DeviceUplinkMessage:
         if not self._delivery_futures:
             delivery_future = asyncio.get_event_loop().create_future()
@@ -158,5 +176,6 @@ class DeviceUplinkMessageBuilder:
             attributes=self._attributes,
             timeseries=self._timeseries,
             delivery_futures=self._delivery_futures,
-            size=self.__size
+            size=self.__size,
+            main_ts=self._main_ts
         )
