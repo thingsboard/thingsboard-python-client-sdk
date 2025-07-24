@@ -126,8 +126,6 @@ class DeviceClient(BaseClient):
             if self._stop_event.is_set():
                 return
 
-        await self._on_connect()
-
         # Initialize with default max_payload_size if not set
         if self.max_payload_size is None:
             self.max_payload_size = 65535

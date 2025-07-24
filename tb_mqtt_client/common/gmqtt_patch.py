@@ -17,7 +17,7 @@ import heapq
 import struct
 from collections import defaultdict
 from time import monotonic
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Optional
 
 from gmqtt import Client
 from gmqtt.mqtt.constants import MQTTCommands, MQTTv50, MQTTv311
@@ -102,7 +102,7 @@ class PatchUtils:
         154: "Wildcard Subscriptions not supported"
     }
 
-    def __init__(self, client: Client, stop_event: asyncio.Event, retry_interval: int = 1):
+    def __init__(self, client: Optional[Client], stop_event: asyncio.Event, retry_interval: int = 1):
         """
         Initialize PatchUtils with a client and retry interval.
 
@@ -209,8 +209,7 @@ class PatchUtils:
             logger.warning("Failed to patch gmqtt handler: %s", e)
             return False
 
-    def patch_handle_connack(patch_utils_instance,
-                             on_connack_with_session_present_and_result_code: Callable[[object, int, int, dict], None]):
+    def patch_handle_connack(patch_utils_instance):
         """
         Fully replaces gmqtt's _handle_connack_packet implementation, skipping internal QoS1 resend behavior
         and invoking a custom callback instead of calling the original method.
@@ -250,13 +249,6 @@ class PatchUtils:
 
                     self._logger.debug('[CONNACK] session_present: %s, result: %s', hex(session_present),
                                        hex(result_code))
-
-                    on_connack_with_session_present_and_result_code(
-                        patch_utils_instance.client,
-                        session_present,
-                        result_code,
-                        properties
-                    )
 
                     self.on_connect(self, session_present, result_code, self.properties)
 

@@ -31,7 +31,7 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 
 async def rpc_response_callback(response: RPCResponse):
-    logger.info("Received RPC response:", response)
+    logger.info("Received RPC response: %r", response)
 
 
 async def main():

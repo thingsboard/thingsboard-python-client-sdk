@@ -68,7 +68,7 @@ class MQTTManager:
 
         self._client = GMQTTClient(client_id)
         self._patch_utils.client = self._client
-        self._patch_utils.patch_handle_connack(self._on_connect_internal)
+        self._patch_utils.patch_handle_connack()
         self._patch_utils.apply(self._handle_puback_reason_code)
         self._client.on_connect = self._on_connect_internal
         self._client.on_disconnect = self._on_disconnect_internal
@@ -269,7 +269,7 @@ class MQTTManager:
         asyncio.create_task(self.__handle_connect_and_limits())
 
     async def __handle_connect_and_limits(self):
-        logger.debug("Subscribing to RPC response topics")
+        logger.info("Subscribing to RPC response topics")
         sub_future = await self.subscribe(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, qos=1)
         while not sub_future.done():
             await sleep(0.01)

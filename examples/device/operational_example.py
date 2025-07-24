@@ -15,7 +15,6 @@
 import asyncio
 import logging
 import signal
-from datetime import datetime, UTC
 from random import uniform, randint
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
@@ -25,7 +24,7 @@ from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
-from tb_mqtt_client.entities.data.rpc_response import RPCResponse, RPCStatus
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
 
@@ -33,6 +32,8 @@ configure_logging()
 logger = get_logger(__name__)
 logger.setLevel(logging.DEBUG)
 logging.getLogger("tb_mqtt_client").setLevel(logging.DEBUG)
+
+DELAY_BETWEEN_DATA_PUBLISH = 1  # seconds
 
 
 async def attribute_update_callback(update: AttributeUpdate):
@@ -111,6 +112,7 @@ async def main():
 
     while not stop_event.is_set():
         # --- Attributes ---
+        iteration_start = asyncio.get_event_loop().time()
 
         # 1. Raw dict
         raw_dict = {
@@ -157,7 +159,7 @@ async def main():
 
         telemetry_entries = []
         for i in range(100):
-            telemetry_entries.append(TimeseriesEntry("temperature", i, ts=int(datetime.now(UTC).timestamp() * 1000)-i))
+            telemetry_entries.append(TimeseriesEntry("temperature%i" % i, i))
         logger.info("Sending list of telemetry entries with mixed timestamps...")
         telemetry_list_publish_result = await client.send_timeseries(telemetry_entries)
         logger.info("List of telemetry entries sent: %s with result: %s",
@@ -198,8 +200,9 @@ async def main():
         await client.send_rpc_request(rpc_request_2, rpc_response_callback, wait_for_publish=False)
 
         try:
-            logger.info("Waiting for 1 seconds before next iteration...")
-            await asyncio.wait_for(stop_event.wait(), timeout=1)
+            logger.info("Waiting before next iteration...")
+            timeout = DELAY_BETWEEN_DATA_PUBLISH - (asyncio.get_event_loop().time() - iteration_start)
+            await asyncio.wait_for(stop_event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.info("Going to next iteration...")
 
