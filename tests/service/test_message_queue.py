@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import asyncio
+from contextlib import suppress
 from unittest.mock import AsyncMock, Mock, MagicMock, patch
 
 import pytest
@@ -21,8 +22,10 @@ import pytest_asyncio
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage, GatewayUplinkMessageBuilder
 from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
 from tb_mqtt_client.service.message_queue import MessageQueue
 
@@ -347,6 +350,281 @@ async def test_schedule_delayed_retry_does_nothing_if_stopped():
 
     assert queue._queue.empty()
     assert len(queue._retry_tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_try_publish_telemetry_rate_limit_triggered():
+    telemetry_limit = Mock(spec=RateLimit)
+    telemetry_limit.try_consume = AsyncMock(return_value=(10, 1))
+    telemetry_limit.minimal_timeout = 0.05
+
+    mq = MessageQueue(
+        mqtt_manager=AsyncMock(),
+        main_stop_event=asyncio.Event(),
+        message_rate_limit=None,
+        telemetry_rate_limit=telemetry_limit,
+        telemetry_dp_rate_limit=None,
+        message_adapter=Mock(build_uplink_messages=Mock(return_value=[]))
+    )
+    mq._schedule_delayed_retry = AsyncMock()
+    mq._backpressure = Mock(spec=BackpressureController)
+    mq._backpressure.should_pause.return_value = False
+
+    message = MqttPublishMessage(topic=DEVICE_TELEMETRY_TOPIC, payload=b"{}", qos=1)
+
+    await mq._try_publish(message)
+
+    await mq.shutdown()
+
+    mq._schedule_delayed_retry.assert_called_once_with(message, delay=telemetry_limit.minimal_timeout)
+    called_args = mq._schedule_delayed_retry.call_args
+    assert called_args.args[0] == message
+
+
+@pytest.mark.asyncio
+async def test_try_publish_telemetry_dp_rate_limit_triggered():
+    dp_limit = Mock(spec=RateLimit)
+    dp_limit.try_consume = AsyncMock(return_value=(100, 10))
+    dp_limit.minimal_timeout = 0.1
+
+    mq = MessageQueue(
+        mqtt_manager=AsyncMock(),
+        main_stop_event=asyncio.Event(),
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=dp_limit,
+        message_adapter=Mock(build_uplink_messages=Mock(return_value=[]))
+    )
+    mq._schedule_delayed_retry = AsyncMock()
+    mq._backpressure = Mock(spec=BackpressureController)
+    mq._backpressure.should_pause.return_value = False
+
+    message = MqttPublishMessage(
+        topic=DEVICE_TELEMETRY_TOPIC,
+        payload=b"{}",
+        qos=1,
+        datapoints=5
+    )
+
+    await mq._try_publish(message)
+
+    mq._schedule_delayed_retry.assert_called_once_with(message, delay=dp_limit.minimal_timeout)
+
+
+@pytest.mark.asyncio
+async def test_try_publish_generic_message_rate_limit_triggered():
+    generic_limit = Mock(spec=RateLimit)
+    generic_limit.try_consume = AsyncMock(return_value=(1, 60))
+    generic_limit.minimal_timeout = 0.2
+
+    mq = MessageQueue(
+        mqtt_manager=AsyncMock(),
+        main_stop_event=asyncio.Event(),
+        message_rate_limit=generic_limit,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=Mock()
+    )
+    mq._schedule_delayed_retry = AsyncMock()
+    mq._backpressure = Mock(spec=BackpressureController)
+    mq._backpressure.should_pause.return_value = False
+
+    message = MqttPublishMessage(topic="some/other/topic", payload=b"{}", qos=1)
+
+    await mq._try_publish(message)
+
+    mq._schedule_delayed_retry.assert_called_once_with(message, delay=generic_limit.minimal_timeout)
+    called_args = mq._schedule_delayed_retry.call_args
+    assert called_args.args[0] == message
+
+
+from unittest.mock import AsyncMock, patch
+
+@pytest.mark.asyncio
+async def test_batch_breaks_on_elapsed_time():
+    msg = MqttPublishMessage(
+        "topic",
+        DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("k", 1)).build(),
+        qos=1
+    )
+
+    adapter = JsonMessageAdapter()
+    adapter.splitter.max_payload_size = 1000000
+
+    stop = asyncio.Event()
+    mqtt_manager = AsyncMock()
+    mqtt_manager.backpressure.should_pause.return_value = False
+
+    mq = MessageQueue(
+        mqtt_manager=mqtt_manager,
+        main_stop_event=stop,
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=adapter,
+        batch_collect_max_time_ms=1,
+        batch_collect_max_count=1000
+    )
+
+    mq._try_publish = AsyncMock()
+
+    mq._queue.put_nowait(msg)
+    await asyncio.sleep(0.1)
+    await mq.shutdown()
+
+    mq._try_publish.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_batch_breaks_on_message_count():
+    adapter = JsonMessageAdapter()
+    adapter.splitter.max_payload_size = 1000000
+
+    mqtt_manager = AsyncMock()
+    mqtt_manager.publish = AsyncMock(return_value=asyncio.Future())
+    mqtt_manager.publish.return_value.set_result(True)
+    mqtt_manager.connected = AsyncMock()
+    mqtt_manager.connected.is_set.return_value = True
+    mqtt_manager.backpressure.should_pause.return_value = False
+
+    stop = asyncio.Event()
+
+    mq = MessageQueue(
+        mqtt_manager=mqtt_manager,
+        main_stop_event=stop,
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=adapter,
+        batch_collect_max_time_ms=1000,
+        batch_collect_max_count=2
+    )
+    mq._try_publish = AsyncMock()
+
+    msg1 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("a", 1)).build(), qos=1)
+    msg2 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("b", 2)).build(), qos=1)
+    msg3 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("c", 3)).build(), qos=1)
+
+    await mq._queue.put(msg1)
+    await mq._queue.put(msg2)
+    await mq._queue.put(msg3)
+    await asyncio.sleep(0.2)
+    await mq.shutdown()
+
+    assert mq._try_publish.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_breaks_on_type_mismatch():
+
+    adapter = JsonMessageAdapter()
+    adapter.splitter.max_payload_size = 1000000
+
+    mqtt_manager = AsyncMock()
+    mqtt_manager.publish = AsyncMock()
+    mqtt_manager.backpressure.should_pause.return_value = False
+
+    stop = asyncio.Event()
+
+    mq = MessageQueue(
+        mqtt_manager=mqtt_manager,
+        main_stop_event=stop,
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=adapter,
+        batch_collect_max_time_ms=1000,
+        batch_collect_max_count=10
+    )
+    mq._try_publish = AsyncMock()
+
+    msg1 = MqttPublishMessage("topic",
+                              DeviceUplinkMessageBuilder()
+                              .add_timeseries(TimeseriesEntry("a", 1))
+                              .build(), qos=1)
+    msg2 = MqttPublishMessage("topic",
+                              GatewayUplinkMessageBuilder()
+                              .set_device_name("test_device")
+                              .add_timeseries(TimeseriesEntry("b", 2))
+                              .build(),
+                              qos=1)
+
+    mq._queue.put_nowait(msg1)
+    mq._queue.put_nowait(msg2)
+
+    await asyncio.sleep(0.2)
+    await mq.shutdown()
+
+    assert mq._try_publish.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_breaks_on_size_threshold():
+    from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
+
+    adapter = JsonMessageAdapter()
+    adapter.splitter.max_payload_size = 20
+
+    mqtt_manager = AsyncMock()
+    mqtt_manager.publish = AsyncMock()
+    mqtt_manager.backpressure.should_pause.return_value = False
+
+    stop = asyncio.Event()
+
+    mq = MessageQueue(
+        mqtt_manager=mqtt_manager,
+        main_stop_event=stop,
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=adapter,
+        batch_collect_max_time_ms=1000,
+        batch_collect_max_count=10
+    )
+    mq._try_publish = AsyncMock()
+
+    msg1 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("a", 1)).build(), qos=1)
+    msg2 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("b", 2)).build(), qos=1)
+
+    mq._queue.put_nowait(msg1)
+    mq._queue.put_nowait(msg2)
+
+    await asyncio.sleep(0.2)
+    await mq.shutdown()
+
+    assert mq._try_publish.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_skips_bytes_payload():
+    mqtt_manager = AsyncMock()
+    mqtt_manager.publish = AsyncMock()
+    mqtt_manager.backpressure.should_pause.return_value = False
+
+    stop = asyncio.Event()
+
+    mq = MessageQueue(
+        mqtt_manager=mqtt_manager,
+        main_stop_event=stop,
+        message_rate_limit=None,
+        telemetry_rate_limit=None,
+        telemetry_dp_rate_limit=None,
+        message_adapter=JsonMessageAdapter(),
+        batch_collect_max_time_ms=1000,
+        batch_collect_max_count=1000
+    )
+    mq._try_publish = AsyncMock()
+
+
+    msg1 = MqttPublishMessage("topic", DeviceUplinkMessageBuilder().add_timeseries(TimeseriesEntry("a", 1)).build(), qos=1)
+    msg2 = MqttPublishMessage("topic", b"raw", qos=1)
+
+    mq._queue.put_nowait(msg1)
+    mq._queue.put_nowait(msg2)
+
+    await asyncio.sleep(0.2)
+    await mq.shutdown()
+    assert mq._try_publish.call_count == 2
 
 
 if __name__ == '__main__':

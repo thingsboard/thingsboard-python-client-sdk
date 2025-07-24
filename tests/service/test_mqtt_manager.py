@@ -227,6 +227,7 @@ async def test_subscribe_adds_future(setup_manager):
     setattr(manager, "_MQTTManager__rate_limiter", {MESSAGES_RATE_LIMIT: mock_rate_limit})
 
     fut = await manager.subscribe("topic", qos=1)
+    await asyncio.sleep(0.1)
 
     assert 42 in manager._pending_subscriptions
     assert isinstance(fut, asyncio.Future)
@@ -243,6 +244,7 @@ async def test_unsubscribe_adds_future(setup_manager):
     setattr(manager, "_MQTTManager__rate_limiter", {MESSAGES_RATE_LIMIT: mock_rate_limit})
 
     fut = await manager.unsubscribe("topic")
+    await asyncio.sleep(0.1)
 
     assert 77 in manager._pending_unsubscriptions
     assert isinstance(fut, asyncio.Future)

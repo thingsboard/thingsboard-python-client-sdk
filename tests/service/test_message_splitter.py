@@ -20,6 +20,7 @@ import pytest
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
 from tb_mqtt_client.service.message_splitter import MessageSplitter
 
@@ -27,23 +28,6 @@ from tb_mqtt_client.service.message_splitter import MessageSplitter
 @pytest.fixture
 def splitter():
     return MessageSplitter(max_payload_size=100, max_datapoints=3)
-
-
-def mock_ts_entry(size=20):
-    entry = MagicMock()
-    entry.size = size
-    entry.ts = 123456789
-    entry.key = "k"
-    entry.value = 42
-    return entry
-
-
-def mock_attr_entry(size=20):
-    attr = MagicMock()
-    attr.size = size
-    attr.key = "k"
-    attr.value = 42
-    return attr
 
 
 # Positive cases
@@ -195,6 +179,42 @@ async def test_split_attributes_different_devices_not_grouped():
         for fut in msg.get_delivery_futures():
             fut.set_result(PublishResult("test/topic", 1, 1, 100, 0))
 
+
+@patch("tb_mqtt_client.service.message_splitter.future_map.register")
+@pytest.mark.asyncio
+async def test_split_timeseries_registers_futures_and_batches_correctly(mock_register):
+    splitter = MessageSplitter(max_payload_size=100, max_datapoints=2)
+
+    builder = DeviceUplinkMessageBuilder().set_device_name("deviceX").set_device_profile("profileY")
+    entry1 = TimeseriesEntry("temp", 1, 100)
+    entry2 = TimeseriesEntry("humidity", 2, 100)
+    entry3 = TimeseriesEntry("pressure", 3, 100)
+
+    builder.add_timeseries(entry1)
+    builder.add_timeseries(entry2)
+    builder.add_timeseries(entry3)
+
+    parent_future = asyncio.Future()
+    builder.add_delivery_futures(parent_future)
+    original_msg = builder.build()
+
+    result = splitter.split_timeseries([original_msg])
+
+    # Should be split due to datapoints=3 > max_datapoints=2 → 2 batches
+    assert len(result) == 2
+    total_points = sum(m.timeseries_datapoint_count() for m in result)
+    assert total_points == 3
+
+    # Validate that register was called for the shared future for each batch
+    assert mock_register.call_count == 2
+    for call in mock_register.call_args_list:
+        args, _ = call
+        assert args[0] is parent_future
+        assert isinstance(args[1], list)
+        assert len(args[1]) == 1
+        shared_future = args[1][0]
+        assert isinstance(shared_future, asyncio.Future)
+        assert hasattr(shared_future, "uuid")
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

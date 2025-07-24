@@ -169,9 +169,6 @@ class MessageQueue:
                 continue
 
     async def _try_publish(self, message: MqttPublishMessage):
-        if not message.delivery_futures:
-            logger.error("No delivery futures associated! This publish result will not be tracked.")
-            delivery_futures_or_none = []
         is_message_with_telemetry_or_attributes = message.topic in (mqtt_topics.DEVICE_TELEMETRY_TOPIC,
                                                                     mqtt_topics.DEVICE_ATTRIBUTES_TOPIC)
         # TODO: Add topics check for gateways
@@ -237,24 +234,26 @@ class MessageQueue:
             return
         logger.trace("Scheduling retry: topic=%s, delay=%.2f", message.topic, delay)
 
-        async def retry():
-            try:
-                logger.debug("Retrying publish: topic=%s", message.topic)
-                await asyncio.sleep(delay)
-                if not self._active.is_set() or self._main_stop_event.is_set():
-                    logger.debug("MessageQueue is not active or main stop event is set. Not re-enqueuing message for topic=%s", message.topic)
-                    return
-                self._queue.put_nowait(message)
-                self._wakeup_event.set()
-                logger.debug("Re-enqueued message after delay: topic=%s", message.topic)
-            except asyncio.QueueFull:
-                logger.warning("Retry queue full. Dropping retried message: topic=%s", message.topic)
-            except Exception as e:
-                logger.debug("Unexpected error during delayed retry: %s", e)
-
-        task = asyncio.create_task(retry())
+        task = asyncio.create_task(self.__retry_task(message, delay))
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)
+
+    async def __retry_task(self, message: MqttPublishMessage, delay: float):
+        try:
+            logger.debug("Retrying publish: topic=%s", message.topic)
+            await asyncio.sleep(delay)
+            if not self._active.is_set() or self._main_stop_event.is_set():
+                logger.debug(
+                    "MessageQueue is not active or main stop event is set. Not re-enqueuing message for topic=%s",
+                    message.topic)
+                return
+            self._queue.put_nowait(message)
+            self._wakeup_event.set()
+            logger.debug("Re-enqueued message after delay: topic=%s", message.topic)
+        except asyncio.QueueFull:
+            logger.warning("Retry queue full. Dropping retried message: topic=%s", message.topic)
+        except Exception as e:
+            logger.debug("Unexpected error during delayed retry: %s", e)
 
     async def _wait_for_message(self) -> MqttPublishMessage:
         while self._active.is_set():
