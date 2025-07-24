@@ -61,7 +61,7 @@ class MQTTManager:
         rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
         self._main_stop_event = main_stop_event
-        self._message_dispatcher = message_adapter
+        self._message_adapter = message_adapter
         self._patch_utils: PatchUtils = PatchUtils(None, self._main_stop_event, 1)
         self._patch_utils.patch_gmqtt_protocol_connection_lost()
         self._patch_utils.patch_mqtt_handler_disconnect()
@@ -201,7 +201,7 @@ class MQTTManager:
                         if f is not None and not f.done():
                             f.set_result(publish_result)
                             future_map.child_resolved(f)
-                            logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
+                            logger.error("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
                                         i, f.uuid, publish_result, publish_future.uuid)
                 except Exception as e:
                     logger.error("Error resolving delivery futures: %s", str(e))
@@ -226,7 +226,7 @@ class MQTTManager:
             self._pending_publishes[mid] = (mqtt_future, message, monotonic())
             self._client._persistent_storage.push_message_nowait(mid, message)  # noqa
         else:
-            mqtt_future.set_result(True)
+            mqtt_future.set_result(PublishResult(message.topic, qos, -1, message.payload_size, 0))
 
     async def subscribe(self, topic: Union[str, Subscription], qos: int = 1) -> asyncio.Future:
         sub_future = asyncio.get_event_loop().create_future()
@@ -467,7 +467,7 @@ class MQTTManager:
         logger.debug("Publishing rate limits request to server...")
 
         request = await RPCRequest.build("getSessionLimits")
-        mqtt_message: MqttPublishMessage = self._message_dispatcher.build_rpc_request(request)
+        mqtt_message: MqttPublishMessage = self._message_adapter.build_rpc_request(request)
         response_future = self._rpc_response_handler.register_request(request.request_id, self.__rate_limits_handler)
 
         try:

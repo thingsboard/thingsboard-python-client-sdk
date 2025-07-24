@@ -63,9 +63,10 @@ class MessageSplitter:
             parent_futures: List[asyncio.Future] = []
 
             for msg in group_msgs:
-                for ts_group in msg.timeseries.values():
-                    all_ts_entries.extend(ts_group)
-                parent_futures.extend(msg.get_delivery_futures() or [])
+                if msg.has_timeseries():
+                    for ts_group in msg.timeseries.values():
+                        all_ts_entries.extend(ts_group)
+                    parent_futures.extend(msg.get_delivery_futures() or [])
 
             builder: Optional[DeviceUplinkMessageBuilder] = None
             size = 0
@@ -138,7 +139,7 @@ class MessageSplitter:
             for msg in group_msgs:
                 if msg.has_attributes():
                     all_attrs.extend(msg.attributes)
-                parent_futures.extend(msg.get_delivery_futures())
+                    parent_futures.extend(msg.get_delivery_futures())
 
             builder: Optional[DeviceUplinkMessageBuilder] = None
             size = 0

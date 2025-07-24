@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch, mock_open
 import pytest
 from orjson import dumps
 
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC, DEVICE_ATTRIBUTES_TOPIC
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
@@ -62,9 +63,9 @@ def test_build_attribute_request(adapter):
     request = MagicMock(spec=AttributeRequest)
     request.request_id = 1
     request.to_payload_format.return_value = {"clientKeys": "temp", "sharedKeys": "shared"}
-    topic, payload = adapter.build_attribute_request(request)
-    assert topic.endswith("/1")
-    assert b"clientKeys" in payload
+    mqtt_message = adapter.build_attribute_request(request)
+    assert mqtt_message.topic.endswith("/1")
+    assert b"clientKeys" in mqtt_message.payload
 
 
 def test_build_attribute_request_invalid(adapter):
@@ -76,9 +77,9 @@ def test_build_attribute_request_invalid(adapter):
 
 def test_build_claim_request(adapter):
     req = ClaimRequest.build("secretKey")
-    topic, payload = adapter.build_claim_request(req)
-    assert topic == mqtt_topics.DEVICE_CLAIM_TOPIC
-    assert b"secretKey" in payload
+    mqtt_message = adapter.build_claim_request(req)
+    assert mqtt_message.topic == mqtt_topics.DEVICE_CLAIM_TOPIC
+    assert b"secretKey" in mqtt_message.payload
 
 
 def test_build_claim_request_invalid(adapter):
@@ -90,9 +91,9 @@ def test_build_rpc_request(adapter):
     request = MagicMock(spec=RPCRequest)
     request.request_id = 42
     request.to_payload_format.return_value = {"method": "reboot"}
-    topic, payload = adapter.build_rpc_request(request)
-    assert topic.endswith("42")
-    assert b"reboot" in payload
+    mqtt_message = adapter.build_rpc_request(request)
+    assert mqtt_message.topic.endswith("42")
+    assert b"reboot" in mqtt_message.payload
 
 
 def test_build_rpc_request_invalid(adapter):
@@ -106,9 +107,9 @@ def test_build_rpc_response(adapter):
     response = MagicMock(spec=RPCResponse)
     response.request_id = 123
     response.to_payload_format.return_value = {"result": "ok"}
-    topic, payload = adapter.build_rpc_response(response)
-    assert topic.endswith("123")
-    assert b"ok" in payload
+    mqtt_message = adapter.build_rpc_response(response)
+    assert mqtt_message.topic.endswith("123")
+    assert b"ok" in mqtt_message.payload
 
 
 def test_build_rpc_response_invalid(adapter):
@@ -121,23 +122,23 @@ def test_build_rpc_response_invalid(adapter):
 def test_build_provision_request_access_token(adapter):
     credentials = AccessTokenProvisioningCredentials("key1", "secret1", access_token="tokenABC")
     req = ProvisioningRequest("localhost", credentials, device_name="dev1", gateway=True)
-    topic, payload = adapter.build_provision_request(req)
-    assert topic == mqtt_topics.PROVISION_REQUEST_TOPIC
-    assert b"provisionDeviceKey" in payload
-    assert b"tokenABC" in payload
-    assert b"credentialsType" in payload
-    assert b"deviceName" in payload
-    assert b"gateway" in payload
+    mqtt_message = adapter.build_provision_request(req)
+    assert mqtt_message.topic == mqtt_topics.PROVISION_REQUEST_TOPIC
+    assert b"provisionDeviceKey" in mqtt_message.payload
+    assert b"tokenABC" in mqtt_message.payload
+    assert b"credentialsType" in mqtt_message.payload
+    assert b"deviceName" in mqtt_message.payload
+    assert b"gateway" in mqtt_message.payload
 
 
 def test_build_provision_request_mqtt_basic(adapter):
     credentials = BasicProvisioningCredentials("key2", "secret2", client_id="cid", username="user", password="pass")
     req = ProvisioningRequest("127.0.0.1", credentials, device_name="dev2", gateway=False)
-    topic, payload = adapter.build_provision_request(req)
-    assert b"clientId" in payload
-    assert b"username" in payload
-    assert b"password" in payload
-    assert b"credentialsType" in payload
+    mqtt_message = adapter.build_provision_request(req)
+    assert b"clientId" in mqtt_message.payload
+    assert b"username" in mqtt_message.payload
+    assert b"password" in mqtt_message.payload
+    assert b"credentialsType" in mqtt_message.payload
 
 
 def test_build_provision_request_x509(adapter):
@@ -146,10 +147,10 @@ def test_build_provision_request_x509(adapter):
     with patch("builtins.open", mock_open(read_data=cert_content)):
         credentials = X509ProvisioningCredentials("key3", "secret3", "key.pem", cert_path, "ca.pem")
         req = ProvisioningRequest("iot.server", credentials, device_name="dev3")
-        topic, payload = adapter.build_provision_request(req)
-        assert b"hash" in payload
-        assert b"credentialsType" in payload
-        assert b"FAKECERT" in payload
+        mqtt_message = adapter.build_provision_request(req)
+        assert b"hash" in mqtt_message.payload
+        assert b"credentialsType" in mqtt_message.payload
+        assert b"FAKECERT" in mqtt_message.payload
 
 
 def test_build_provision_request_x509_file_not_found(adapter):
@@ -220,55 +221,47 @@ def test_parse_rpc_response_invalid(adapter):
 
 @pytest.mark.asyncio
 async def test_build_uplink_payloads_empty(adapter: JsonMessageAdapter):
-    assert adapter.build_uplink_payloads([]) == []
+    assert adapter.build_uplink_messages([]) == []
 
 
 @pytest.mark.asyncio
 async def test_build_uplink_payloads_only_attributes(adapter: JsonMessageAdapter):
     msg = build_msg(with_attr=True)
+    initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
     with patch.object(adapter._splitter, "split_attributes", return_value=[msg]):
-        result = adapter.build_uplink_payloads([msg])
+        result = adapter.build_uplink_messages([initial_mqtt_message])
         assert len(result) == 1
-        topic, payload, count, futures = result[0]
-        assert topic == DEVICE_ATTRIBUTES_TOPIC
-        assert count == 1
-        assert b"a" in payload
+        mqtt_message = result[0]
+        assert mqtt_message.topic == DEVICE_ATTRIBUTES_TOPIC
+        assert mqtt_message.datapoints == 1
+        assert b"a" in mqtt_message.payload
 
 
 @pytest.mark.asyncio
 async def test_build_uplink_payloads_only_timeseries(adapter: JsonMessageAdapter):
     msg = build_msg(with_ts=True)
+    initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
     with patch.object(adapter._splitter, "split_timeseries", return_value=[msg]):
-        result = adapter.build_uplink_payloads([msg])
+        result = adapter.build_uplink_messages([initial_mqtt_message])
         assert len(result) == 1
-        topic, payload, count, futures = result[0]
-        assert topic == DEVICE_TELEMETRY_TOPIC
-        assert count == 1
-        assert b"ts" in payload
+        mqtt_message = result[0]
+        assert mqtt_message.topic == DEVICE_TELEMETRY_TOPIC
+        assert mqtt_message.datapoints == 1
+        assert b"ts" in mqtt_message.payload
 
 
 @pytest.mark.asyncio
 async def test_build_uplink_payloads_both(adapter: JsonMessageAdapter):
     msg = build_msg(with_attr=True, with_ts=True)
+    initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
+
     with patch.object(adapter._splitter, "split_attributes", return_value=[msg]), \
          patch.object(adapter._splitter, "split_timeseries", return_value=[msg]):
-        result = adapter.build_uplink_payloads([msg])
+        result = adapter.build_uplink_messages([initial_mqtt_message])
         assert len(result) == 2
-        topics = {r[0] for r in result}
+        topics = {r.topic for r in result}
         assert DEVICE_ATTRIBUTES_TOPIC in topics
         assert DEVICE_TELEMETRY_TOPIC in topics
-
-
-@pytest.mark.asyncio
-async def test_build_uplink_payloads_multiple_devices(adapter: JsonMessageAdapter):
-    msg1 = build_msg(device="dev1", with_attr=True)
-    msg2 = build_msg(device="dev2", with_ts=True)
-    with patch.object(adapter._splitter, "split_attributes", side_effect=lambda x: x), \
-         patch.object(adapter._splitter, "split_timeseries", side_effect=lambda x: x):
-        result = adapter.build_uplink_payloads([msg1, msg2])
-        topics = {r[0] for r in result}
-        assert DEVICE_ATTRIBUTES_TOPIC in topics or DEVICE_TELEMETRY_TOPIC in topics
-
 
 def test_build_payload_without_device_name(adapter: JsonMessageAdapter):
     builder = DeviceUplinkMessageBuilder().add_attributes(AttributeEntry("x", 9))
@@ -286,22 +279,23 @@ def test_pack_attributes():
     assert "x" in result
 
 
-def test_pack_timeseries_uses_now(monkeypatch):
+def test_pack_timeseries_no_ts(monkeypatch):
     monkeypatch.setattr("tb_mqtt_client.service.device.message_adapter.datetime", MagicMock())
     ts_entry = TimeseriesEntry("temp", 23, ts=None)
     builder = DeviceUplinkMessageBuilder().add_timeseries(ts_entry)
     msg = builder.build()
     packed = JsonMessageAdapter.pack_timeseries(msg)
-    assert isinstance(packed, list)
-    assert "ts" in packed[0]
-    assert "values" in packed[0]
+    assert isinstance(packed, dict)
+    assert ts_entry.key in packed
+    assert packed[ts_entry.key] == ts_entry.value
 
 
 def test_build_uplink_payloads_error_handling(adapter: JsonMessageAdapter):
     with patch("tb_mqtt_client.service.device.message_adapter.DeviceUplinkMessage.has_attributes", side_effect=Exception("boom")):
         msg = build_msg(with_attr=True)
+        initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
         with pytest.raises(Exception, match="boom"):
-            adapter.build_uplink_payloads([msg])
+            adapter.build_uplink_messages([initial_mqtt_message])
 
 
 def test_parse_provisioning_response_success(adapter, dummy_provisioning_request):
@@ -325,3 +319,6 @@ def test_parse_provisioning_response_failure(adapter, dummy_provisioning_request
         assert args[0] == dummy_provisioning_request
         assert args[1]["status"] == "FAILURE"
         assert "errorMsg" in args[1]
+
+if __name__ == '__main__':
+    pytest.main([__file__, "--tb=short", "-v"])

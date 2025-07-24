@@ -56,14 +56,18 @@ class MqttPublishMessage(Message):
         self.datapoints = datapoints
         self.properties = kwargs
         self._is_sent = False
-        self.delivery_futures: List[Future] = delivery_futures
+        self.delivery_futures = delivery_futures
         if not delivery_futures:
             delivery_future = Future()
             delivery_future.uuid = uuid4()
             self.delivery_futures = [delivery_future]
+        if not isinstance(self.delivery_futures, (list, tuple)):
+            self.delivery_futures = [self.delivery_futures]
+        for future in self.delivery_futures:
+            if not hasattr(future, 'uuid'):
+                future.uuid = uuid4()
         logger.trace(f"Created MqttMessage with topic: {topic}, payload type: {type(payload).__name__}, "
                     f"datapoints: {datapoints}, delivery_future id: {self.delivery_futures[0].uuid}")
-
 
     def mark_as_sent(self, message_id: int):
         """Mark the message as sent."""

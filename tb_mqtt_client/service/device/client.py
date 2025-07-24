@@ -331,7 +331,7 @@ class DeviceClient(BaseClient):
                 return await await_or_stop(delivery_future, timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for claiming publish result")
-                return PublishResult(mqtt_message.topic, 1, -1, len(mqtt_message.payload_size), -1)
+                return PublishResult(mqtt_message.topic, 1, -1, mqtt_message.payload_size, -1)
         else:
             return delivery_future
 

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_CLAIM_TOPIC
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
@@ -25,19 +26,75 @@ from tb_mqtt_client.entities.data.provisioning_request import ProvisioningReques
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.service.message_queue import MessageQueue
 
 
 @pytest.mark.asyncio
 async def test_send_timeseries_with_dict():
+    # Setup
     client = DeviceClient()
-    client._message_queue = AsyncMock(spec=MessageQueue)
-    future = asyncio.Future()
-    future.set_result(PublishResult("topic", 1, 1, 100, 1))
-    client._message_queue.publish.return_value = [future]
-    result = await client.send_timeseries({"temp": 22})
+    client._mqtt_manager._handle_puback_reason_code = (
+        client._mqtt_manager._handle_puback_reason_code.__get__(client._mqtt_manager)
+    )
+
+    class DummyConnection:
+        def __init__(self):
+            self.published_messages = []
+
+        def publish(self, *args, **kwargs):
+            self.published_messages.append(args[0])
+            return 1, 1
+
+    async def fake_subscribe(*args, **kwargs):
+        fut = asyncio.get_event_loop().create_future()
+        fut.set_result(1)
+        return fut
+
+    client._mqtt_manager.subscribe = fake_subscribe
+
+    # Patch MQTTManager.connect to simulate connection without real network
+    async def fake_connect(**kwargs):
+        client._mqtt_manager._is_connected = True
+        client._mqtt_manager._connected_event.set()
+
+    client._mqtt_manager.connect = fake_connect
+    client._mqtt_manager._rate_limits_ready_event.set()
+    client._mqtt_manager.is_connected = lambda: True
+
+    client._mqtt_manager._client._connection = DummyConnection()
+    client._mqtt_manager._client._persistent_storage.push_message_nowait = lambda *args, **kwargs: None
+
+    async def fake_await_ready():
+        return
+
+    client._mqtt_manager.await_ready = fake_await_ready
+
+    # Call connect (real queue and adapter will be initialized)
+    await client.connect()
+
+    # Act: send timeseries
+    delivery_futures = await client.send_timeseries({"temp": 22}, wait_for_publish=False)
+    await asyncio.sleep(.1)
+
+    # Trigger PUBACK manually
+    client._mqtt_manager._handle_puback_reason_code(
+        1,
+        reason_code=0,
+        properties={}
+    )
+    await asyncio.sleep(1)
+
+    # Await result
+    result = await asyncio.wait_for(delivery_futures[0], timeout=1)
+
+    mqtt_msg = client._mqtt_manager._client._connection.published_messages[0]
+
+    # Assert
     assert isinstance(result, PublishResult)
-    assert result.message_id == 1
+    assert result.message_id == -1  # The initial mqtt message doesn't contain message_id, expected behavior because an initial message can be split to separated messages or grouped with other messages
+    assert result.topic == mqtt_msg.topic
+    assert result.payload_size == mqtt_msg.payload_size
+    assert result.datapoints_count == mqtt_msg.datapoints
+    assert result.reason_code == 0
 
 
 @pytest.mark.asyncio
@@ -52,15 +109,66 @@ async def test_send_timeseries_timeout():
 
 
 @pytest.mark.asyncio
-async def test_send_attributes_dict():
+async def test_send_attributes_with_dict():
+    # Setup
     client = DeviceClient()
-    client._message_queue = AsyncMock()
-    fut = asyncio.Future()
-    fut.set_result(PublishResult("attr", 1, 2, 50, 1))
-    client._message_queue.publish.return_value = [fut]
-    result = await client.send_attributes({"key": "val"})
+    client._mqtt_manager._handle_puback_reason_code = (
+        client._mqtt_manager._handle_puback_reason_code.__get__(client._mqtt_manager)
+    )
+
+    class DummyConnection:
+        def __init__(self):
+            self.published_messages = []
+
+        def publish(self, *args, **kwargs):
+            self.published_messages.append(args[0])
+            return 2, 1  # Simulate mid=2, qos=1
+
+    async def fake_subscribe(*args, **kwargs):
+        fut = asyncio.get_event_loop().create_future()
+        fut.set_result(1)
+        return fut
+
+    client._mqtt_manager.subscribe = fake_subscribe
+
+    async def fake_connect(**kwargs):
+        client._mqtt_manager._is_connected = True
+        client._mqtt_manager._connected_event.set()
+
+    client._mqtt_manager.connect = fake_connect
+    client._mqtt_manager._rate_limits_ready_event.set()
+    client._mqtt_manager.is_connected = lambda: True
+
+    client._mqtt_manager._client._connection = DummyConnection()
+    client._mqtt_manager._client._persistent_storage.push_message_nowait = lambda *args, **kwargs: None
+
+    async def fake_await_ready():
+        return
+    client._mqtt_manager.await_ready = fake_await_ready
+
+    await client.connect()
+
+    # Act: send attributes
+    delivery_futures = await client.send_attributes({"key": "value"}, wait_for_publish=False)
+    await asyncio.sleep(.1)
+
+    # Trigger PUBACK manually
+    client._mqtt_manager._handle_puback_reason_code(
+        2, reason_code=0, properties={}
+    )
+    await asyncio.sleep(1)
+
+    result = await asyncio.wait_for(delivery_futures[0], timeout=1)
+
+    mqtt_msg = client._mqtt_manager._client._connection.published_messages[0]
+
+    # Assert
     assert isinstance(result, PublishResult)
-    assert result.message_id == 2
+    assert result.message_id == -1  # Split/group logic applies
+    assert result.topic == mqtt_msg.topic
+    assert result.payload_size == mqtt_msg.payload_size
+    assert result.datapoints_count == mqtt_msg.datapoints
+    assert result.reason_code == 0
 
 
 @pytest.mark.asyncio
@@ -115,7 +223,6 @@ async def test_claim_device_timeout():
     assert result.message_id == -1
 
 
-
 @pytest.mark.asyncio
 async def test_claim_device_payload_contains_secret_key():
     client = DeviceClient()
@@ -130,8 +237,10 @@ async def test_claim_device_payload_contains_secret_key():
 
     client._message_queue.publish.assert_awaited_once()
     args, kwargs = client._message_queue.publish.call_args
-    assert kwargs['topic'] == DEVICE_CLAIM_TOPIC
-    assert b"my-secret" in kwargs['payload']
+    mqtt_msg = args[0]
+    assert isinstance(mqtt_msg, MqttPublishMessage)
+    assert mqtt_msg.topic == DEVICE_CLAIM_TOPIC
+    assert b"my-secret" in mqtt_msg.payload
 
 
 @pytest.mark.asyncio
@@ -166,11 +275,12 @@ async def test_disconnect():
 async def test_stop_disconnects_and_shuts_down_queue():
     client = DeviceClient()
     client._mqtt_manager.is_connected = lambda: True
-    client._mqtt_manager.disconnect = AsyncMock()
-    client._message_queue = AsyncMock()
+    client._mqtt_manager.stop = AsyncMock()
+    client._message_queue = MagicMock()
+    client._message_queue.shutdown = AsyncMock()
     await client.stop()
     client._message_queue.shutdown.assert_awaited()
-    client._mqtt_manager.disconnect.assert_awaited()
+    client._mqtt_manager.stop.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -334,7 +444,7 @@ async def test_stops_if_event_is_set_during_connection():
 
 
 @pytest.mark.asyncio
-async def test_initializes_dispatcher_and_queue_after_connection():
+async def test_initializes_adapter_and_queue_after_connection():
     config = DeviceConfig()
     config.host = "localhost"
     config.port = 1883
@@ -382,7 +492,7 @@ async def test_uses_default_max_payload_size_when_not_provided():
 
 
 @pytest.mark.asyncio
-async def test_does_not_update_dispatcher_when_not_initialized():
+async def test_does_not_update_adapter_when_not_initialized():
     client = DeviceClient()
     client.max_payload_size = None
     client._message_adapter = None
@@ -472,7 +582,9 @@ async def test_send_attributes_no_wait():
     client._message_queue = AsyncMock()
     client._message_queue.publish.return_value = [asyncio.Future()]
     result = await client.send_attributes({"attr": "val"}, wait_for_publish=False)
-    assert result is None
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], asyncio.Future)
 
 
 @pytest.mark.asyncio
@@ -507,10 +619,8 @@ async def test_handle_requested_attribute_response_calls_handler():
 async def test_on_disconnect_clears_handlers():
     client = DeviceClient()
     client._requested_attribute_response_handler.clear = MagicMock()
-    client._rpc_response_handler.clear = MagicMock()
     await client._on_disconnect()
     client._requested_attribute_response_handler.clear.assert_called_once()
-    client._rpc_response_handler.clear.assert_called_once()
 
 
 @pytest.mark.asyncio

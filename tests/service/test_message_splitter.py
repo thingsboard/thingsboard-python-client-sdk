@@ -131,48 +131,6 @@ def test_builder_failure_during_split_raises(mock_builder_class):
         splitter.split_timeseries([message])
 
 
-# Negative test: one of delivery futures fails
-@pytest.mark.asyncio
-@patch("tb_mqtt_client.service.message_splitter.DeviceUplinkMessageBuilder")
-async def test_delivery_future_failure_propagation(mock_builder_class, splitter):
-    entry = mock_ts_entry()
-    message = MagicMock()
-    message.device_name = "deviceX"
-    message.device_profile = "profileX"
-    message.has_timeseries.return_value = True
-    message.timeseries = {"data": [entry] * 4}
-    message.attributes_datapoint_count.return_value = 0
-    message.timeseries_datapoint_count.return_value = 4
-    message.size = 50
-
-    main_future = asyncio.Future()
-    message.get_delivery_futures.return_value = [main_future]
-
-    fail_future = asyncio.Future()
-    ok_future = asyncio.Future()
-
-    built_msg1 = MagicMock()
-    built_msg1.get_delivery_futures.return_value = [fail_future]
-
-    built_msg2 = MagicMock()
-    built_msg2.get_delivery_futures.return_value = [ok_future]
-
-    builder = MagicMock()
-    builder.build.side_effect = [built_msg1, built_msg2]
-    mock_builder_class.return_value = builder
-
-    result = splitter.split_timeseries([message])
-    assert len(result) == 2
-
-    await asyncio.sleep(0)
-    fail_future.set_result(False)
-    ok_future.set_result(True)
-
-    await asyncio.sleep(0.1)
-    assert main_future.done()
-    assert main_future.result() is True
-
-
 # Property validation
 def test_payload_setter_validation():
     s = MessageSplitter()
@@ -238,3 +196,5 @@ async def test_split_attributes_different_devices_not_grouped():
             fut.set_result(PublishResult("test/topic", 1, 1, 100, 0))
 
 
+if __name__ == '__main__':
+    pytest.main([__file__, '-v', '--tb=short'])

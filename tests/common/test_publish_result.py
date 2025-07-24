@@ -44,6 +44,7 @@ def test_publish_result_repr(default_publish_result):
     assert "message_id=123" in result
     assert "payload_size=256" in result
     assert "reason_code=0" in result
+    assert "datapoints_count=0" in result
 
 
 def test_publish_result_as_dict(default_publish_result):
@@ -54,7 +55,8 @@ def test_publish_result_as_dict(default_publish_result):
         "qos": 1,
         "message_id": 123,
         "payload_size": 256,
-        "reason_code": 0
+        "reason_code": 0,
+        "datapoints_count": 0
     }
 
 

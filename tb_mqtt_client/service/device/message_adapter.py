@@ -88,7 +88,7 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_provision_request(self, provision_request) -> Tuple[str, bytes]:
+    def build_provision_request(self, provision_request) -> MqttPublishMessage:
         """
         Build the payload for a device provisioning request.
         This method should return a tuple of topic and payload bytes.
@@ -374,7 +374,7 @@ class JsonMessageAdapter(MessageAdapter):
         logger.trace("Built RPC response payload for request ID=%d with payload: %r", rpc_response.request_id, payload)
         return MqttPublishMessage(topic=topic, payload=payload, qos=1, datapoints=1)
 
-    def build_provision_request(self, provision_request: 'ProvisioningRequest') -> Tuple[str, bytes]:
+    def build_provision_request(self, provision_request: 'ProvisioningRequest') -> MqttPublishMessage:
         """
         Build the payload for a device provisioning request.
         :param provision_request: The ProvisioningRequest to build the payload for.
@@ -417,8 +417,14 @@ class JsonMessageAdapter(MessageAdapter):
             request["credentialsType"] = provision_request.credentials.credentials_type.value
 
         payload = dumps(request)
+        result_msg = MqttPublishMessage(
+            topic=topic,
+            payload=payload,
+            qos=1,
+            datapoints=1
+        )
         logger.trace("Built provision request payload: %r", provision_request)
-        return topic, payload
+        return result_msg
 
     @staticmethod
     def build_payload(msg: DeviceUplinkMessage, build_timeseries_payload) -> bytes:

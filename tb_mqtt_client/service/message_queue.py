@@ -63,7 +63,7 @@ class MessageQueue:
         self._gateway_adapter = gateway_message_adapter
         self._loop_task = asyncio.create_task(self._dequeue_loop())
         self._rate_limit_refill_task = asyncio.create_task(self._rate_limit_refill_loop())
-        asyncio.create_task(self.print_queue_statistics())
+        self.__print_queue_statistics_task = asyncio.create_task(self.print_queue_statistics())
         logger.debug("MessageQueue initialized: max_queue_size=%s, batch_time=%.3f, batch_count=%d",
                      max_queue_size, self._batch_max_time, batch_collect_max_count)
 
@@ -302,20 +302,16 @@ class MessageQueue:
         self._loop_task.cancel()
         if self._rate_limit_refill_task:
             self._rate_limit_refill_task.cancel()
+        self.__print_queue_statistics_task.cancel()
         with suppress(asyncio.CancelledError):
             await self._loop_task
             await self._rate_limit_refill_task
+            await self.__print_queue_statistics_task
 
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except asyncio.QueueEmpty:
-                break
+        self.clear()
 
         logger.debug("MessageQueue shutdown complete, message queue size: %d",
                         self._queue.qsize())
-        self.clear()
 
     @staticmethod
     async def _cancel_tasks(tasks: set[asyncio.Task]):
@@ -331,13 +327,13 @@ class MessageQueue:
     def clear(self):
         logger.debug("Clearing message queue...")
         while not self._queue.empty():
-            topic, message, delivery_futures, _, qos = self._queue.get_nowait()
-            for future in delivery_futures:
+            message = self._queue.get_nowait()
+            for future in message.delivery_futures:
                 future.set_result(PublishResult(
-                    topic=topic,
-                    qos=qos,
+                    topic=message.topic,
+                    qos=message.qos,
                     message_id=-1,
-                    payload_size=message.size if isinstance(message, DeviceUplinkMessage) or isinstance(message, GatewayUplinkMessage) else len(message),
+                    payload_size=message.payload_size,
                     reason_code=-1
                 ))
             self._queue.task_done()

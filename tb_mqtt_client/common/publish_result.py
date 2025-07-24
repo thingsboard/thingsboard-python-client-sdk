@@ -32,6 +32,16 @@ class PublishResult:
                 f"reason_code={self.reason_code}, "
                 f"datapoints_count={self.datapoints_count})")
 
+    def __eq__(self, other):
+        if not isinstance(other, PublishResult):
+            return NotImplemented
+        return (self.topic == other.topic and
+                self.qos == other.qos and
+                self.message_id == other.message_id and
+                self.payload_size == other.payload_size and
+                self.reason_code == other.reason_code and
+                self.datapoints_count == other.datapoints_count)
+
     def as_dict(self) -> dict:
         return {
             "topic": self.topic,
