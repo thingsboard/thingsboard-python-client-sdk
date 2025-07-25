@@ -146,8 +146,7 @@ class GatewayUplinkMessageBuilder:
                     self._timeseries[0].append(entry)
                 else:
                     self._timeseries[0] = [entry]
-        for timeseries_entry in timeseries:
-            self.__size += timeseries_entry.size
+            self.__size += entry.size
         return self
 
     def add_delivery_futures(self, futures: Union[

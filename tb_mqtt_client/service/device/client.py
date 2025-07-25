@@ -18,8 +18,6 @@ from random import choices
 from string import ascii_uppercase, digits
 from typing import Callable, Awaitable, Optional, Dict, Any, Union, List
 
-from orjson import dumps
-
 from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import get_logger

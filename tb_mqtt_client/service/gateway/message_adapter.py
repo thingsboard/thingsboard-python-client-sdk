@@ -372,12 +372,25 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         return {attr.key: attr.value for attr in msg.attributes}
 
     @staticmethod
-    def pack_timeseries(msg: GatewayUplinkMessage) -> List[Dict[str, Any]]:
-        now_ts = int(datetime.now(UTC).timestamp() * 1000)
-        packed = [
-            {"ts": entry.ts or now_ts, "values": {entry.key: entry.value}}
-            for entry in chain.from_iterable(msg.timeseries.values())
-        ]
-        logger.trace("Packed %d timeseries entry(s)", len(packed))
+    def pack_timeseries(msg: 'GatewayUplinkMessage') -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        entries = [e for entries in msg.timeseries.values() for e in entries]
+        if not entries:
+            return {}
 
-        return packed
+        all_ts_none = True
+        for e in entries:
+            if e.ts is not None:
+                all_ts_none = False
+                break
+
+        if all_ts_none:
+            result = {e.key: e.value for e in entries}
+            return [{"ts": msg.main_ts, "values": result}] if msg.main_ts is not None else result
+
+        now_ts = msg.main_ts if msg.main_ts is not None else int(datetime.now(UTC).timestamp() * 1000)
+        grouped = defaultdict(dict)
+        for e in entries:
+            ts = e.ts if e.ts is not None else now_ts
+            grouped[ts][e.key] = e.value
+
+        return [{"ts": ts, "values": values} for ts, values in grouped.items()]
