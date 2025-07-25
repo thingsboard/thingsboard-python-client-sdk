@@ -27,6 +27,7 @@ from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.provisioning_client import ProvisioningClient
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
@@ -73,9 +74,16 @@ class DeviceClient(BaseClient):
         self._message_adapter: MessageAdapter = JsonMessageAdapter(1000,
                                                                    1)  # Will be updated after connection established
 
-        self._messages_rate_limit = RateLimit("0:0,", name="messages")
-        self._telemetry_rate_limit = RateLimit("0:0,", name="telemetry")
-        self._telemetry_dp_rate_limit = RateLimit("0:0,", name="telemetryDataPoints")
+        self._rate_limiter = RateLimiter(
+            message_rate_limit=RateLimit("0:0,", name="messages"),
+            telemetry_message_rate_limit=RateLimit("0:0,", name="telemetryMessages"),
+            telemetry_datapoints_rate_limit=RateLimit("0:0,", name="telemetryDataPoints")
+        )
+        self._gateway_rate_limiter = RateLimiter(
+            message_rate_limit=RateLimit("0:0,", name="messages"),
+            telemetry_message_rate_limit=RateLimit("0:0,", name="telemetryMessages"),
+            telemetry_datapoints_rate_limit=RateLimit("0:0,", name="telemetryDataPoints")
+        )
         self._ssl_context = None
         self.max_payload_size = None
         self._max_inflight_messages = 100
@@ -132,13 +140,12 @@ class DeviceClient(BaseClient):
             logger.debug("Using default max_payload_size: %d", self.max_payload_size)
 
         self._message_adapter = JsonMessageAdapter(self.max_payload_size,
-                                                   self._telemetry_dp_rate_limit.minimal_limit)
+                                                   self._rate_limiter.telemetry_datapoints_rate_limit.minimal_limit)
         self._message_queue = MessageQueue(
             mqtt_manager=self._mqtt_manager,
             main_stop_event=self._stop_event,
-            message_rate_limit=self._messages_rate_limit,
-            telemetry_rate_limit=self._telemetry_rate_limit,
-            telemetry_dp_rate_limit=self._telemetry_dp_rate_limit,
+            device_rate_limiter=self._rate_limiter,
+            gateway_rate_limiter=self._gateway_rate_limiter,
             message_adapter=self._message_adapter,
             max_queue_size=self._max_uplink_message_queue_size,
         )
@@ -357,31 +364,6 @@ class DeviceClient(BaseClient):
         logger.info("Device client disconnected.")
         self._requested_attribute_response_handler.clear()
 
-    async def send_rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Union[
-        RPCResponse, None]:
-        """
-        Initiates a client-side RPC to ThingsBoard and awaits the result.
-        :param method: The RPC method to call.
-        :param params: The parameters to send.
-        :param timeout: Timeout for the response in seconds.
-        :return: RPCResponse object containing the result or error.
-        """
-        request_id = await RPCRequestIdProducer.get_next()
-        topic = mqtt_topics.build_device_rpc_request_topic(request_id)
-        payload = dumps({
-            "method": method,
-            "params": params or {}
-        })
-
-        future = self._rpc_response_handler.register_request(request_id)
-        # TODO: Use MQTT message instead of raw payload
-        await self._mqtt_manager.publish(topic, payload, qos=1)
-
-        try:
-            return await await_or_stop(future, timeout=timeout, stop_event=self._stop_event)
-        except TimeoutError:
-            raise TimeoutError(f"Timed out waiting for RPC response (method={method}, id={request_id})")
-
     async def _handle_attribute_update(self, topic: str, payload: bytes):
         await self._attribute_updates_handler.handle(topic, payload)
 
@@ -406,14 +388,14 @@ class DeviceClient(BaseClient):
 
             rate_limits = response.result.get('rateLimits', {})
 
-            await self._messages_rate_limit.set_limit(rate_limits.get("messages", "0:0,"))
-            await self._telemetry_rate_limit.set_limit(rate_limits.get("telemetryMessages", "0:0,"))
-            await self._telemetry_dp_rate_limit.set_limit(rate_limits.get("telemetryDataPoints", "0:0,"))
+            await self._rate_limiter.message_rate_limit.set_limit(rate_limits.get("messages", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._rate_limiter.telemetry_message_rate_limit.set_limit(rate_limits.get("telemetryMessages", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._rate_limiter.telemetry_datapoints_rate_limit.set_limit(rate_limits.get("telemetryDataPoints", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
 
             server_inflight = int(response.result.get("maxInflightMessages", 100))
             limits = [rl.minimal_limit for rl in [
-                self._messages_rate_limit,
-                self._telemetry_rate_limit
+                self._rate_limiter.message_rate_limit,
+                self._rate_limiter.telemetry_message_rate_limit,
             ] if rl.has_limit()]
 
             if limits:
@@ -426,10 +408,10 @@ class DeviceClient(BaseClient):
 
             if "maxPayloadSize" in response.result:
                 self.max_payload_size = int(response.result["maxPayloadSize"] * DEFAULT_RATE_LIMIT_PERCENTAGE / 100)
-                # Update the dispatcher's max_payload_size if it's already initialized
-                if self._message_adapter is not None and hasattr(self._message_adapter, 'splitter'):
+                # Update the adapter's splitter with the new max_payload_size
+                if self._message_adapter is not None:
                     self._message_adapter.splitter.max_payload_size = self.max_payload_size
-                    logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
+                    logger.debug("Updated adapter's max_payload_size to %d", self.max_payload_size)
             else:
                 # If maxPayloadSize is not provided, keep the default value
                 logger.debug("No maxPayloadSize in service config, using default: %d", self.max_payload_size)
@@ -442,9 +424,11 @@ class DeviceClient(BaseClient):
                         self._message_adapter.splitter.max_payload_size = self.max_payload_size
                         logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
 
-            if (not self._messages_rate_limit.has_limit()
-                    and not self._telemetry_rate_limit.has_limit()
-                    and not self._telemetry_dp_rate_limit.has_limit()):
+            self._message_adapter.splitter.max_datapoints = self._rate_limiter.telemetry_datapoints_rate_limit.minimal_limit
+
+            if (not self._rate_limiter.message_rate_limit.has_limit()
+                    and not self._rate_limiter.telemetry_message_rate_limit.has_limit()
+                    and not self._rate_limiter.telemetry_datapoints_rate_limit.has_limit()):
                 self._max_queued_messages = 50000
                 logger.debug("No rate limits, setting max_queued_messages to 50000")
             else:
@@ -454,11 +438,7 @@ class DeviceClient(BaseClient):
             logger.info("Service configuration retrieved and applied.")
             logger.info("Parsed device limits: %r", response)
 
-            self._mqtt_manager.set_rate_limits(
-                self._messages_rate_limit,
-                self._telemetry_rate_limit,
-                self._telemetry_dp_rate_limit
-            )
+            self._mqtt_manager.set_rate_limits_received()
             return True
 
         except Exception as e:

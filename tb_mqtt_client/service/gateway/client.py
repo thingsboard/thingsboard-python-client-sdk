@@ -20,11 +20,13 @@ from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
@@ -61,6 +63,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         """
         self._config = config if isinstance(config, GatewayConfig) else GatewayConfig(config)
         super().__init__(self._config)
+        self._mqtt_manager.enable_gateway_mode()
 
         self.device_manager = DeviceManager()
 
@@ -73,7 +76,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_RESPONSE, self._uplink_message_sender.send_rpc_response)
         self._event_dispatcher.register(GatewayEventType.GATEWAY_CLAIM_REQUEST, self._uplink_message_sender.send_claim_request)
 
-        self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter()
+        self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter(1000, 1)  # Default max payload size and datapoints count limit, should be changed after connection established
         self._uplink_message_sender.set_message_adapter(self._gateway_message_adapter)
 
         self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
@@ -393,3 +396,26 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                 logger.warning("Unsubscribe from gateway rpc topic timed out")
                 break
             await sleep(0.01)
+
+    async def _handle_rate_limit_response(self, response: RPCResponse):  # noqa
+        parent_rate_limits_processing = await super()._handle_rate_limit_response(response)
+        try:
+            if not isinstance(response.result, dict) or 'gatewayRateLimits' not in response.result:
+                logger.warning("Invalid gateway rate limit response: %r", response)
+                return None
+
+            gateway_rate_limits = response.result.get('gatewayRateLimits', {})
+
+            await self._gateway_rate_limiter.message_rate_limit.set_limit(gateway_rate_limits.get('messages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._gateway_rate_limiter.telemetry_message_rate_limit.set_limit(gateway_rate_limits.get('telemetryMessages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._gateway_rate_limiter.telemetry_datapoints_rate_limit.set_limit(gateway_rate_limits.get('telemetryDataPoints', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+
+            self._gateway_message_adapter.splitter.max_payload_size = self.max_payload_size
+            self._gateway_message_adapter.splitter.max_datapoints = self._device_telemetry_dp_rate_limit.minimal_limit
+
+            self._mqtt_manager.set_gateway_rate_limits_received()
+            return parent_rate_limits_processing
+
+        except Exception as e:
+            logger.exception("Failed to parse rate limits from server response: %s", e)
+            return False

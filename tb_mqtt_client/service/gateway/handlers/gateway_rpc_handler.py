@@ -16,8 +16,6 @@ from typing import Awaitable, Callable, Optional
 
 from tb_mqtt_client.common.async_utils import await_or_stop
 from tb_mqtt_client.common.logging_utils import get_logger
-from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 from tb_mqtt_client.entities.gateway.gateway_rpc_request import GatewayRPCRequest
 from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse

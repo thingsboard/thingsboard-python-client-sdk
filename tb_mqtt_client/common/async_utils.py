@@ -11,7 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import threading
 from typing import Union, Optional, Any, List, Set, Dict
 import asyncio
 
@@ -127,3 +127,39 @@ async def await_and_resolve_original(
             if f is not None and not f.done():
                 f.set_exception(e)
                 logger.debug("Set fallback exception for parent future #%d id=%r", i, getattr(f, 'uuid', f))
+
+
+def run_coroutine_sync(coro_func, timeout: float = 3.0, raise_on_timeout: bool = False):
+    """
+    Run async coroutine and return its result from a sync function even if event loop is running.
+    :param coro_func: async function with no arguments (like: lambda: some_async_fn())
+    :param timeout: max wait time in seconds
+    :param raise_on_timeout: if True, raise TimeoutError on timeout; otherwise return None
+    """
+    result_container = {}
+    event = threading.Event()
+
+    async def wrapper():
+        try:
+            result = await coro_func()
+            result_container['result'] = result
+        except Exception as e:
+            result_container['error'] = e
+        finally:
+            event.set()
+
+    loop = asyncio.get_running_loop()
+    loop.create_task(wrapper())
+
+    completed = event.wait(timeout=timeout)
+
+    if not completed:
+        logger.warning("Timeout while waiting for coroutine to finish: %s", coro_func)
+        if raise_on_timeout:
+            raise TimeoutError(f"Coroutine {coro_func} did not complete in {timeout} seconds.")
+        return None
+
+    if 'error' in result_container:
+        raise result_container['error']
+
+    return result_container.get('result')

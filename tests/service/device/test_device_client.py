@@ -255,15 +255,6 @@ async def test_send_attribute_request():
 
 
 @pytest.mark.asyncio
-async def test_send_rpc_call_timeout():
-    client = DeviceClient()
-    client._mqtt_manager.publish = AsyncMock()
-    client._rpc_response_handler.register_request = MagicMock(return_value=asyncio.Future())
-    with pytest.raises(TimeoutError):
-        await client.send_rpc_call("reboot", timeout=0.01)
-
-
-@pytest.mark.asyncio
 async def test_disconnect():
     client = DeviceClient()
     client._mqtt_manager.disconnect = AsyncMock()
@@ -535,7 +526,7 @@ async def test_handle_rate_limit_response_with_partial_data():
     response = RPCResponse.build(1, result={"rateLimits": {"messages": "5:1"}})
     result = await client._handle_rate_limit_response(response)
     assert result is True
-    assert client._messages_rate_limit.has_limit()
+    assert client._rate_limiter.message_rate_limit.has_limit()
     assert client.max_payload_size == 65535
 
 

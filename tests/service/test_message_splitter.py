@@ -22,7 +22,7 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter
-from tb_mqtt_client.service.message_splitter import MessageSplitter
+from tb_mqtt_client.service.device.message_splitter import MessageSplitter
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_single_small_attributes_pass_through(splitter):
 # Negative test: invalid payload size and datapoints
 def test_invalid_config_defaults():
     splitter = MessageSplitter(max_payload_size=-10, max_datapoints=-100)
-    assert splitter.max_payload_size == 65535
+    assert splitter.max_payload_size == 55000
     assert splitter.max_datapoints == 0
 
 
@@ -86,33 +86,44 @@ def test_malformed_message_handling(splitter):
 
 
 # Negative test: builder fails on build()
-@patch("tb_mqtt_client.service.message_splitter.DeviceUplinkMessageBuilder")
+@patch("tb_mqtt_client.service.device.message_splitter.DeviceUplinkMessageBuilder")
 def test_builder_failure_during_split_raises(mock_builder_class):
-    entry = MagicMock()
-    entry.size = 10
+    async def run_test():
+        entry = MagicMock()
+        entry.size = 10
 
-    message = MagicMock()
-    message.device_name = "dev"
-    message.device_profile = "prof"
-    message.has_timeseries.return_value = True
-    message.timeseries = {"temp": [entry] * 4}
-    message.get_delivery_futures.return_value = []
-    message.attributes_datapoint_count.return_value = 0
-    message.timeseries_datapoint_count.return_value = 4
-    message.size = 50
+        message = MagicMock()
+        message.device_name = "dev"
+        message.device_profile = "prof"
+        message.has_timeseries.return_value = True
+        message.timeseries = {"temp": [entry] * 5}
+        message.get_delivery_futures.return_value = []
+        message.attributes_datapoint_count.return_value = 0
+        message.timeseries_datapoint_count.return_value = 5
+        message.size = 100
 
-    builder_instance = MagicMock()
-    builder_instance.set_device_name.return_value = builder_instance
-    builder_instance.set_device_profile.return_value = builder_instance
-    builder_instance.add_timeseries.return_value = None
-    builder_instance._timeseries = [entry]
-    builder_instance.build.side_effect = RuntimeError("build failed")
-    mock_builder_class.return_value = builder_instance
+        builder_instance = MagicMock()
+        builder_instance.set_device_name.return_value = builder_instance
+        builder_instance.set_device_profile.return_value = builder_instance
+        builder_instance.set_main_ts.return_value = builder_instance
 
-    splitter = MessageSplitter(max_payload_size=20, max_datapoints=2)
+        builder_instance._timeseries = []
 
-    with pytest.raises(RuntimeError, match="build failed"):
-        splitter.split_timeseries([message])
+        def add_ts_side_effect(ts):
+            builder_instance._timeseries.append(ts)
+
+        builder_instance.add_timeseries.side_effect = add_ts_side_effect
+        builder_instance.add_delivery_futures.return_value = None
+        builder_instance.build.side_effect = RuntimeError("build failed")
+
+        mock_builder_class.return_value = builder_instance
+
+        splitter = MessageSplitter(max_payload_size=20, max_datapoints=2)
+
+        with pytest.raises(RuntimeError, match="build failed"):
+            splitter.split_timeseries([message])
+
+    asyncio.run(run_test())
 
 
 # Property validation
@@ -121,7 +132,7 @@ def test_payload_setter_validation():
     s.max_payload_size = 12345
     assert s.max_payload_size == 12345
     s.max_payload_size = 0
-    assert s.max_payload_size == 65535
+    assert s.max_payload_size == 55000
 
 
 def test_datapoint_setter_validation():
@@ -180,7 +191,7 @@ async def test_split_attributes_different_devices_not_grouped():
             fut.set_result(PublishResult("test/topic", 1, 1, 100, 0))
 
 
-@patch("tb_mqtt_client.service.message_splitter.future_map.register")
+@patch("tb_mqtt_client.service.device.message_splitter.future_map.register")
 @pytest.mark.asyncio
 async def test_split_timeseries_registers_futures_and_batches_correctly(mock_register):
     splitter = MessageSplitter(max_payload_size=100, max_datapoints=2)

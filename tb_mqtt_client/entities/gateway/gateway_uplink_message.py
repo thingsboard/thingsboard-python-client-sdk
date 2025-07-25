@@ -55,7 +55,8 @@ class GatewayUplinkMessage(DeviceUplinkMessage, BaseGatewayEvent):
               attributes: List[AttributeEntry],
               timeseries: Mapping[int, List[TimeseriesEntry]],
               delivery_futures: List[Optional[asyncio.Future]],
-              size: int) -> 'GatewayUplinkMessage':
+              size: int,
+              main_ts: Optional[int]) -> 'GatewayUplinkMessage':
         self = object.__new__(cls)
         object.__setattr__(self, 'device_name', device_name)
         object.__setattr__(self, 'device_profile', device_profile)
@@ -65,6 +66,7 @@ class GatewayUplinkMessage(DeviceUplinkMessage, BaseGatewayEvent):
         object.__setattr__(self, 'delivery_futures', tuple(delivery_futures))
         object.__setattr__(self, '_size', size)
         object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_UPLINK)
+        object.__setattr__(self, 'main_ts', main_ts)
         return self
 
     @property
@@ -86,6 +88,15 @@ class GatewayUplinkMessage(DeviceUplinkMessage, BaseGatewayEvent):
     def get_delivery_futures(self) -> List[Optional[asyncio.Future[PublishResult]]]:
         return self.delivery_futures
 
+    def set_main_ts(self, main_ts: int) -> 'GatewayUplinkMessage':
+        """
+        Set the main timestamp for the message.
+        :param main_ts: The main timestamp to set.
+        :return: The updated GatewayUplinkMessage instance.
+        """
+        object.__setattr__(self, 'main_ts', main_ts)
+        return self
+
 
 class GatewayUplinkMessageBuilder:
     def __init__(self):
@@ -95,6 +106,7 @@ class GatewayUplinkMessageBuilder:
         self._timeseries: OrderedDict[int, List[TimeseriesEntry]] = OrderedDict()
         self._delivery_futures: List[Optional[asyncio.Future[PublishResult]]] = []
         self.__size = DEFAULT_FIELDS_SIZE
+        self._main_ts: Optional[int] = None
 
     def set_device_name(self, device_name: str) -> 'GatewayUplinkMessageBuilder':
         self._device_name = device_name
@@ -147,6 +159,10 @@ class GatewayUplinkMessageBuilder:
             self._delivery_futures.extend(futures)
         return self
 
+    def set_main_ts(self, main_ts: int) -> 'GatewayUplinkMessageBuilder':
+        self._main_ts = main_ts
+        return self
+
     def build(self) -> GatewayUplinkMessage:
         if not self._delivery_futures:
             delivery_future = asyncio.get_event_loop().create_future()
@@ -158,5 +174,6 @@ class GatewayUplinkMessageBuilder:
             attributes=self._attributes,
             timeseries=self._timeseries,
             delivery_futures=self._delivery_futures,
-            size=self.__size
+            size=self.__size,
+            main_ts=self._main_ts
         )

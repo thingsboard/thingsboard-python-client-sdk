@@ -33,7 +33,7 @@ async def main():
 
     # Connecting device
 
-    device_name = "Test Device A1"
+    device_name = "Test Device B1"
     device_profile = "Test devices"
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)

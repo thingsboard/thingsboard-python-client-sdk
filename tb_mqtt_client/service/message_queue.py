@@ -19,8 +19,9 @@ from typing import List, Optional
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.constants import mqtt_topics
+from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TOPICS
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
@@ -36,21 +37,19 @@ class MessageQueue:
     def __init__(self,
                  mqtt_manager: MQTTManager,
                  main_stop_event: asyncio.Event,
-                 message_rate_limit: Optional[RateLimit],
-                 telemetry_rate_limit: Optional[RateLimit],
-                 telemetry_dp_rate_limit: Optional[RateLimit],
+                 device_rate_limiter: RateLimiter,
                  message_adapter: MessageAdapter,
                  max_queue_size: int = 1000000,
                  batch_collect_max_time_ms: int = 100,
                  batch_collect_max_count: int = 500,
-                 gateway_message_adapter: Optional[GatewayMessageAdapter] = None):
+                 gateway_message_adapter: Optional[GatewayMessageAdapter] = None,
+                 gateway_rate_limiter: Optional[RateLimiter] = None):
         self._main_stop_event = main_stop_event
         self._batch_max_time = batch_collect_max_time_ms / 1000
         self._batch_max_count = batch_collect_max_count
         self._mqtt_manager = mqtt_manager
-        self._message_rate_limit = message_rate_limit
-        self._telemetry_rate_limit = telemetry_rate_limit
-        self._telemetry_dp_rate_limit = telemetry_dp_rate_limit
+        self._device_rate_limiter = device_rate_limiter
+        self._gateway_rate_limiter = gateway_rate_limiter
         self._backpressure = self._mqtt_manager.backpressure
         # Queue expects tuples of (mqtt_message, delivery_futures)
         self._queue: asyncio.Queue[MqttPublishMessage] = asyncio.Queue(maxsize=max_queue_size)
@@ -169,9 +168,6 @@ class MessageQueue:
                 continue
 
     async def _try_publish(self, message: MqttPublishMessage):
-        is_message_with_telemetry_or_attributes = message.topic in (mqtt_topics.DEVICE_TELEMETRY_TOPIC,
-                                                                    mqtt_topics.DEVICE_ATTRIBUTES_TOPIC)
-        # TODO: Add topics check for gateways
 
         logger.trace("Attempting publish: topic=%s, datapoints=%d", message.topic, message.datapoints)
 
@@ -181,39 +177,8 @@ class MessageQueue:
             self._schedule_delayed_retry(message)
             return
 
-        # Check and consume rate limits atomically before publishing
-        if is_message_with_telemetry_or_attributes:
-            # For telemetry messages, we need to check both message and datapoint rate limits
-            telemetry_msg_success = True
-            telemetry_dp_success = True
+        await self.check_rate_limits_for_message(message)
 
-            if self._telemetry_rate_limit:
-                triggered_rate_limit = await self._telemetry_rate_limit.try_consume(1)
-                if triggered_rate_limit:
-                    logger.debug("Telemetry message rate limit hit for topic %s: %r per %r seconds",
-                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
-                    retry_delay = self._telemetry_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(message, delay=retry_delay)
-                    return
-
-            if self._telemetry_dp_rate_limit:
-                triggered_rate_limit = await self._telemetry_dp_rate_limit.try_consume(message.datapoints)
-                if triggered_rate_limit:
-                    logger.debug("Telemetry datapoint rate limit hit for topic %s: %r per %r seconds",
-                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
-                    retry_delay = self._telemetry_dp_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(message, delay=retry_delay)
-                    return
-        else:
-            # For non-telemetry messages, we only need to check the message rate limit
-            if self._message_rate_limit:
-                triggered_rate_limit = await self._message_rate_limit.try_consume(1)
-                if triggered_rate_limit:
-                    logger.debug("Generic message rate limit hit for topic %s: %r per %r seconds",
-                                 message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
-                    retry_delay = self._message_rate_limit.minimal_timeout
-                    self._schedule_delayed_retry(message, delay=retry_delay)
-                    return
         try:
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.trace("Trying to publish topic=%s, payload size=%d, attached future id=%r",
@@ -312,6 +277,46 @@ class MessageQueue:
         logger.debug("MessageQueue shutdown complete, message queue size: %d",
                         self._queue.qsize())
 
+    async def check_rate_limits_for_message(self, message: MqttPublishMessage):
+
+        message_rate_limit = None
+        datapoints_rate_limit = None
+
+        is_message_with_telemetry_or_attributes = message.topic in mqtt_topics.TOPICS_WITH_DATAPOINTS_CHECK
+        is_gateway_message = message.topic in GATEWAY_TOPICS
+
+        if is_gateway_message:
+            if is_message_with_telemetry_or_attributes:
+                message_rate_limit = self._gateway_rate_limiter.telemetry_message_rate_limit
+                datapoints_rate_limit = self._gateway_rate_limiter.telemetry_datapoints_rate_limit
+            else:
+                message_rate_limit = self._gateway_rate_limiter.message_rate_limit
+        else:
+            if is_message_with_telemetry_or_attributes:
+                message_rate_limit = self._device_rate_limiter.telemetry_message_rate_limit
+                datapoints_rate_limit = self._device_rate_limiter.telemetry_datapoints_rate_limit
+            else:
+                message_rate_limit = self._device_rate_limiter.message_rate_limit
+
+        retry_delay = None
+
+        if message_rate_limit:
+            triggered_rate_limit = await message_rate_limit.try_consume(1)
+            if triggered_rate_limit:
+                logger.debug("Rate limit hit for topic %s: %r per %r seconds",
+                             message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
+                retry_delay = message_rate_limit.minimal_timeout
+        if datapoints_rate_limit and retry_delay is None:
+            triggered_rate_limit = await datapoints_rate_limit.try_consume(message.datapoints)
+            if triggered_rate_limit:
+                logger.debug("Datapoint rate limit hit for topic %s: %r per %r seconds",
+                             message.topic, triggered_rate_limit[0], triggered_rate_limit[1])
+                retry_delay = datapoints_rate_limit.minimal_timeout
+
+        if retry_delay is not None:
+            self._schedule_delayed_retry(message, delay=retry_delay)
+
+
     @staticmethod
     async def _cancel_tasks(tasks: set[asyncio.Task]):
         for task in list(tasks):
@@ -343,23 +348,21 @@ class MessageQueue:
             while self._active.is_set():
                 await asyncio.sleep(1.0)
                 await self._refill_rate_limits()
-                logger.trace("Rate limits refilled, state: %s",
-                             {
-                                 "message_rate_limit": self._message_rate_limit.to_dict() if self._message_rate_limit else None,
-                                 "telemetry_rate_limit": self._telemetry_rate_limit.to_dict() if self._telemetry_rate_limit else None,
-                                 "telemetry_dp_rate_limit": self._telemetry_dp_rate_limit.to_dict() if self._telemetry_dp_rate_limit else None
-                             })
+                logger.trace("Rate limits refilled, state: %s", self._device_rate_limiter)
         except asyncio.CancelledError:
             pass
 
     async def _refill_rate_limits(self):
-        for rl in (self._message_rate_limit, self._telemetry_rate_limit, self._telemetry_dp_rate_limit):
+        for rl in self._device_rate_limiter.values():
             if rl:
                 await rl.refill()
+        if self._gateway_rate_limiter:
+            for rl in self._gateway_rate_limiter.values():
+                if rl:
+                    await rl.refill()
 
     def set_gateway_message_adapter(self, message_adapter: GatewayMessageAdapter):
         self._gateway_adapter = message_adapter
-
 
     async def print_queue_statistics(self):
         """

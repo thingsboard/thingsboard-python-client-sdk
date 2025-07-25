@@ -21,6 +21,7 @@ import pytest_asyncio
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.constants.mqtt_topics import DEVICE_TELEMETRY_TOPIC
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
@@ -46,9 +47,7 @@ async def message_queue(fake_mqtt_manager):
     mq = MessageQueue(
         mqtt_manager=fake_mqtt_manager,
         main_stop_event=main_stop_event,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(RateLimit('0:0,'), RateLimit('0:0,'), RateLimit('0:0,')),
         message_adapter=message_adapter,
         max_queue_size=10,
         batch_collect_max_time_ms=10,
@@ -82,9 +81,7 @@ async def test_shutdown_clears_tasks_and_queue(fake_mqtt_manager):
     q = MessageQueue(
         mqtt_manager=fake_mqtt_manager,
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=Mock(build_uplink_messages=Mock(return_value=[])),
         max_queue_size=10,
         batch_collect_max_time_ms=10,
@@ -131,9 +128,7 @@ async def test_try_publish_rate_limit_triggered():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=limit,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(AsyncMock(), limit, AsyncMock()),
         message_adapter=Mock(build_uplink_messages=Mock(return_value=[])),
     )
     mq._schedule_delayed_retry = AsyncMock()
@@ -150,6 +145,7 @@ async def test_try_publish_failure_schedules_retry(message_queue):
     message = MqttPublishMessage("topic", b"broken", qos=1, delivery_futures=[])
     message_queue._mqtt_manager.publish.side_effect = Exception("fail")
     message_queue._schedule_delayed_retry = AsyncMock()
+    message_queue._mqtt_manager._backpressure.should_pause.return_value = False
     await message_queue._try_publish(message)
     await asyncio.sleep(0.2)
     assert message_queue._schedule_delayed_retry.call_count == 1
@@ -172,9 +168,7 @@ async def test_rate_limit_refill():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=rate_limit,
-        telemetry_rate_limit=rate_limit,
-        telemetry_dp_rate_limit=rate_limit,
+        device_rate_limiter=RateLimiter(rate_limit, rate_limit, rate_limit),
         message_adapter=Mock(),
     )
     await mq._refill_rate_limits()
@@ -195,9 +189,7 @@ async def test_wait_for_message_cancel():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=Mock(),
     )
 
@@ -216,9 +208,7 @@ async def test_clear_futures_result_set():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=Mock(),
     )
     mq._queue.put_nowait(MqttPublishMessage("topic", msg, qos=1, delivery_futures=[fut]))
@@ -236,9 +226,7 @@ async def test_message_queue_batching_respects_type_and_size():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop_event,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(RateLimit('0:0,'), RateLimit('0:0,'), RateLimit('0:0,')),
         message_adapter=message_adapter,
         batch_collect_max_time_ms=200,
         max_queue_size=100,
@@ -270,9 +258,7 @@ async def test_schedule_delayed_retry_reenqueues_message():
     queue = MessageQueue(
         mqtt_manager=MagicMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=MagicMock()
     )
 
@@ -303,9 +289,7 @@ async def test_schedule_delayed_retry_does_nothing_if_inactive():
     queue = MessageQueue(
         mqtt_manager=MagicMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=MagicMock()
     )
 
@@ -333,9 +317,7 @@ async def test_schedule_delayed_retry_does_nothing_if_stopped():
     queue = MessageQueue(
         mqtt_manager=MagicMock(),
         main_stop_event=stop_event,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=MagicMock()
     )
 
@@ -360,9 +342,7 @@ async def test_try_publish_telemetry_rate_limit_triggered():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=telemetry_limit,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), telemetry_limit, MagicMock()),
         message_adapter=Mock(build_uplink_messages=Mock(return_value=[]))
     )
     mq._schedule_delayed_retry = AsyncMock()
@@ -389,9 +369,7 @@ async def test_try_publish_telemetry_dp_rate_limit_triggered():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=dp_limit,
+        device_rate_limiter=RateLimiter(RateLimit('0:0,'), RateLimit('0:0,'), dp_limit),
         message_adapter=Mock(build_uplink_messages=Mock(return_value=[]))
     )
     mq._schedule_delayed_retry = AsyncMock()
@@ -419,9 +397,7 @@ async def test_try_publish_generic_message_rate_limit_triggered():
     mq = MessageQueue(
         mqtt_manager=AsyncMock(),
         main_stop_event=asyncio.Event(),
-        message_rate_limit=generic_limit,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(generic_limit, MagicMock(), MagicMock()),
         message_adapter=Mock()
     )
     mq._schedule_delayed_retry = AsyncMock()
@@ -457,9 +433,7 @@ async def test_batch_breaks_on_elapsed_time():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=adapter,
         batch_collect_max_time_ms=1,
         batch_collect_max_count=1000
@@ -491,9 +465,7 @@ async def test_batch_breaks_on_message_count():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=adapter,
         batch_collect_max_time_ms=1000,
         batch_collect_max_count=2
@@ -528,9 +500,7 @@ async def test_batch_breaks_on_type_mismatch():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=adapter,
         batch_collect_max_time_ms=1000,
         batch_collect_max_count=10
@@ -573,9 +543,7 @@ async def test_batch_breaks_on_size_threshold():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=adapter,
         batch_collect_max_time_ms=1000,
         batch_collect_max_count=10
@@ -605,9 +573,7 @@ async def test_batch_skips_bytes_payload():
     mq = MessageQueue(
         mqtt_manager=mqtt_manager,
         main_stop_event=stop,
-        message_rate_limit=None,
-        telemetry_rate_limit=None,
-        telemetry_dp_rate_limit=None,
+        device_rate_limiter=RateLimiter(MagicMock(), MagicMock(), MagicMock()),
         message_adapter=JsonMessageAdapter(),
         batch_collect_max_time_ms=1000,
         batch_collect_max_count=1000

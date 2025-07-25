@@ -48,7 +48,7 @@ async def main():
 
     # Connecting device
 
-    device_name = "Test Device A1"
+    device_name = "Test Device B1"
     device_profile = "Test devices"
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)
@@ -80,6 +80,12 @@ async def main():
     attribute_request = await GatewayAttributeRequest.build(device_session=device_session, client_keys=attributes_to_request)
 
     await client.send_device_attributes_request(device_session, attribute_request, wait_for_publish=True)
+
+    # Trying to request shared attribute "state" (Response will be empty if not set)
+
+    logger.info("Requesting shared attribute 'state' for device: %s", device_name)
+    shared_attribute_request = await GatewayAttributeRequest.build(device_session=device_session, shared_keys=["state"])
+    await client.send_device_attributes_request(device_session, shared_attribute_request, wait_for_publish=True)
 
     await asyncio.sleep(1)  # Wait for the response to be processed
 

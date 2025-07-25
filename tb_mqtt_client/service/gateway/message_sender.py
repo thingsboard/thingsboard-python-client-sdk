@@ -16,6 +16,7 @@ from asyncio import Future
 from typing import List, Union, Optional
 
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
@@ -56,23 +57,21 @@ class GatewayMessageSender:
             return None
         futures = []
         if message.has_timeseries():
-            topic = mqtt_topics.GATEWAY_TELEMETRY_TOPIC
-            timeseries_futures = await self._message_queue.publish(
-                                topic=topic,
-                                payload=message,
-                                datapoints_count=message.timeseries_datapoint_count(),
-                                qos=qos
-                                )
-            futures.extend(timeseries_futures)
+            mqtt_message = MqttPublishMessage(
+                topic=mqtt_topics.GATEWAY_TELEMETRY_TOPIC,
+                payload=message,
+                qos=qos
+            )
+            await self._message_queue.publish(mqtt_message)
+            futures.extend(mqtt_message.delivery_futures)
         if message.has_attributes():
-            topic = mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC
-            attributes_futures = await self._message_queue.publish(
-                                topic=topic,
-                                payload=message,
-                                datapoints_count=message.attributes_datapoint_count(),
-                                qos=qos
-                                )
-            futures.extend(attributes_futures)
+            mqtt_message = MqttPublishMessage(
+                topic=mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC,
+                payload=message,
+                qos=qos
+            )
+            await self._message_queue.publish(mqtt_message)
+            futures.extend(mqtt_message.delivery_futures)
         return futures
 
     async def send_device_connect(self, device_connect_message: DeviceConnectMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
@@ -86,13 +85,9 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send device connect message. Message queue is not set, do you connected to the platform?")
             return None
-        topic, payload = self._message_adapter.build_device_connect_message_payload(device_connect_message=device_connect_message)
-        return await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=qos
-        )
+        mqtt_message = self._message_adapter.build_device_connect_message_payload(device_connect_message=device_connect_message, qos=qos)
+        await self._message_queue.publish(mqtt_message)
+        return mqtt_message.delivery_futures
 
     async def send_device_disconnect(self, device_disconnect_message: DeviceDisconnectMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
         """
@@ -105,13 +100,9 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send device disconnect message. Message queue is not set, do you connected to the platform?")
             return None
-        topic, payload = self._message_adapter.build_device_disconnect_message_payload(device_disconnect_message=device_disconnect_message)
-        return await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=qos
-        )
+        mqtt_message = self._message_adapter.build_device_disconnect_message_payload(device_disconnect_message=device_disconnect_message, qos=qos)
+        await self._message_queue.publish(mqtt_message)
+        return mqtt_message.delivery_futures
 
     async def send_attributes_request(self, attribute_request: GatewayAttributeRequest, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
         """
@@ -124,13 +115,9 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send attribute request. Message queue is not set, do you connected to the platform?")
             return None
-        topic, payload = self._message_adapter.build_gateway_attribute_request_payload(attribute_request=attribute_request)
-        return await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=qos
-        )
+        mqtt_message = self._message_adapter.build_gateway_attribute_request_payload(attribute_request=attribute_request, qos=qos)
+        await self._message_queue.publish(mqtt_message)
+        return mqtt_message.delivery_futures
 
     async def send_rpc_response(self, rpc_response: GatewayRPCResponse, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
         """
@@ -143,13 +130,9 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send RPC response. Message queue is not set, do you connected to the platform?")
             return None
-        topic, payload = self._message_adapter.build_rpc_response_payload(rpc_response=rpc_response)
-        return await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=qos
-        )
+        mqtt_message = self._message_adapter.build_rpc_response_payload(rpc_response=rpc_response, qos=qos)
+        await self._message_queue.publish(mqtt_message)
+        return mqtt_message.delivery_futures
 
     async def send_claim_request(self, claim_request: GatewayClaimRequest, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
         """
@@ -162,13 +145,9 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send claim request. Message queue is not set, do you connected to the platform?")
             return None
-        topic, payload = self._message_adapter.build_claim_request_payload(claim_request=claim_request)
-        return await self._message_queue.publish(
-            topic=topic,
-            payload=payload,
-            datapoints_count=1,
-            qos=qos
-        )
+        mqtt_message = self._message_adapter.build_claim_request_payload(claim_request=claim_request, qos=qos)
+        await self._message_queue.publish(mqtt_message)
+        return mqtt_message.delivery_futures
 
     def set_message_queue(self, message_queue: MessageQueue):
         """

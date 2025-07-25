@@ -22,7 +22,7 @@ import pytest_asyncio
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
-from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 from tb_mqtt_client.service.mqtt_manager import MQTTManager, IMPLEMENTATION_SPECIFIC_ERROR, QUOTA_EXCEEDED
@@ -188,8 +188,7 @@ async def test_await_ready_timeout(setup_manager):
 @pytest.mark.asyncio
 async def test_set_rate_limits_allows_ready(setup_manager):
     manager, *_ = setup_manager
-    mock_limit = MagicMock()
-    manager.set_rate_limits(mock_limit, None, None)
+    manager.set_rate_limits_received()
     assert manager._rate_limits_ready_event.is_set()
 
 
@@ -224,7 +223,8 @@ async def test_subscribe_adds_future(setup_manager):
     manager._client._connection.subscribe.return_value = 42
 
     mock_rate_limit = AsyncMock()
-    setattr(manager, "_MQTTManager__rate_limiter", {MESSAGES_RATE_LIMIT: mock_rate_limit})
+    rate_limiter = RateLimiter(mock_rate_limit, MagicMock(), MagicMock())
+    setattr(manager, "_MQTTManager__rate_limiter", rate_limiter)
 
     fut = await manager.subscribe("topic", qos=1)
     await asyncio.sleep(0.1)
@@ -241,7 +241,8 @@ async def test_unsubscribe_adds_future(setup_manager):
     manager._client._connection.unsubscribe.return_value = 77
 
     mock_rate_limit = AsyncMock()
-    setattr(manager, "_MQTTManager__rate_limiter", {MESSAGES_RATE_LIMIT: mock_rate_limit})
+    rate_limiter = RateLimiter(mock_rate_limit, MagicMock(), MagicMock())
+    setattr(manager, "_MQTTManager__rate_limiter", rate_limiter)
 
     fut = await manager.unsubscribe("topic")
     await asyncio.sleep(0.1)
@@ -343,6 +344,7 @@ async def test_request_rate_limits_timeout(setup_manager):
 
     with patch("tb_mqtt_client.entities.data.rpc_request.RPCRequest.build", return_value=req_mock):
         await manager._MQTTManager__request_rate_limits()
+        manager.set_rate_limits_received()
         assert manager._rate_limits_ready_event.is_set()
 
 
@@ -360,8 +362,10 @@ async def test_match_topic_exact_match_and_failures():
     assert not MQTTManager._match_topic("a/+/c", "a/x")
 
 
+@patch("tb_mqtt_client.service.mqtt_manager.run_coroutine_sync")
 @pytest.mark.asyncio
-async def test_disconnect_reason_code_142_triggers_special_flow(setup_manager):
+async def test_disconnect_reason_code_142_triggers_special_flow(mock_run_sync, setup_manager):
+    mock_run_sync.return_value = (None, 1, 1)
     manager, *_ = setup_manager
     manager._client = MagicMock()
     manager._backpressure = MagicMock()

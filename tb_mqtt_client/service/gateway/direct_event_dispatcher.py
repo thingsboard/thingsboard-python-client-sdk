@@ -49,12 +49,12 @@ class DirectEventDispatcher:
             return await device_session.handle_event_to_device(event)
         async with self._lock:
             callbacks = list(self._handlers.get(event.event_type, []))
-        for cb in callbacks:
+        for callback in callbacks:
             try:
-                if asyncio.iscoroutinefunction(cb):
-                    return await cb(event, *args, **kwargs)
+                if asyncio.iscoroutinefunction(callback):
+                    return await callback(event, *args, **kwargs)
                 else:
-                    return cb(event, *args, **kwargs)
+                    return callback(event, *args, **kwargs)
             except Exception as e:
                 logger.error(f"[EventDispatcher] Exception in handler for '{event.event_type}': {e}")
         return None

@@ -79,6 +79,8 @@ class RateLimit:
 
         entries = rate_limit.replace(";", ",").split(",")
         for entry in entries:
+            if not entry.strip():
+                continue
             try:
                 limit_str, dur_str = entry.strip().split(":")
                 limit = int(int(limit_str) * self.percentage / 100)

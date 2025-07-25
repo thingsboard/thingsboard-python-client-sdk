@@ -14,7 +14,6 @@
 
 import asyncio
 import ssl
-import threading
 from asyncio import sleep
 from contextlib import suppress
 from time import monotonic
@@ -23,17 +22,16 @@ from uuid import uuid4
 
 from gmqtt import Client as GMQTTClient, Subscription
 
-from tb_mqtt_client.common.async_utils import await_or_stop, future_map
+from tb_mqtt_client.common.async_utils import await_or_stop, future_map, run_coroutine_sync
 from tb_mqtt_client.common.gmqtt_patch import PatchUtils
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit
+from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.common.request_id_generator import RPCRequestIdProducer, AttributeRequestIdProducer
 from tb_mqtt_client.constants import mqtt_topics
-from tb_mqtt_client.constants.service_keys import MESSAGES_RATE_LIMIT, TELEMETRY_MESSAGE_RATE_LIMIT, \
-    TELEMETRY_DATAPOINTS_RATE_LIMIT
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
@@ -96,19 +94,12 @@ class MQTTManager:
         self._backpressure = BackpressureController(self._main_stop_event)
         self.__rate_limits_handler = rate_limits_handler
         self.__rate_limits_retrieved = False
-        self.__rate_limiter: Optional[Dict[str, RateLimit]] = None
-        self.__is_gateway = False  # TODO: determine if this is a gateway or not
+        self.__gateway_rate_limits_retrieved = False
+        self.__rate_limiter: Optional[RateLimiter] = None
+        self.__gateway_rate_limiter: Optional[RateLimiter] = None
+        self.__is_gateway = False
         self.__is_waiting_for_rate_limits_publish = True  # Start with True to prevent publishing before rate limits are retrieved
         self._rate_limits_ready_event = asyncio.Event()
-        self._claiming_future = None
-
-    # TODO: In case of implementing for gateway may be better to use a handler, to discuss
-    def register_claiming_future(self, future: asyncio.Future):
-        """
-        Register a future that will be set when the claiming process is complete.
-        This is used to ensure that the MQTT client does not publish messages before the claiming process is done.
-        """
-        self._claiming_future = future
 
     async def connect(self, host: str, port: int = 1883, username: Optional[str] = None,
                       password: Optional[str] = None, tls: bool = False,
@@ -142,7 +133,10 @@ class MQTTManager:
                 await asyncio.sleep(retry_delay)
 
     def is_connected(self) -> bool:
-        return self._client.is_connected and self._connected_event.is_set() and self.__rate_limits_retrieved
+        return (self._client.is_connected
+                and self._connected_event.is_set()
+                and self.__rate_limits_retrieved
+                and (not self.__is_gateway or self.__gateway_rate_limits_retrieved))
 
     async def disconnect(self):
         try:
@@ -234,7 +228,7 @@ class MQTTManager:
         subscription = Subscription(topic, qos=qos) if isinstance(topic, str) else topic
 
         if self.__rate_limiter:
-            await self.__rate_limiter[MESSAGES_RATE_LIMIT].consume()
+            await self.__rate_limiter.message_rate_limit.consume()
         mid = self._client._connection.subscribe([subscription])  # noqa
         self._pending_subscriptions[mid] = sub_future
         return sub_future
@@ -243,7 +237,7 @@ class MQTTManager:
         unsubscribe_future = asyncio.get_event_loop().create_future()
         unsubscribe_future.uuid = uuid4()
         if self.__rate_limiter:
-            await self.__rate_limiter[MESSAGES_RATE_LIMIT].consume()
+            await self.__rate_limiter.message_rate_limit.consume()
         mid = self._client._connection.unsubscribe(topic)  # noqa
         self._pending_unsubscriptions[mid] = unsubscribe_future
         return unsubscribe_future
@@ -331,7 +325,7 @@ class MQTTManager:
             for rate_limit in self.__rate_limiter.values():
                 if isinstance(rate_limit, RateLimit):
                     try:
-                        reached_limit = self._run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
+                        reached_limit = run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
                     except TimeoutError:
                         logger.warning("Timeout while checking rate limit reaching.")
                         reached_time = 10 # Default to 10 seconds if timeout occurs
@@ -344,41 +338,6 @@ class MQTTManager:
 
         if self._on_disconnect_callback:
             asyncio.create_task(self._on_disconnect_callback())
-
-    def _run_coroutine_sync(self, coro_func, timeout: float = 3.0, raise_on_timeout: bool = False):
-        """
-        Run async coroutine and return its result from a sync function even if event loop is running.
-        :param coro_func: async function with no arguments (like: lambda: some_async_fn())
-        :param timeout: max wait time in seconds
-        :param raise_on_timeout: if True, raise TimeoutError on timeout; otherwise return None
-        """
-        result_container = {}
-        event = threading.Event()
-
-        async def wrapper():
-            try:
-                result = await coro_func()
-                result_container['result'] = result
-            except Exception as e:
-                result_container['error'] = e
-            finally:
-                event.set()
-
-        loop = asyncio.get_running_loop()
-        loop.create_task(wrapper())
-
-        completed = event.wait(timeout=timeout)
-
-        if not completed:
-            logger.warning("Timeout while waiting for coroutine to finish: %s", coro_func)
-            if raise_on_timeout:
-                raise TimeoutError(f"Coroutine {coro_func} did not complete in {timeout} seconds.")
-            return None
-
-        if 'error' in result_container:
-            raise result_container['error']
-
-        return result_container.get('result')
 
     def _on_message_internal(self, client, topic: str, payload: bytes, qos, properties):
         logger.trace("Received message by client %r on topic %s with payload %r, qos %r, properties %r",
@@ -440,25 +399,23 @@ class MQTTManager:
         if future and not future.done():
             future.set_result(mid)
 
-    async def await_ready(self, timeout: float = 10.0):
+    async def await_ready(self, timeout: float = 5.0):
         try:
             await await_or_stop(self._rate_limits_ready_event.wait(), self._main_stop_event, timeout=timeout)
         except asyncio.TimeoutError:
             logger.debug("Waiting for rate limits timed out.")
 
-    def set_rate_limits(
-            self,
-            message_rate_limit: Union[RateLimit, Dict[str, RateLimit]],
-            telemetry_message_rate_limit: Optional[RateLimit],
-            telemetry_dp_rate_limit: Optional[RateLimit]
-    ):
-        self.__rate_limiter = {
-            MESSAGES_RATE_LIMIT: message_rate_limit,
-            TELEMETRY_MESSAGE_RATE_LIMIT: telemetry_message_rate_limit,
-            TELEMETRY_DATAPOINTS_RATE_LIMIT: telemetry_dp_rate_limit
-        }
+    def set_rate_limits_received(self):
         self.__rate_limits_retrieved = True
         self.__is_waiting_for_rate_limits_publish = False
+        if not self.__is_gateway:
+            self._rate_limits_ready_event.set()
+
+    def enable_gateway_mode(self):
+        self.__is_gateway = True
+
+    def set_gateway_rate_limits_received(self):
+        self.__gateway_rate_limits_retrieved = True
         self._rate_limits_ready_event.set()
 
     async def __request_rate_limits(self):
@@ -474,9 +431,9 @@ class MQTTManager:
             await self.publish(mqtt_message, qos=1, force=True)
             await await_or_stop(response_future, self._main_stop_event, timeout=10)
             logger.info("Successfully processed rate limits.")
-            self.__rate_limits_retrieved = True
-            self.__is_waiting_for_rate_limits_publish = False
-            self._rate_limits_ready_event.set()
+            # self.__rate_limits_retrieved = True
+            # self.__is_waiting_for_rate_limits_publish = False
+            # self._rate_limits_ready_event.set()
         except asyncio.TimeoutError:
             logger.warning("Timeout while waiting for rate limits.")
             # Keep __is_waiting_for_rate_limits_publish as True to prevent publishing
@@ -539,9 +496,3 @@ class MQTTManager:
 
         if self._client.is_connected:
             await self._client.disconnect()
-
-    async def failed_messages_reprocessing(self):
-        """
-        Reprocess failed messages that were not acknowledged by the server.
-        Using internal Gmqtt queue to get messages that were not acknowledged.
-        """

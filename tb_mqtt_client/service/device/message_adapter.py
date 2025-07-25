@@ -15,7 +15,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import UTC, datetime
-from itertools import chain
 from typing import Any, Dict, List, Optional, Union
 
 from orjson import dumps, loads
@@ -33,8 +32,7 @@ from tb_mqtt_client.entities.data.provisioning_response import ProvisioningRespo
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
-from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.service.message_splitter import MessageSplitter
+from tb_mqtt_client.service.device.message_splitter import MessageSplitter
 
 logger = get_logger(__name__)
 
@@ -42,7 +40,7 @@ logger = get_logger(__name__)
 class MessageAdapter(ABC):
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         self._splitter = MessageSplitter(max_payload_size, max_datapoints)
-        logger.trace("MessageDispatcher initialized with max_payload_size=%s, max_datapoints=%s",
+        logger.trace("MessageAdapter initialized with max_payload_size=%s, max_datapoints=%s",
                      max_payload_size, max_datapoints)
 
     @abstractmethod
@@ -95,12 +93,12 @@ class MessageAdapter(ABC):
         """
         pass
 
-    @abstractmethod
+    @property
     def splitter(self) -> MessageSplitter:
         """
-        Get the message splitter instance.
+        Get the message splitter instance used by this adapter.
         """
-        pass
+        return self._splitter
 
     @abstractmethod
     def parse_requested_attribute_response(self, topic: str, payload: bytes) -> RequestedAttributeResponse:
@@ -234,10 +232,6 @@ class JsonMessageAdapter(MessageAdapter):
         except Exception as e:
             logger.error("Failed to parse provisioning response: %s", str(e))
             return ProvisioningResponse.build(provisioning_request, {"status": "FAILURE", "errorMsg": str(e)})
-
-    @property
-    def splitter(self) -> MessageSplitter:
-        return self._splitter
 
     def build_uplink_messages(self, messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
         if not messages:

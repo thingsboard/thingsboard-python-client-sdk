@@ -12,32 +12,32 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import asyncio
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from datetime import datetime, UTC
 from itertools import chain
-from typing import List, Optional, Tuple, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 
 from orjson import loads, dumps
 
+from tb_mqtt_client.common.async_utils import future_map
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
-from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.constants.mqtt_topics import GATEWAY_TELEMETRY_TOPIC, GATEWAY_ATTRIBUTES_TOPIC, \
     GATEWAY_CONNECT_TOPIC, GATEWAY_DISCONNECT_TOPIC, GATEWAY_ATTRIBUTES_REQUEST_TOPIC, GATEWAY_RPC_TOPIC, \
     GATEWAY_CLAIM_TOPIC
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
-from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
-from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
-from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.gateway_attribute_request import GatewayAttributeRequest
 from tb_mqtt_client.entities.gateway.gateway_attribute_update import GatewayAttributeUpdate
+from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRequest
 from tb_mqtt_client.entities.gateway.gateway_requested_attribute_response import GatewayRequestedAttributeResponse
 from tb_mqtt_client.entities.gateway.gateway_rpc_request import GatewayRPCRequest
+from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
+from tb_mqtt_client.service.gateway.message_splitter import GatewayMessageSplitter
 
 logger = get_logger(__name__)
 
@@ -46,11 +46,23 @@ class GatewayMessageAdapter(ABC):
     """
     Adapter for converting events to uplink messages and received messages to events.
     """
+    def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
+        self._splitter = GatewayMessageSplitter(max_payload_size, max_datapoints)
+        logger.trace("GatewayMessageAdapter initialized with max_payload_size=%s, max_datapoints=%s",
+                     max_payload_size, max_datapoints)
+
+    @property
+    def splitter(self) -> GatewayMessageSplitter:
+        """
+        Returns the message splitter instance used by this adapter.
+        This allows for splitting messages into smaller parts if needed.
+        """
+        return self._splitter
 
     @abstractmethod
     def build_uplink_messages(
         self,
-        messages: List[GatewayUplinkMessage]
+        messages: List[MqttPublishMessage]
     ) -> List[MqttPublishMessage]:
         """
         Build a list of topic-payload pairs from the given messages.
@@ -60,7 +72,7 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage) -> Tuple[str, bytes]:
+    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage, qos) -> MqttPublishMessage:
         """
         Build the payload for a device connect message.
         This method should be implemented to handle the specific format of the payload.
@@ -68,7 +80,7 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_device_disconnect_message_payload(self, device_disconnect_message: DeviceDisconnectMessage) -> Tuple[str, bytes]:
+    def build_device_disconnect_message_payload(self, device_disconnect_message: DeviceDisconnectMessage, qos) -> MqttPublishMessage:
         """
         Build the payload for a device disconnect message.
         This method should be implemented to handle the specific format of the payload.
@@ -76,7 +88,7 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest) -> Tuple[str, bytes]:
+    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway attribute request.
         This method should be implemented to handle the specific format of the payload.
@@ -84,7 +96,7 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway RPC response.
         This method should be implemented to handle the specific format of the payload.
@@ -92,7 +104,7 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_claim_request_payload(self, claim_request: GatewayClaimRequest) -> Tuple[str, bytes]:
+    def build_claim_request_payload(self, claim_request: GatewayClaimRequest, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway claim request.
         This method should be implemented to handle the specific format of the payload.
@@ -108,7 +120,9 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def parse_gateway_requested_attribute_response(self, gateway_attribute_request: GatewayAttributeRequest, data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
+    def parse_gateway_requested_attribute_response(self,
+                                                   gateway_attribute_request: GatewayAttributeRequest,
+                                                   data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
         """
         Parse the gateway attribute response data into an GatewayAttributeResponse.
         This method should be implemented to handle the specific format of the payload.
@@ -138,91 +152,78 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
     Builds uplink payloads from uplink message objects and parses JSON payloads into GatewayEvent objects.
     """
 
-    def build_uplink_messages(self, messages: List[GatewayUplinkMessage]) -> List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]]:
-        """
-        Build a list of topic-payload pairs from the given messages.
-        Each pair consists of a topic string, payload bytes, the number of datapoints,
-        and a list of futures for delivery confirmation.
-        """
-        try:
-            if not messages:
-                logger.trace("No messages to process in build_topic_payloads.")
-                return []
+    def build_uplink_messages(self, messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
+        if not messages:
+            logger.trace("No messages to process in build_uplink_messages.")
+            return []
 
-            result: List[Tuple[str, bytes, int, List[Optional[asyncio.Future[PublishResult]]]]] = []
-            device_groups: Dict[str, List[GatewayUplinkMessage]] = defaultdict(list)
+        result: List[MqttPublishMessage] = []
+        device_groups: Dict[str, List[GatewayUplinkMessage]] = defaultdict(list)
+        qos = messages[0].qos
 
-            for msg in messages:
-                device_name = msg.device_name
-                device_groups[device_name].append(msg)
-                logger.trace("Queued message for device='%s'", device_name)
+        # Group by device
+        for mqtt_msg in messages:
+            payload = mqtt_msg.payload
+            if isinstance(payload, GatewayUplinkMessage):
+                device_groups[payload.device_name].append(payload)
+                logger.trace("Queued GatewayUplinkMessage for device='%s'", payload.device_name)
+            else:
+                logger.warning("Unsupported payload type '%s', skipping", type(payload).__name__)
 
-            logger.trace("Processing %d device group(s).", len(device_groups))
+        # Process each device group
+        for device_name, group_msgs in device_groups.items():
+            telemetry_msgs = [m for m in group_msgs if m.has_timeseries()]
+            attr_msgs = [m for m in group_msgs if m.has_attributes()]
+            built_child_messages: List[MqttPublishMessage] = []
 
-            gateway_timeseries_message = {}
-            gateway_attributes_message = {}
-            gateway_timeseries_device_datapoints_counts: Dict[str, int] = {}
-            gateway_attributes_device_datapoints_counts: Dict[str, int] = {}
-            gateway_timeseries_delivery_futures: Dict[str, List[Optional[asyncio.Future[PublishResult]]]] = {}
-            gateway_attributes_delivery_futures: Dict[str, List[Optional[asyncio.Future[PublishResult]]]] = {}
-            for device, device_msgs in device_groups.items():
-                timeseries_msgs: List[GatewayUplinkMessage] = [m for m in device_msgs if m.has_timeseries()]
-                attr_msgs: List[GatewayUplinkMessage] = [m for m in device_msgs if m.has_attributes()]
-                if device not in gateway_timeseries_message and timeseries_msgs:
-                    gateway_timeseries_message[device] = []
-                    gateway_timeseries_delivery_futures[device] = []
-                if device not in gateway_attributes_message and attr_msgs:
-                    gateway_attributes_message[device] = {}
-                    gateway_attributes_delivery_futures[device] = []
-                logger.trace("Device '%s' - telemetry: %d, attributes: %d",
-                             device, len(timeseries_msgs), len(attr_msgs))
-
-                # TODO: Recommended to add message splitter to handle large messages and split them into smaller batches
-                for ts_batch in timeseries_msgs:
-                    packed_ts = JsonGatewayMessageAdapter.pack_timeseries(ts_batch)
-                    gateway_timeseries_message[device].extend(packed_ts)
+            if telemetry_msgs:
+                for ts_batch in self._splitter.split_timeseries(telemetry_msgs):
+                    payload_dict = {device_name: self.pack_timeseries(ts_batch)}
+                    payload_bytes = dumps(payload_dict)
                     count = ts_batch.timeseries_datapoint_count()
-                    gateway_timeseries_device_datapoints_counts[device] = gateway_timeseries_device_datapoints_counts.get(device, 0) + count
-                    gateway_timeseries_delivery_futures[device] = ts_batch.get_delivery_futures()
-                    logger.trace("Built telemetry payload for device='%s' with %d datapoints", device, count)
+                    futures = ts_batch.get_delivery_futures() or []
 
-                for attr_batch in attr_msgs:
-                    packed_attrs = JsonGatewayMessageAdapter.pack_attributes(attr_batch)
+                    mqtt_msg = MqttPublishMessage(
+                        topic=GATEWAY_TELEMETRY_TOPIC,
+                        payload=payload_bytes,
+                        qos=qos,
+                        datapoints=count,
+                        delivery_futures=futures,
+                        main_ts=ts_batch.main_ts
+                    )
+                    result.append(mqtt_msg)
+                    built_child_messages.append(mqtt_msg)
+
+            if attr_msgs:
+                for attr_batch in self._splitter.split_attributes(attr_msgs):
+                    payload_dict = {device_name: self.pack_attributes(attr_batch)}
+                    payload_bytes = dumps(payload_dict)
                     count = attr_batch.attributes_datapoint_count()
-                    gateway_attributes_message[device].update(packed_attrs)
-                    gateway_attributes_device_datapoints_counts[device] = gateway_attributes_device_datapoints_counts.get(device, 0) + count
-                    gateway_attributes_delivery_futures[device] = attr_batch.get_delivery_futures()
-                    logger.trace("Built attribute payload for device='%s' with %d attributes", device, count)
+                    futures = attr_batch.get_delivery_futures() or []
 
-            if gateway_timeseries_message:
-                all_timeseries_delivery_futures = set()
-                for futures in gateway_timeseries_delivery_futures.values():
-                    if futures:
-                        all_timeseries_delivery_futures.update(futures)
+                    mqtt_msg = MqttPublishMessage(
+                        topic=GATEWAY_ATTRIBUTES_TOPIC,
+                        payload=payload_bytes,
+                        qos=qos,
+                        datapoints=count,
+                        delivery_futures=futures,
+                        main_ts=attr_batch.main_ts
+                    )
+                    result.append(mqtt_msg)
+                    built_child_messages.append(mqtt_msg)
 
-                result.append((GATEWAY_TELEMETRY_TOPIC,
-                              dumps(gateway_timeseries_message),
-                              sum(gateway_timeseries_device_datapoints_counts[per_device] for per_device in gateway_timeseries_device_datapoints_counts),
-                              list(all_timeseries_delivery_futures)))
-            if gateway_attributes_message:
-                all_attributes_delivery_futures = set()
-                for futures in gateway_attributes_delivery_futures.values():
-                    if futures:
-                        all_attributes_delivery_futures.update(futures)
-                result.append((GATEWAY_ATTRIBUTES_TOPIC,
-                              dumps(gateway_attributes_message),
-                              sum(gateway_attributes_device_datapoints_counts[per_device] for per_device in gateway_attributes_device_datapoints_counts),
-                              list(all_attributes_delivery_futures)))
+            # Link parent futures to child delivery futures
+            parent_futures = [f for m in messages for f in (m.delivery_futures or [])
+                              if isinstance(m.payload, GatewayUplinkMessage) and m.payload.device_name == device_name]
+            for parent in parent_futures:
+                for child_msg in built_child_messages:
+                    for child in child_msg.delivery_futures or []:
+                        future_map.register(parent, [child])
 
-            logger.trace("Generated %d topic-payload entries.", len(result))
+        logger.trace("Generated %d MqttPublishMessage(s) for gateway uplink.", len(result))
+        return result
 
-            return result
-        except Exception as e:
-            logger.error("Error building topic-payloads: %s", str(e))
-            logger.debug("Exception details: %s", e, exc_info=True)
-            raise
-
-    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage) -> Tuple[str, bytes]:
+    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage, qos) -> MqttPublishMessage:
         """
         Build the payload for a device connect message.
         This method serializes the DeviceConnectMessage to JSON format.
@@ -230,12 +231,12 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         try:
             payload = dumps(device_connect_message.to_payload_format())
             logger.trace("Built device connect message payload for device='%s'", device_connect_message.device_name)
-            return GATEWAY_CONNECT_TOPIC, payload
+            return MqttPublishMessage(GATEWAY_CONNECT_TOPIC, payload, qos=1)
         except Exception as e:
             logger.error("Failed to build device connect message payload: %s", str(e))
             raise ValueError("Invalid device connect message format") from e
 
-    def build_device_disconnect_message_payload(self, device_disconnect_message: DeviceDisconnectMessage) -> Tuple[str, bytes]:
+    def build_device_disconnect_message_payload(self,device_disconnect_message: DeviceDisconnectMessage, qos) -> MqttPublishMessage:
         """
         Build the payload for a device disconnect message.
         This method serializes the DeviceDisconnectMessage to JSON format.
@@ -243,12 +244,12 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         try:
             payload = dumps(device_disconnect_message.to_payload_format())
             logger.trace("Built device disconnect message payload for device='%s'", device_disconnect_message.device_name)
-            return GATEWAY_DISCONNECT_TOPIC, payload
+            return MqttPublishMessage(GATEWAY_DISCONNECT_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build device disconnect message payload: %s", str(e))
             raise ValueError("Invalid device disconnect message format") from e
 
-    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest) -> Tuple[str, bytes]:
+    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway attribute request.
         This method serializes the GatewayAttributeRequest to JSON format.
@@ -257,12 +258,12 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
             payload = dumps(attribute_request.to_payload_format())
             logger.trace("Built gateway attribute request payload for device='%s'",
                          attribute_request.device_session.device_info.device_name)
-            return GATEWAY_ATTRIBUTES_REQUEST_TOPIC, payload
+            return MqttPublishMessage(GATEWAY_ATTRIBUTES_REQUEST_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build gateway attribute request payload: %s", str(e))
             raise ValueError("Invalid gateway attribute request format") from e
 
-    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse) -> Tuple[str, bytes]:
+    def build_rpc_response_payload(self, rpc_response: GatewayRPCResponse, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway RPC response.
         This method serializes the GatewayRPCResponse to JSON format.
@@ -271,12 +272,12 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
             payload = dumps(rpc_response.to_payload_format())
             logger.trace("Built RPC response payload for device='%s', request_id=%i",
                          rpc_response.device_name, rpc_response.request_id)
-            return GATEWAY_RPC_TOPIC, payload
+            return MqttPublishMessage(GATEWAY_RPC_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build RPC response payload: %s", str(e))
             raise ValueError("Invalid RPC response format") from e
 
-    def build_claim_request_payload(self, claim_request: GatewayClaimRequest) -> Tuple[str, bytes]:
+    def build_claim_request_payload(self, claim_request: GatewayClaimRequest, qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway claim request.
         This method serializes the GatewayClaimRequest to JSON format.
@@ -284,7 +285,7 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         try:
             payload = dumps(claim_request.to_payload_format())
             logger.trace("Built claim request payload for devices: %s", list(claim_request.devices_requests.keys()))
-            return GATEWAY_CLAIM_TOPIC, payload
+            return MqttPublishMessage(GATEWAY_CLAIM_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build claim request payload: %s", str(e))
             raise ValueError("Invalid claim request format") from e
@@ -298,7 +299,9 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
             logger.error("Failed to parse attribute update: %s", str(e))
             raise ValueError("Invalid attribute update format") from e
 
-    def parse_gateway_requested_attribute_response(self, gateway_attribute_request: GatewayAttributeRequest, data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
+    def parse_gateway_requested_attribute_response(self,
+                                                   gateway_attribute_request: GatewayAttributeRequest,
+                                                   data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
         """
         Parse the gateway attribute response data into a GatewayRequestedAttributeResponse.
         This method extracts the device name, shared and client attributes from the payload.
@@ -307,8 +310,13 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
             device_name = data['device']
             client = []
             shared = []
-            if 'value' in data and not ((len(gateway_attribute_request.client_keys) == 1 and not gateway_attribute_request.shared_keys)
-                                        or (len(gateway_attribute_request.shared_keys) == 1 and not gateway_attribute_request.client_keys)):
+            client_keys_empty = gateway_attribute_request.client_keys is None
+            shared_keys_empty = gateway_attribute_request.shared_keys is None
+            if ('value' in data
+                    and not (((not client_keys_empty and len(gateway_attribute_request.client_keys) == 1)
+                              and not gateway_attribute_request.shared_keys)
+                             or ((not shared_keys_empty and len(gateway_attribute_request.shared_keys) == 1)
+                                 and not gateway_attribute_request.client_keys))):
                 # TODO: Skipping case when requested several attributes, but only one is returned, issue on the platform
                 logger.warning("Received gateway attribute response with single key, but multiply keys expected. "
                                "Request keys: %s, Response keys: %s",
@@ -316,18 +324,21 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                                data['value'])
                 return None
             elif 'value' in data:
-                if gateway_attribute_request.client_keys is not None and len(gateway_attribute_request.client_keys) == 1:
+                if not client_keys_empty and len(gateway_attribute_request.client_keys) == 1:
                     client = [AttributeEntry(gateway_attribute_request.client_keys[0], data['value'])]
-                elif gateway_attribute_request.shared_keys is not None and len(gateway_attribute_request.shared_keys) == 1:
+                elif not shared_keys_empty and len(gateway_attribute_request.shared_keys) == 1:
                     shared = [AttributeEntry(gateway_attribute_request.shared_keys[0], data['value'])]
             elif 'values' in data:
-                if gateway_attribute_request.client_keys is not None and len(gateway_attribute_request.client_keys) > 0:
+                if not client_keys_empty and len(gateway_attribute_request.client_keys) > 0:
                     client = [AttributeEntry(k, v) for k, v in data['values'].items() if
                               k in gateway_attribute_request.client_keys]
-                if gateway_attribute_request.shared_keys is not None and len(gateway_attribute_request.shared_keys) > 0:
+                if not shared_keys_empty and len(gateway_attribute_request.shared_keys) > 0:
                     shared = [AttributeEntry(k, v) for k, v in data['values'].items() if
                               k in gateway_attribute_request.shared_keys]
-            return GatewayRequestedAttributeResponse(device_name=device_name, request_id=gateway_attribute_request.request_id, shared=shared, client=client)
+            return GatewayRequestedAttributeResponse(device_name=device_name,
+                                                     request_id=gateway_attribute_request.request_id,
+                                                     shared=shared,
+                                                     client=client)
         except Exception as e:
             logger.error("Failed to parse gateway requested attribute response: %s", str(e))
             raise ValueError("Invalid gateway requested attribute response format") from e

@@ -22,21 +22,17 @@ from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
+from tb_mqtt_client.service.base_message_splitter import BaseMessageSplitter
 
 logger = get_logger(__name__)
 
 
-class MessageSplitter:
-    def __init__(self, max_payload_size: int = 65535, max_datapoints: int = 0):
-        if max_payload_size is None or max_payload_size <= 0:
-            logger.debug("Invalid max_payload_size: %s, using default 65535", max_payload_size)
-            max_payload_size = 65535
-        if max_datapoints is None or max_datapoints < 0:
-            logger.debug("Invalid max_datapoints: %s, using default 0", max_datapoints)
-            max_datapoints = 0
+class MessageSplitter(BaseMessageSplitter):
+    DEFAULT_MAX_PAYLOAD_SIZE = 55_000  # Default to 55_000 to allow for some overhead
 
-        self._max_payload_size = max_payload_size
-        self._max_datapoints = max_datapoints
+    def __init__(self, max_payload_size: int = DEFAULT_MAX_PAYLOAD_SIZE, max_datapoints: int = 0):
+        self._max_payload_size = max_payload_size if max_payload_size is not None and max_payload_size > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
+        self._max_datapoints = max_datapoints if max_datapoints is not None and max_datapoints > 0 else 0
         logger.trace("MessageSplitter initialized with max_payload_size=%d, max_datapoints=%d",
                      self._max_payload_size, self._max_datapoints)
 
@@ -78,7 +74,7 @@ class MessageSplitter:
 
                 if not builder or exceeds_size or exceeds_points:
                     if builder:
-                        shared_future = asyncio.Future()
+                        shared_future = asyncio.get_running_loop().create_future()
                         shared_future.uuid = uuid4()
                         builder.add_delivery_futures(shared_future)
 
@@ -101,7 +97,7 @@ class MessageSplitter:
                 point_count += 1
 
             if builder and builder._timeseries:  # noqa
-                shared_future = asyncio.Future()
+                shared_future = asyncio.get_running_loop().create_future()
                 shared_future.uuid = uuid4()
                 builder.add_delivery_futures(shared_future)
 
@@ -152,7 +148,7 @@ class MessageSplitter:
 
                 if not builder or exceeds_size or exceeds_points:
                     if builder and builder._attributes:  # noqa
-                        shared_future = asyncio.Future()
+                        shared_future = asyncio.get_running_loop().create_future()
                         shared_future.uuid = uuid4()
                         builder.add_delivery_futures(shared_future)
 
@@ -174,7 +170,7 @@ class MessageSplitter:
                 point_count += 1
 
             if builder and builder._attributes:  # noqa
-                shared_future = asyncio.Future()
+                shared_future = asyncio.get_running_loop().create_future()
                 shared_future.uuid = uuid4()
                 builder.add_delivery_futures(shared_future)
 
@@ -195,7 +191,7 @@ class MessageSplitter:
     @max_payload_size.setter
     def max_payload_size(self, value: int):
         old = self._max_payload_size
-        self._max_payload_size = value if value > 0 else 65535
+        self._max_payload_size = value if value is not None and value > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
         logger.debug("Updated max_payload_size: %d -> %d", old, self._max_payload_size)
 
     @property
@@ -205,5 +201,5 @@ class MessageSplitter:
     @max_datapoints.setter
     def max_datapoints(self, value: int):
         old = self._max_datapoints
-        self._max_datapoints = value if value > 0 else 0
+        self._max_datapoints = value if value is not None and value > 0 else 0
         logger.debug("Updated max_datapoints: %d -> %d", old, self._max_datapoints)
