@@ -92,9 +92,9 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                                                                                                       device_manager=self.device_manager)
 
         # Gateway-specific rate limits
-        self._device_messages_rate_limit = RateLimit("10:1,", name="device_messages")
-        self._device_telemetry_rate_limit = RateLimit("10:1,", name="device_telemetry")
-        self._device_telemetry_dp_rate_limit = RateLimit("10:1,", name="device_telemetry_datapoints")
+        self._device_messages_rate_limit = RateLimit("0:0,", name="device_messages")
+        self._device_telemetry_rate_limit = RateLimit("0:0,", name="device_telemetry")
+        self._device_telemetry_dp_rate_limit = RateLimit("0:0,", name="device_telemetry_datapoints")
 
         # Callbacks
         self._device_attribute_update_callback = None
@@ -398,7 +398,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             await sleep(0.01)
 
     async def _handle_rate_limit_response(self, response: RPCResponse):  # noqa
-        parent_rate_limits_processing = await super()._handle_rate_limit_response(response)
+        device_rate_limits_processing_result = await super()._handle_rate_limit_response(response)
         try:
             if not isinstance(response.result, dict) or 'gatewayRateLimits' not in response.result:
                 logger.warning("Invalid gateway rate limit response: %r", response)
@@ -411,10 +411,10 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             await self._gateway_rate_limiter.telemetry_datapoints_rate_limit.set_limit(gateway_rate_limits.get('telemetryDataPoints', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
 
             self._gateway_message_adapter.splitter.max_payload_size = self.max_payload_size
-            self._gateway_message_adapter.splitter.max_datapoints = self._device_telemetry_dp_rate_limit.minimal_limit
+            self._gateway_message_adapter.splitter.max_datapoints = self._gateway_rate_limiter.telemetry_datapoints_rate_limit.minimal_limit
 
             self._mqtt_manager.set_gateway_rate_limits_received()
-            return parent_rate_limits_processing
+            return device_rate_limits_processing_result
 
         except Exception as e:
             logger.exception("Failed to parse rate limits from server response: %s", e)

@@ -176,3 +176,6 @@ class GatewayUplinkMessageBuilder:
             size=self.__size,
             main_ts=self._main_ts
         )
+
+    def __len__(self) -> int:
+        return self.__size

@@ -26,7 +26,7 @@ from tb_mqtt_client.entities.gateway.gateway_claim_request import GatewayClaimRe
 from tb_mqtt_client.entities.gateway.gateway_rpc_response import GatewayRPCResponse
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
-from tb_mqtt_client.service.message_queue import MessageQueue
+from tb_mqtt_client.service.message_service import MessageService
 
 logger = get_logger(__name__)
 
@@ -38,7 +38,7 @@ class GatewayMessageSender:
     """
 
     def __init__(self):
-        self._message_queue: Optional[MessageQueue] = None
+        self._message_queue: Optional[MessageService] = None
         self._message_adapter: Optional[GatewayMessageAdapter] = None
 
     async def send_uplink_message(self, message: GatewayUplinkMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
@@ -149,7 +149,7 @@ class GatewayMessageSender:
         await self._message_queue.publish(mqtt_message)
         return mqtt_message.delivery_futures
 
-    def set_message_queue(self, message_queue: MessageQueue):
+    def set_message_queue(self, message_queue: MessageService):
         """
         Sets the message queue for sending uplink messages.
 

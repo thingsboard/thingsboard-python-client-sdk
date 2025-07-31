@@ -12,11 +12,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+
 import asyncio
 import heapq
 import struct
 from collections import defaultdict
-from time import monotonic
 from typing import Callable, Tuple, Optional
 
 from gmqtt import Client
@@ -102,7 +102,7 @@ class PatchUtils:
         154: "Wildcard Subscriptions not supported"
     }
 
-    def __init__(self, client: Optional[Client], stop_event: asyncio.Event, retry_interval: int = 1):
+    def __init__(self, client: Optional[Client], stop_event: asyncio.Event, retry_interval: int = 15):
         """
         Initialize PatchUtils with a client and retry interval.
 
@@ -384,7 +384,6 @@ class PatchUtils:
         self.patch_storage()
         try:
             while not self._stop_event.is_set():
-                retry_list = []
                 current_tm = asyncio.get_event_loop().time()
 
                 for _ in range(100):
@@ -404,30 +403,16 @@ class PatchUtils:
                     if msg is None:
                         break
 
-                    retry_list.append(msg)
+                    tm, mid, mqtt_msg = msg
 
-                for (tm, mid, mqtt_msg) in retry_list:
                     if current_tm - tm > self.retry_interval and self.client.is_connected:
                         mqtt_msg.dup = True
                         logger.error("Resending PUBLISH message with mid=%r, topic=%s", mid, mqtt_msg.topic)
 
-                        protocol = self.client._connection._protocol
-
-                        if protocol:
-                            try:
-                                mid, rebuilt = PublishPacket.build_package(
-                                    message=mqtt_msg,
-                                    protocol=protocol,
-                                    mid=mid
-                                )
-                                self.client._connection.send_package(rebuilt)
-                                logger.trace("Retransmitted message mid=%r", mid)
-                            except Exception as e:
-                                logger.warning("Error during retransmission: %s", e)
-                        else:
-                            logger.warning("Cannot retransmit, MQTT protocol unavailable.")
-
-                    heapq.heappush(self.client._persistent_storage._queue, (tm, mid, mqtt_msg))
+                        try:
+                            await self.client.put_retry_message(mqtt_msg)  # noqa This method sets in message service to the client
+                        except AttributeError as e:
+                            logger.trace("Failed to resend message with mid=%r: %s", mid, e)
 
                 await asyncio.sleep(self.retry_interval)
         except asyncio.CancelledError:

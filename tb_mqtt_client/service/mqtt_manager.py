@@ -23,7 +23,7 @@ from uuid import uuid4
 from gmqtt import Client as GMQTTClient, Subscription
 
 from tb_mqtt_client.common.async_utils import await_or_stop, future_map, run_coroutine_sync
-from tb_mqtt_client.common.gmqtt_patch import PatchUtils
+from tb_mqtt_client.common.gmqtt_patch import PatchUtils, PublishPacket
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
@@ -153,7 +153,7 @@ class MQTTManager:
 
     async def publish(self,
                       message: MqttPublishMessage,
-                      qos: int = 1,
+                      qos: int = 1, # TODO: probably should be removed, as qos is set in MqttPublishMessage
                       force=False):
 
         if not force:
@@ -172,6 +172,33 @@ class MQTTManager:
             logger.trace("Backpressure active. Publishing suppressed.")
             raise RuntimeError("Publishing temporarily paused due to backpressure.")
 
+        if not message.dup:
+            return await self.process_regular_publish(message, qos)
+        else:
+            # If a message is a duplicate, we should not process it as a regular publish message, it should be sent immediately
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.trace("Processing duplicate message with topic: %s, qos: %d, payload size: %d",
+                             message.topic, qos, len(message.payload))
+
+            protocol = self._client._connection._protocol # noqa
+
+            if protocol:
+                try:
+                    mid, rebuilt = PublishPacket.build_package(
+                        message=message,
+                        protocol=protocol,
+                        mid=message.message_id
+                    )
+                    self._client._connection.send_package(rebuilt)
+                    logger.trace("Retransmitted message mid=%r", mid)
+                except Exception as e:
+                    logger.warning("Error during retransmission: %s", e)
+                    logger.debug("Failed to retransmit message: %r", message, exc_info=e)
+            else:
+                logger.warning("Cannot retransmit, MQTT protocol unavailable.")
+            self._client._persistent_storage.push_message_nowait(message.message_id, message)  # noqa
+
+    async def process_regular_publish(self, message: MqttPublishMessage, qos: int = 1):
 
         mqtt_future = asyncio.get_event_loop().create_future()
         mqtt_future.uuid = uuid4()
@@ -179,37 +206,7 @@ class MQTTManager:
             logger.trace("Publishing message with topic: %s, qos: %d, payload size: %d, mqtt_future id: %r, delivery futures: %r",
                         message.topic, qos, len(message.payload), mqtt_future.uuid, [f.uuid for f in message.delivery_futures])
         if message.delivery_futures is not None:
-            def resolve_attached(publish_future: asyncio.Future):
-                try:
-                    try:
-                        publish_result = publish_future.result()
-                    except asyncio.CancelledError:
-                        logger.info("Publish future was cancelled: %r, id: %r", publish_future, publish_future.uuid)
-                        publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
-                    except Exception as exc:
-                        logger.warning("Publish failed with exception: %s", exc)
-                        logger.debug("Resolving delivery futures with failure:", exc_info=exc)
-                        publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
-
-                    for i, f in enumerate(message.delivery_futures or []):
-                        if f is not None and not f.done():
-                            f.set_result(publish_result)
-                            future_map.child_resolved(f)
-                            logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
-                                        i, f.uuid, publish_result, publish_future.uuid)
-                except Exception as e:
-                    logger.error("Error resolving delivery futures: %s", str(e))
-                    for i, f in enumerate(message.delivery_futures or []):
-                        if f is not None and not f.done():
-                            f.set_exception(e)
-                            logger.debug("Set exception for delivery future #%d id=%r", i, f.uuid)
-
-            logger.trace("Adding done callback to main publish future: %r, main publish future done state: %r", mqtt_future.uuid, mqtt_future.done())
-            if mqtt_future.done():
-                logger.debug("Main publish future is already done, resolving immediately.")
-                resolve_attached(mqtt_future)
-            else:
-                mqtt_future.add_done_callback(resolve_attached)
+            await self._add_future_chain_processing(mqtt_future, message)
 
         mid, package = self._client._connection.publish(message)  # noqa
 
@@ -466,6 +463,9 @@ class MQTTManager:
             await asyncio.sleep(0.1)
         await self.check_pending_publishes(monotonic())
 
+    def patch_client_for_retry_logic(self, put_retry_message_method: Callable[[MqttPublishMessage], Coroutine[Any, Any, None]]):
+        self._client.put_retry_message = put_retry_message_method
+
     async def check_pending_publishes(self, time_to_check):
         expired = []
         for mid, (future, message, timestamp) in list(self._pending_publishes.items()):
@@ -496,3 +496,38 @@ class MQTTManager:
 
         if self._client.is_connected:
             await self._client.disconnect()
+
+    @staticmethod
+    async def _add_future_chain_processing(mqtt_future, message: MqttPublishMessage):
+        def resolve_attached(publish_future: asyncio.Future):
+            try:
+                try:
+                    publish_result = publish_future.result()
+                except asyncio.CancelledError:
+                    logger.info("Publish future was cancelled: %r, id: %r", publish_future, publish_future.uuid)
+                    publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
+                except Exception as exc:
+                    logger.warning("Publish failed with exception: %s", exc)
+                    logger.debug("Resolving delivery futures with failure:", exc_info=exc)
+                    publish_result = PublishResult(message.topic, message.qos, -1, len(message.payload), -1)
+
+                for i, f in enumerate(message.delivery_futures or []):
+                    if f is not None and not f.done():
+                        f.set_result(publish_result)
+                        future_map.child_resolved(f)
+                        logger.trace("Resolved delivery future #%d id=%r with %s, main publish future id: %r",
+                                     i, f.uuid, publish_result, publish_future.uuid)
+            except Exception as e:
+                logger.error("Error resolving delivery futures: %s", str(e))
+                for i, f in enumerate(message.delivery_futures or []):
+                    if f is not None and not f.done():
+                        f.set_exception(e)
+                        logger.debug("Set exception for delivery future #%d id=%r", i, f.uuid)
+
+        logger.trace("Adding done callback to main publish future: %r, main publish future done state: %r",
+                     mqtt_future.uuid, mqtt_future.done())
+        if mqtt_future.done():
+            logger.debug("Main publish future is already done, resolving immediately.")
+            resolve_attached(mqtt_future)
+        else:
+            mqtt_future.add_done_callback(resolve_attached)

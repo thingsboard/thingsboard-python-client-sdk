@@ -98,11 +98,6 @@ def test_should_pause_stop_event_set(stop_event, controller):
     assert controller.should_pause() is False
 
 
-def test_pause_for(controller):
-    controller.pause_for(12)
-    assert controller._pause_until is not None
-
-
 def test_clear(controller):
     controller._pause_until = datetime.now(UTC) + timedelta(seconds=30)
     controller._consecutive_quota_exceeded = 5

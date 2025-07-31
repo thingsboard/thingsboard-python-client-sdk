@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+
+import asyncio
 import os
 import logging
 from asyncio import Lock
@@ -69,6 +71,9 @@ class RateLimit:
         self._minimal_limit = float('inf')
         self.__reached_index = 0
         self.__reached_index_time = 0
+        self.__required_tokens = None
+        self._required_tokens_duration = None
+        self.required_tokens_ready = asyncio.Event()
 
         self._parse_string(rate_limit)
 
@@ -112,8 +117,13 @@ class RateLimit:
         if self._no_limit:
             return
         async with self._lock:
-            for bucket in self._rate_buckets.values():
+            for duration, bucket in self._rate_buckets.items():
                 bucket.refill()
+                if duration == self._required_tokens_duration:
+                    if bucket.tokens >= self.__required_tokens:
+                        self.required_tokens_ready.set()
+                        self._required_tokens_duration = None
+                        self.__required_tokens = None
 
     async def try_consume(self, amount=1):
         """
@@ -197,3 +207,22 @@ class RateLimit:
             self._minimal_limit = float('inf')
             self.percentage = percentage
             self._parse_string(rate_limit)
+
+    def set_required_tokens(self, duration, expected_tokens):
+        """
+        Set the required tokens for next message processing.
+        After this call, `required_tokens_ready` event will be set when
+        the required tokens are available in the rate limit buckets.
+        """
+        self.__required_tokens = expected_tokens
+        self._required_tokens_duration = duration
+
+    def clear_required_tokens_event(self):
+        """
+        Clear the required tokens ready event.
+        This should be called when message processing is done
+        """
+        self.required_tokens_ready.clear()
+
+
+EMPTY_RATE_LIMIT = RateLimit("0:0,", name="Empty Rate Limit")

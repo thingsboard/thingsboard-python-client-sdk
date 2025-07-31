@@ -15,11 +15,12 @@
 from asyncio import Future
 from time import time
 from typing import Union, Optional
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from gmqtt import Message
 
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage
 from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage
 
@@ -39,18 +40,24 @@ class MqttPublishMessage(Message):
                  datapoints: int = 0,
                  delivery_futures = None,
                  main_ts: Optional[int] = None,
+                 original_payload = None,
                  **kwargs):
         """
         Initialize the MqttMessage with topic, payload, QoS, retain flag, and datapoints.
         """
+        self.uuid: UUID = uuid4()
+        self.payload_size = 0
         self.prepared = False
-        self.payload = payload
+        self.original_payload = original_payload if original_payload is not None else payload
         self.main_ts = main_ts if main_ts is not None else int(time() * 1000)
         if isinstance(payload, bytes):
             super().__init__(topic, payload, qos, retain)
         else:
+            self.payload = self.original_payload
             payload.set_main_ts(self.main_ts)
         self.topic = topic
+        self.is_service_message = self.topic not in mqtt_topics.TOPICS_WITH_DATAPOINTS_CHECK
+        self.is_device_message = not isinstance(original_payload, GatewayUplinkMessage)
         self.qos = qos
         if self.qos < 0 or self.qos > 1:
             logger.warning(f"Invalid QoS {self.qos} for topic {topic}, using default QoS 1")

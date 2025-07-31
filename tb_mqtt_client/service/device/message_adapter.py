@@ -248,7 +248,8 @@ class JsonMessageAdapter(MessageAdapter):
                 device_groups[payload.device_name].append(mqtt_msg)
                 logger.trace("Queued DeviceUplinkMessage for device='%s'", payload.device_name)
             else:
-                logger.warning("Unsupported payload type '%s', skipping", type(payload).__name__)
+                result.append(mqtt_msg)
+                logger.debug("Non-DeviceUplinkMessage found, sending as is: %s", type(payload).__name__)
 
         for device_name, group_msgs in device_groups.items():
             telemetry_msgs = [m for m in group_msgs if m.payload.has_timeseries()]
@@ -269,7 +270,8 @@ class JsonMessageAdapter(MessageAdapter):
                         qos=qos,
                         datapoints=count,
                         delivery_futures=child_futures,
-                        main_ts=ts_batch.main_ts
+                        main_ts=ts_batch.main_ts,
+                        original_payload=ts_batch
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)
@@ -292,7 +294,8 @@ class JsonMessageAdapter(MessageAdapter):
                         qos=qos,
                         datapoints=count,
                         delivery_futures=child_futures,
-                        main_ts=attr_batch.main_ts
+                        main_ts=attr_batch.main_ts,
+                        original_payload=attr_batch
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)

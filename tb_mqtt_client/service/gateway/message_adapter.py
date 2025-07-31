@@ -168,7 +168,8 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                 device_groups[payload.device_name].append(payload)
                 logger.trace("Queued GatewayUplinkMessage for device='%s'", payload.device_name)
             else:
-                logger.warning("Unsupported payload type '%s', skipping", type(payload).__name__)
+                result.append(mqtt_msg)
+                logger.debug("Non-GatewayUplinkMessage found, sending as is: %s", type(payload).__name__)
 
         # Process each device group
         for device_name, group_msgs in device_groups.items():
@@ -189,7 +190,8 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                         qos=qos,
                         datapoints=count,
                         delivery_futures=futures,
-                        main_ts=ts_batch.main_ts
+                        main_ts=ts_batch.main_ts,
+                        original_payload=ts_batch
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)
@@ -207,7 +209,8 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                         qos=qos,
                         datapoints=count,
                         delivery_futures=futures,
-                        main_ts=attr_batch.main_ts
+                        main_ts=attr_batch.main_ts,
+                        original_payload=attr_batch
                     )
                     result.append(mqtt_msg)
                     built_child_messages.append(mqtt_msg)
@@ -385,7 +388,7 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
 
         if all_ts_none:
             result = {e.key: e.value for e in entries}
-            return [{"ts": msg.main_ts, "values": result}] if msg.main_ts is not None else result
+            return [{"ts": msg.main_ts, "values": result}] if msg.main_ts is not None else [result]
 
         now_ts = msg.main_ts if msg.main_ts is not None else int(datetime.now(UTC).timestamp() * 1000)
         grouped = defaultdict(dict)

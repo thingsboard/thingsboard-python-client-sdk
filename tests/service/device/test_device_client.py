@@ -446,7 +446,7 @@ async def test_initializes_adapter_and_queue_after_connection():
     mqtt_manager = AsyncMock()
     mqtt_manager.is_connected.return_value = True
 
-    with patch("tb_mqtt_client.service.device.client.MessageQueue") as mock_queue:
+    with patch("tb_mqtt_client.service.device.client.MessageService") as mock_message_service:
         client = DeviceClient(config)
         client._mqtt_manager = mqtt_manager
 
@@ -456,8 +456,8 @@ async def test_initializes_adapter_and_queue_after_connection():
         assert client._message_adapter is not None
         assert client._message_queue is not None
 
-        mock_queue.assert_called_once()
-        kwargs = mock_queue.call_args.kwargs
+        mock_message_service.assert_called_once()
+        kwargs = mock_message_service.call_args.kwargs
         assert kwargs["max_queue_size"] == client._max_uplink_message_queue_size
 
 

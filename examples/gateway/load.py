@@ -34,12 +34,12 @@ logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 # --- Constants ---
-NUM_DEVICES = 2
-BATCH_SIZE = 100
-MAX_PENDING = 100
+NUM_DEVICES = 10
+BATCH_SIZE = 1000
+MAX_PENDING = 10
 FUTURE_TIMEOUT = 1.0
 DEVICE_PREFIX = "perf-test-device"
-WAIT_FOR_PUBLISH = False
+WAIT_FOR_PUBLISH = False  # Set to True if you want to wait for publish confirmation (can slow down the test, because each message will wait for confirmation)
 
 # --- Test logic ---
 async def send_batch(client: GatewayClient, session: DeviceSession) -> List[asyncio.Future]:
@@ -54,10 +54,17 @@ async def send_batch(client: GatewayClient, session: DeviceSession) -> List[asyn
 
 async def wait_for_futures(futures: List[asyncio.Future]) -> int:
     delivered = 0
-    done, _ = await asyncio.wait(futures, timeout=FUTURE_TIMEOUT, return_when=asyncio.ALL_COMPLETED)
+    if isinstance(futures, list) and futures and isinstance(futures[0], asyncio.Future):
+        done, _ = await asyncio.wait(futures, timeout=FUTURE_TIMEOUT, return_when=asyncio.ALL_COMPLETED)
+    else:
+        done = futures
+
     for fut in done:
         try:
-            res = fut.result()
+            if isinstance(fut, asyncio.Future):
+                res = fut.result()
+            else:
+                res = fut
             if isinstance(res, PublishResult) and res.is_successful():
                 delivered += res.datapoints_count
         except Exception as e:

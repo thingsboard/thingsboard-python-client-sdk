@@ -16,7 +16,7 @@ import asyncio
 import logging
 from typing import Callable, Dict, List, Optional, Type
 
-logger = logging.getLogger("tb_sdk")
+logger = logging.getLogger(__name__)
 
 ExceptionCallback = Callable[[BaseException, Optional[dict]], None]
 

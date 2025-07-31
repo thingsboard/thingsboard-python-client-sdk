@@ -45,7 +45,7 @@ from tb_mqtt_client.service.device.handlers.requested_attributes_response_handle
 from tb_mqtt_client.service.device.handlers.rpc_requests_handler import RPCRequestsHandler
 from tb_mqtt_client.service.device.handlers.rpc_response_handler import RPCResponseHandler
 from tb_mqtt_client.service.device.message_adapter import JsonMessageAdapter, MessageAdapter
-from tb_mqtt_client.service.message_queue import MessageQueue
+from tb_mqtt_client.service.message_service import MessageService
 from tb_mqtt_client.service.mqtt_manager import MQTTManager
 
 logger = get_logger(__name__)
@@ -68,7 +68,7 @@ class DeviceClient(BaseClient):
 
         super().__init__(self._config.host, self._config.port, client_id)
 
-        self._message_queue: Optional[MessageQueue] = None
+        self._message_queue: Optional[MessageService] = None
         self._message_adapter: MessageAdapter = JsonMessageAdapter(1000,
                                                                    1)  # Will be updated after connection established
 
@@ -139,7 +139,7 @@ class DeviceClient(BaseClient):
 
         self._message_adapter = JsonMessageAdapter(self.max_payload_size,
                                                    self._rate_limiter.telemetry_datapoints_rate_limit.minimal_limit)
-        self._message_queue = MessageQueue(
+        self._message_queue = MessageService(
             mqtt_manager=self._mqtt_manager,
             main_stop_event=self._stop_event,
             device_rate_limiter=self._rate_limiter,
