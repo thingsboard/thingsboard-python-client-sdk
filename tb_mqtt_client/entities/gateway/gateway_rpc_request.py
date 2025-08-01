@@ -28,7 +28,7 @@ class GatewayRPCRequest(BaseGatewayEvent):
     event_type: GatewayEventType = GatewayEventType.DEVICE_RPC_REQUEST
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of GatewayRPCRequest is not allowed. Use 'await GatewayRPCRequest.build(...)'.")
+        raise TypeError("Direct instantiation of GatewayRPCRequest is not allowed. Use 'GatewayRPCRequest._deserialize_from_dict(...)'.")
 
     def __repr__(self):
         return f"RPCRequest(id={self.request_id}, device_name={self.device_name}, method={self.method}, params={self.params})"

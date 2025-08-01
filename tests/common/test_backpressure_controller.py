@@ -13,10 +13,12 @@
 #  limitations under the License.
 
 import asyncio
-import pytest
 from datetime import datetime, timedelta, UTC
 
+import pytest
+
 from tb_mqtt_client.common.rate_limit.backpressure_controller import BackpressureController
+
 
 @pytest.fixture
 def stop_event():

@@ -14,8 +14,8 @@
 
 
 import asyncio
-import os
 import logging
+import os
 from asyncio import Lock
 from time import monotonic
 

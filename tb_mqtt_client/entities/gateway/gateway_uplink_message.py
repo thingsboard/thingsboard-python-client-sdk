@@ -28,7 +28,7 @@ from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
 logger = get_logger(__name__)
 
-DEFAULT_FIELDS_SIZE = len('{"device_name":"","device_profile":"","attributes":"","timeseries":""}'.encode('utf-8'))
+DEFAULT_FIELDS_SIZE = len('{"device_name":"","attributes":"","timeseries":""}'.encode('utf-8'))
 
 
 @dataclass(slots=True, frozen=True)
@@ -167,6 +167,9 @@ class GatewayUplinkMessageBuilder:
             delivery_future = asyncio.get_event_loop().create_future()
             delivery_future.uuid = uuid4()
             self._delivery_futures = [delivery_future]
+        if not self._device_profile:
+            self._device_profile = 'default'
+            self.__size += len(self._device_profile)
         return GatewayUplinkMessage.build(  # noqa
             device_name=self._device_name,
             device_profile=self._device_profile,

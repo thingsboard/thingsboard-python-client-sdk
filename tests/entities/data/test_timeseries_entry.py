@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import pytest
+
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 
 

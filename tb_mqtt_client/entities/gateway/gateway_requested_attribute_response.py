@@ -33,6 +33,9 @@ class GatewayRequestedAttributeResponse(RequestedAttributeResponse, BaseGatewayE
     client: Optional[List[AttributeEntry]] = None
     event_type: GatewayEventType = GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE
 
+    def __post_init__(self):
+        super(BaseGatewayEvent, self).__setattr__('event_type', GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE)
+
     def __repr__(self):
         return f"GatewayRequestedAttributeResponse(device_name={self.device_name},request_id={self.request_id}, shared={self.shared}, client={self.client})"
 

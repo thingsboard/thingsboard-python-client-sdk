@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import pytest
+
 from tb_mqtt_client.common.publish_result import PublishResult
 
 
@@ -59,6 +60,32 @@ def test_publish_result_as_dict(default_publish_result):
         "datapoints_count": 0
     }
 
+def test_publish_request_merge():
+    result1 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=123,
+        payload_size=256,
+        reason_code=0
+    )
+    result2 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=124,
+        payload_size=512,
+        reason_code=0
+    )
+    merged_result = PublishResult.merge([result1, result2])
+
+    assert merged_result.topic == "v1/devices/me/telemetry"
+    assert merged_result.qos == 1
+    assert merged_result.message_id == -1 # Merged results do not have a specific message_id
+    assert merged_result.payload_size == 768  # Combined payload size
+    assert merged_result.reason_code == 0  # All successful
+
+def test_publish_result_merge_with_empty_list():
+    with pytest.raises(ValueError, match="No publish results to merge."):
+        PublishResult.merge([])
 
 def test_publish_result_is_successful_true(default_publish_result):
     assert default_publish_result.is_successful() is True
@@ -75,6 +102,43 @@ def test_publish_result_is_successful_false():
     assert result.is_successful() is False
 
 
+def test_publish_result_equality():
+    result1 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=123,
+        payload_size=256,
+        reason_code=0
+    )
+    result2 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=123,
+        payload_size=256,
+        reason_code=0
+    )
+    assert result1 == result2
+
+
+def test_publish_result_inequality():
+    result1 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=123,
+        payload_size=256,
+        reason_code=0
+    )
+    result2 = PublishResult(
+        topic="v1/devices/me/telemetry",
+        qos=1,
+        message_id=124,  # Different message_id
+        payload_size=256,
+        reason_code=0
+    )
+    assert result1 != result2
+    assert result1 != "Not a PublishResult"  # Different type comparison
+
+
 @pytest.mark.parametrize("reason_code", [1, 2, 3, 16, 255])
 def test_publish_result_various_failure_codes(reason_code):
     result = PublishResult(
@@ -85,3 +149,6 @@ def test_publish_result_various_failure_codes(reason_code):
         reason_code=reason_code
     )
     assert result.is_successful() is False
+
+if __name__ == '__main__':
+    pytest.main([__file__, "-v", "--tb=short"])

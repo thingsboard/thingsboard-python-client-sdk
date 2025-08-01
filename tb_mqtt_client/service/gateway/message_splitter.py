@@ -21,7 +21,8 @@ from tb_mqtt_client.common.async_utils import future_map
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
-from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage, GatewayUplinkMessageBuilder
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage, GatewayUplinkMessageBuilder, \
+    DEFAULT_FIELDS_SIZE
 from tb_mqtt_client.service.base_message_splitter import BaseMessageSplitter
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ class GatewayMessageSplitter(BaseMessageSplitter):
 
     def __init__(self, max_payload_size: int = 55000, max_datapoints: int = 0):
         self._max_payload_size = max_payload_size if max_payload_size is not None and max_payload_size > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
+        self._max_payload_size = self._max_payload_size - DEFAULT_FIELDS_SIZE
         self._max_datapoints = max_datapoints if max_datapoints is not None and max_datapoints > 0 else 0
         logger.trace("GatewayMessageSplitter initialized with max_payload_size=%d, max_datapoints=%d",
                      self._max_payload_size, self._max_datapoints)
@@ -63,9 +65,10 @@ class GatewayMessageSplitter(BaseMessageSplitter):
             builder = None
             size = 0
             point_count = 0
+            names_len = len(device_name) + len(device_profile)
 
             for entry in all_ts_entries:
-                exceeds_size = builder and size + entry.size > self._max_payload_size
+                exceeds_size = builder and size + entry.size > self._max_payload_size - names_len
                 exceeds_points = 0 < self._max_datapoints <= point_count
 
                 if not builder or exceeds_size or exceeds_points:
@@ -176,6 +179,7 @@ class GatewayMessageSplitter(BaseMessageSplitter):
     def max_payload_size(self, value: int):
         old = self._max_payload_size
         self._max_payload_size = value if value > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
+        self._max_payload_size = self._max_payload_size - DEFAULT_FIELDS_SIZE
         logger.debug("Updated max_payload_size: %d -> %d", old, self._max_payload_size)
 
     @property

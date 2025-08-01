@@ -133,7 +133,7 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> 'ProvisioningResponse':
+    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> ProvisioningResponse:
         """
         Parse the provisioning response from the given payload.
         This method should be implemented to handle the specific format of the provisioning response.

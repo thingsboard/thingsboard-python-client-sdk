@@ -16,9 +16,8 @@ from typing import Optional, Dict, Iterable, Callable, Set
 from uuid import UUID
 
 from tb_mqtt_client.common.logging_utils import get_logger
-from tb_mqtt_client.service.gateway.device_session import DeviceSession
 from tb_mqtt_client.entities.gateway.device_info import DeviceInfo
-
+from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 logger = get_logger(__name__)
 

@@ -21,12 +21,11 @@ from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, DEFAULT_RATE_LIMIT_PERCENTAGE
-from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
-from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.gateway.device_connect_message import DeviceConnectMessage
 from tb_mqtt_client.entities.gateway.device_disconnect_message import DeviceDisconnectMessage
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
@@ -197,7 +196,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
     async def send_device_timeseries(self,
                                      device_session: DeviceSession,
                                      data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
         """
         Send timeseries data to the platform for a specific device.
         :param device_session: The DeviceSession object for the device
@@ -236,7 +235,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
     async def send_device_attributes(self,
                                      device_session: DeviceSession,
                                      data: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
         """
         Send attributes data to the platform for a specific device.
         :param device_session: The DeviceSession object for the device
@@ -266,7 +265,10 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         return results[0] if len(results) == 1 else results
 
 
-    async def send_device_attributes_request(self, device_session: DeviceSession, attribute_request: Union[AttributeRequest, GatewayAttributeRequest], wait_for_publish: bool):
+    async def send_device_attributes_request(self,
+                                             device_session: DeviceSession,
+                                             attribute_request: Union[AttributeRequest, GatewayAttributeRequest],
+                                             wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
         """
         Send a request for device attributes to the platform.
         :param device_session: The DeviceSession object for the device
@@ -304,7 +306,7 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
     async def send_device_claim_request(self,
                                         device_session: DeviceSession,
                                         gateway_claim_request: GatewayClaimRequest,
-                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
         """
         Send a claim request for a device to the platform.
         :param device_session: The DeviceSession object for the device

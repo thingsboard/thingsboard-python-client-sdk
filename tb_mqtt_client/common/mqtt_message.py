@@ -85,7 +85,3 @@ class MqttPublishMessage(Message):
         """Mark the message as sent."""
         self.message_id = message_id
         self._is_sent = True
-
-    def is_sent(self) -> bool:
-        """Check if the message has been sent."""
-        return self._is_sent

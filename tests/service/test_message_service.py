@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -22,12 +22,12 @@ from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.common.rate_limit.rate_limit import RateLimit, EMPTY_RATE_LIMIT
 from tb_mqtt_client.common.rate_limit.rate_limiter import RateLimiter
-from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessage, DeviceUplinkMessageBuilder
-from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessage, GatewayUplinkMessageBuilder
+from tb_mqtt_client.entities.data.device_uplink_message import DeviceUplinkMessageBuilder
+from tb_mqtt_client.entities.gateway.gateway_uplink_message import GatewayUplinkMessageBuilder
 from tb_mqtt_client.service.device.message_adapter import MessageAdapter
 from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
-from tb_mqtt_client.service.mqtt_manager import MQTTManager
 from tb_mqtt_client.service.message_service import MessageService, MessageQueueWorker
+from tb_mqtt_client.service.mqtt_manager import MQTTManager
 
 
 @pytest_asyncio.fixture
@@ -82,6 +82,22 @@ async def setup_message_service():
 
         yield service, mqtt_manager, main_stop_event, device_rate_limiter, message_adapter, gateway_message_adapter, gateway_rate_limiter
 
+@pytest_asyncio.fixture
+async def setup_retry_loop_service(setup_message_service):
+    service, mqtt_manager, main_stop_event, *_ = setup_message_service
+    service._main_stop_event = main_stop_event
+    service._active.set()
+
+    # Mock dependencies
+    service._retry_by_qos_queue = AsyncMock()
+    service._service_queue = AsyncMock()
+    service._gateway_uplink_messages_queue = AsyncMock()
+    service._device_uplink_messages_queue = AsyncMock()
+
+    # Cooldown patch to avoid slow tests
+    service._QUEUE_COOLDOWN = 0
+
+    return service, mqtt_manager
 
 @pytest.mark.asyncio
 async def test_publish_success(setup_message_service):
@@ -149,7 +165,7 @@ async def test_shutdown():
         with patch.object(MessageService, '_dispatch_initial_queue_loop', return_value=mock_task()), \
              patch.object(MessageService, '_dispatch_queue_loop', return_value=mock_task()), \
              patch.object(MessageService, '_rate_limit_refill_loop', return_value=mock_task()), \
-             patch.object(MessageService, 'print_queue_statistics', return_value=mock_task()), \
+             patch.object(MessageService, 'print_queues_statistics', return_value=mock_task()), \
              patch.object(MessageService, 'clear', new_callable=AsyncMock) as mock_clear:
 
             # Create the service
@@ -968,6 +984,75 @@ async def test_message_queue_worker_consume_rate_limits_for_message_no_limits():
     # Verify no rate limits were consumed
     message_rate_limit.consume.assert_not_awaited()
     datapoints_rate_limit.consume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retry_loop_with_bytes_message(setup_retry_loop_service):
+    service, mqtt_manager = setup_retry_loop_service
+    mqtt_manager.is_connected.return_value = True
+
+    message = MagicMock()
+    message.original_payload = b"binary"
+
+    service._retry_by_qos_queue.get = AsyncMock(side_effect=[message, asyncio.CancelledError()])
+
+    await service._dispatch_retry_by_qos_queue_loop()
+
+    service._service_queue.reinsert_front.assert_awaited_once_with(message)
+
+
+@pytest.mark.asyncio
+async def test_retry_loop_with_gateway_uplink_message(setup_retry_loop_service):
+    service, mqtt_manager = setup_retry_loop_service
+    mqtt_manager.is_connected.return_value = True
+
+    message = MagicMock()
+    message.original_payload = GatewayUplinkMessageBuilder().set_device_name("test").build()
+
+    service._retry_by_qos_queue.get = AsyncMock(side_effect=[message, asyncio.CancelledError()])
+
+    await service._dispatch_retry_by_qos_queue_loop()
+
+    service._gateway_uplink_messages_queue.reinsert_front.assert_awaited_once_with(message)
+
+
+@pytest.mark.asyncio
+async def test_retry_loop_with_device_uplink_message(setup_retry_loop_service):
+    service, mqtt_manager = setup_retry_loop_service
+    mqtt_manager.is_connected.return_value = True
+
+    message = MagicMock()
+    message.original_payload = DeviceUplinkMessageBuilder().set_device_name("test-device").build()
+
+    service._retry_by_qos_queue.get = AsyncMock(side_effect=[message, asyncio.CancelledError()])
+
+    await service._dispatch_retry_by_qos_queue_loop()
+
+    service._device_uplink_messages_queue.reinsert_front.assert_awaited_once_with(message)
+
+
+@pytest.mark.asyncio
+async def test_retry_loop_with_cancelled_error(setup_retry_loop_service):
+    service, mqtt_manager = setup_retry_loop_service
+    mqtt_manager.is_connected.return_value = True
+
+    service._retry_by_qos_queue.get = AsyncMock(side_effect=asyncio.CancelledError())
+
+    await service._dispatch_retry_by_qos_queue_loop()
+
+
+@pytest.mark.asyncio
+async def test_retry_loop_with_not_connected_and_empty_message(setup_retry_loop_service):
+    service, mqtt_manager = setup_retry_loop_service
+
+    mqtt_manager.is_connected.side_effect = [False, True]
+
+    service._retry_by_qos_queue.get = AsyncMock(side_effect=[None, asyncio.CancelledError()])
+
+    service._main_stop_event.is_set = MagicMock(side_effect=[False, True])
+
+    with patch("asyncio.sleep", new=AsyncMock()):
+        await service._dispatch_retry_by_qos_queue_loop()
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

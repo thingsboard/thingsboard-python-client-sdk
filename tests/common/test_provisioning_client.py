@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from tb_mqtt_client.common.provisioning_client import ProvisioningClient
 from tb_mqtt_client.constants.mqtt_topics import PROVISION_RESPONSE_TOPIC

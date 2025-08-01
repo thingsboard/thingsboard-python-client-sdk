@@ -14,7 +14,9 @@
 
 import os
 import unittest
+
 from tb_mqtt_client.common.config_loader import DeviceConfig, GatewayConfig
+
 
 class TestDeviceConfig(unittest.TestCase):
 

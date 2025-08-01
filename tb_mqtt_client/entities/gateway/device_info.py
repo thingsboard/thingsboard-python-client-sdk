@@ -12,12 +12,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from dataclasses import dataclass, field
 import uuid
+from dataclasses import dataclass, field
 
 
 @dataclass()
-class DeviceInfo:
+class DeviceInfo(object):
     device_name: str
     device_profile: str
     original_name: str = field(init=False)
@@ -37,10 +37,12 @@ class DeviceInfo:
 
     def rename(self, new_name: str):
         if new_name != self.device_name:
-            self.device_name = new_name
+            super().__setattr__('device_name', new_name)
 
     @classmethod
     def from_dict(cls, data: dict) -> 'DeviceInfo':
+        original_post_init = cls.__post_init__
+        cls.__post_init__ = lambda self: None
         instance = cls(
             device_name=data['device_name'],
             device_profile=data.get('device_profile', 'default')
@@ -48,6 +50,10 @@ class DeviceInfo:
         instance.__setattr__("device_id", uuid.UUID(data['device_id']))
         if 'original_name' in data:
             instance.__setattr__("original_name", data['original_name'])
+        else:
+            instance.__setattr__("original_name", instance.device_name)
+        instance._initializing = False
+        cls.__post_init__ = original_post_init
         return instance
 
     def to_dict(self) -> dict:

@@ -13,14 +13,13 @@
 #  limitations under the License.
 
 import asyncio
-from time import time
 from dataclasses import dataclass, field
+from time import time
 from typing import Callable, Awaitable, Optional, Union
-
-from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
 
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
+from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent
 from tb_mqtt_client.entities.gateway.device_info import DeviceInfo
 from tb_mqtt_client.entities.gateway.device_session_state import DeviceSessionState
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType

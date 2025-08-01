@@ -11,9 +11,9 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import asyncio
 import threading
 from typing import Union, Optional, Any, List, Set, Dict
-import asyncio
 
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
@@ -96,38 +96,6 @@ async def await_or_stop(future_or_coroutine: Union[asyncio.Future, asyncio.Task,
     finally:
         if not stop_task.done():
             stop_task.cancel()
-
-async def await_and_resolve_original(
-    parent_futures: List[asyncio.Future],
-    child_futures: List[asyncio.Future]
-):
-    try:
-        results = await asyncio.gather(*child_futures, return_exceptions=True)
-
-        for child in child_futures:
-            future_map.child_resolved(child)
-
-        for i, f in enumerate(parent_futures):
-            if f is not None and not f.done():
-                first_result = next((r for r in results if not isinstance(r, Exception)), None)
-                first_exception = next((r for r in results if isinstance(r, Exception)), None)
-
-                if first_exception and not first_result:
-                    f.set_exception(first_exception)
-                    logger.debug("Set exception for parent future #%d id=%r from child exception: %r",
-                                 i, getattr(f, 'uuid', f), first_exception)
-                else:
-                    f.set_result(first_result)
-                    logger.trace("Resolved parent future #%d id=%r with result: %r",
-                                 i, getattr(f, 'uuid', f), first_result)
-
-    except Exception as e:
-        logger.error("Unexpected error while resolving parent delivery futures: %s", e)
-        for i, f in enumerate(parent_futures):
-            if f is not None and not f.done():
-                f.set_exception(e)
-                logger.debug("Set fallback exception for parent future #%d id=%r", i, getattr(f, 'uuid', f))
-
 
 def run_coroutine_sync(coro_func, timeout: float = 3.0, raise_on_timeout: bool = False):
     """

@@ -29,7 +29,6 @@ class BaseMessageSplitter(ABC):
         """
         Returns the maximum payload size for messages.
         """
-        pass
 
     @max_payload_size.setter
     @abstractmethod
@@ -37,7 +36,6 @@ class BaseMessageSplitter(ABC):
         """
         Sets the maximum payload size for messages.
         """
-        pass
 
     @property
     @abstractmethod
@@ -45,7 +43,6 @@ class BaseMessageSplitter(ABC):
         """
         Returns the maximum number of datapoints allowed in a message.
         """
-        pass
 
     @max_datapoints.setter
     @abstractmethod
@@ -53,18 +50,15 @@ class BaseMessageSplitter(ABC):
         """
         Sets the maximum number of datapoints allowed in a message.
         """
-        pass
 
     @abstractmethod
     def split_timeseries(self, *args, **kwargs) -> List[MqttPublishMessage]:
         """
         Splits timeseries data
         """
-        pass
 
     @abstractmethod
     def split_attributes(self, *args, **kwargs) -> List[MqttPublishMessage]:
         """
         Splits attributes data
         """
-        pass

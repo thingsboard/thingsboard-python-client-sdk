@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 from typing import Any, Optional
+
 from orjson import dumps
 
 from tb_mqtt_client.constants.json_typing import JSONCompatibleType, validate_json_compatibility

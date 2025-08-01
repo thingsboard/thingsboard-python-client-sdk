@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import asyncio
+import math
 from time import sleep
 
 import pytest
@@ -119,3 +120,110 @@ async def test_rate_limit_refill_behavior():
     await asyncio.sleep(1.1)
     await rl.refill()
     assert (await rl.try_consume()) is None
+
+@pytest.mark.asyncio
+async def test_set_required_tokens_and_clear_event():
+    rl = RateLimit("5:1", "token-test")
+    rl.set_required_tokens(1, 3)
+    # Initially event should not be set
+    assert not rl.required_tokens_ready.is_set()
+    # Force refill to satisfy requirement
+    for bucket in rl._rate_buckets.values():
+        bucket.tokens = 3
+    await rl.refill()
+    assert rl.required_tokens_ready.is_set()
+    rl.clear_required_tokens_event()
+    assert not rl.required_tokens_ready.is_set()
+
+
+@pytest.mark.asyncio
+async def test_refill_does_not_break_with_no_limit():
+    rl = RateLimit("", "no-limit-refill")
+    # Should not raise and should not change anything
+    await rl.refill()
+    assert rl._no_limit
+
+
+@pytest.mark.asyncio
+async def test_consume_with_real_limit_changes_tokens():
+    rl = RateLimit("5:1", "consume-test")
+    before = rl._rate_buckets[1].tokens
+    await rl.consume(1)
+    after = rl._rate_buckets[1].tokens
+    assert after < before
+
+
+def test_minimal_limit_and_timeout_no_limit_case():
+    rl = RateLimit("", "min-test")
+    assert rl.minimal_limit == 0
+    assert rl.minimal_timeout == 0
+
+
+@pytest.mark.asyncio
+async def test_to_dict_contains_expected_structure():
+    rl = RateLimit("5:1", "dict-test")
+    d = rl.to_dict()
+    assert "name" in d and d["name"] == "dict-test"
+    assert "percentage" in d and isinstance(d["percentage"], int)
+    assert "rateLimits" in d and isinstance(d["rateLimits"], dict)
+
+
+@pytest.mark.asyncio
+async def test_set_limit_with_no_entries_sets_no_limit():
+    rl = RateLimit("5:1", "reset-test")
+    await rl.set_limit("0:0,")
+    assert not rl.has_limit()
+
+
+@pytest.mark.asyncio
+async def test_try_consume_returns_tuple_when_not_enough_tokens():
+    rl = RateLimit("1:1", "tuple-test")
+    # Exhaust tokens
+    await rl.try_consume()
+    res = await rl.try_consume()
+    assert isinstance(res, tuple)
+    assert len(res) == 2
+
+
+def test_parse_string_with_invalid_entries():
+    # This will hit logger.warning branch for parse_string exception
+    rl = RateLimit("abc:def", "invalid-test")
+    assert not rl.has_limit()
+
+
+@pytest.mark.asyncio
+async def test_reach_limit_when_no_limit_returns_none():
+    rl = RateLimit("", "reach-none")
+    assert await rl.reach_limit() is None
+
+
+@pytest.mark.asyncio
+async def test_reach_limit_resets_index_on_duration_window():
+    rl = RateLimit("1:1,1:2", "reset-index")
+    rl._RateLimit__reached_index = 10  # force overflow
+    rl._RateLimit__reached_index_time = 0
+    res = await rl.reach_limit()
+    assert isinstance(res, tuple)
+    assert rl._RateLimit__reached_index > 0
+
+
+def test_env_variable_invalid(monkeypatch):
+    # Simulate bad env variable
+    monkeypatch.setenv("TB_DEFAULT_RATE_LIMIT_PERCENTAGE", "bad")
+    # Reload module under test to re-run env reading
+    import importlib
+    import tb_mqtt_client.common.rate_limit.rate_limit as rl_mod
+    importlib.reload(rl_mod)
+    assert rl_mod.DEFAULT_RATE_LIMIT_PERCENTAGE == 80
+
+
+def test_greedy_token_bucket_edge_cases():
+    b = GreedyTokenBucket(2, 1)
+    b.tokens = 0
+    assert not b.can_consume(1)
+    assert not b.consume(5)
+    assert math.isclose(b.get_remaining_tokens(), b.tokens)
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, "-v", "--tb=short"])

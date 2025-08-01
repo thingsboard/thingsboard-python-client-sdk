@@ -12,13 +12,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from random import randint
-from zlib import crc32
-from hashlib import sha256, sha384, sha512, md5
-from subprocess import CalledProcessError
 from asyncio import sleep
+from hashlib import sha256, sha384, sha512, md5
 from os.path import sep
+from random import randint
+from subprocess import CalledProcessError
 from typing import Awaitable, Callable, Optional
+from zlib import crc32
+
 from tb_mqtt_client.common.install_package_utils import install_package
 from tb_mqtt_client.common.logging_utils import get_logger
 from tb_mqtt_client.constants import mqtt_topics
@@ -32,7 +33,6 @@ from tb_mqtt_client.constants.firmware import (
     REQUIRED_SHARED_KEYS,
     FirmwareStates
 )
-
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 

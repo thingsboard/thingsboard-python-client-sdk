@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict
+
 from tb_mqtt_client.common.request_id_generator import AttributeRequestIdProducer
 from tb_mqtt_client.constants.json_typing import validate_json_compatibility
 from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent

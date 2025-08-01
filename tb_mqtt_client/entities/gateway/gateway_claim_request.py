@@ -14,7 +14,7 @@
 
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Union
+from typing import Dict, Any, Union
 
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.gateway.base_gateway_event import BaseGatewayEvent

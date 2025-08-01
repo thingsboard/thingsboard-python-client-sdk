@@ -39,6 +39,8 @@ class DirectEventDispatcher:
             self._handlers[event_type].append(callback)
 
     def unregister(self, event_type: GatewayEventType, callback: EventCallback):
+        if event_type not in self._handlers:
+            return
         if callback in self._handlers[event_type]:
             self._handlers[event_type].remove(callback)
             if not self._handlers[event_type]:

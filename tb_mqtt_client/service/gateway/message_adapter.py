@@ -15,7 +15,6 @@
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from datetime import datetime, UTC
-from itertools import chain
 from typing import List, Dict, Any, Union, Optional
 
 from orjson import loads, dumps
