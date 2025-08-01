@@ -321,10 +321,11 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
                                  and not gateway_attribute_request.client_keys))):
                 # TODO: Skipping case when requested several attributes, but only one is returned, issue on the platform
                 logger.warning("Received gateway attribute response with single key, but multiply keys expected. "
-                               "Request keys: %s, Response keys: %s",
-                               list(*gateway_attribute_request.client_keys, *gateway_attribute_request.shared_keys),
+                               "Request keys: %s, Response value: %r",
+                               gateway_attribute_request.client_keys + gateway_attribute_request.shared_keys,
                                data['value'])
-                return None
+                client = []
+                shared = []
             elif 'value' in data:
                 if not client_keys_empty and len(gateway_attribute_request.client_keys) == 1:
                     client = [AttributeEntry(gateway_attribute_request.client_keys[0], data['value'])]
