@@ -484,22 +484,5 @@ async def test_handle_rate_limit_response():
         client._mqtt_manager.set_gateway_rate_limits_received.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_handle_rate_limit_response_invalid_response():
-    # Setup
-    client = GatewayClient()
-    
-    # Create an invalid response
-    response = RPCResponse.build(1, result="invalid")
-    
-    # Mock the parent class method
-    with patch('tb_mqtt_client.service.device.client.DeviceClient._handle_rate_limit_response', return_value=None):
-        # Act
-        result = await client._handle_rate_limit_response(response)
-        
-        # Assert
-        assert result is None
-
-
 if __name__ == '__main__':
     pytest.main([__file__])

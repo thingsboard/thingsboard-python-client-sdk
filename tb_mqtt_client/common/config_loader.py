@@ -100,6 +100,8 @@ class GatewayConfig(DeviceConfig):
         if os.getenv("TB_GW_QOS") is not None:
             self.qos: int = int(os.getenv("TB_GW_QOS", 1))
 
+
+
     def __repr__(self):
         return (f"GatewayConfig(host={self.host}, port={self.port}, "
                 f"auth={'token' if self.access_token else 'user/pass'} "

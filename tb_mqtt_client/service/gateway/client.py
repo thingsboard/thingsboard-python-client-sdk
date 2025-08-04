@@ -402,10 +402,6 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
     async def _handle_rate_limit_response(self, response: RPCResponse):  # noqa
         device_rate_limits_processing_result = await super()._handle_rate_limit_response(response)
         try:
-            if not isinstance(response.result, dict) or 'gatewayRateLimits' not in response.result:
-                logger.warning("Invalid gateway rate limit response: %r", response)
-                return None
-
             gateway_rate_limits = response.result.get('gatewayRateLimits', {})
 
             await self._gateway_rate_limiter.message_rate_limit.set_limit(gateway_rate_limits.get('messages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
