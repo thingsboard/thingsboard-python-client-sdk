@@ -31,7 +31,9 @@ class DeviceInfo(object):
 
     def __setattr__(self, key, value):
         if not self._initializing:
-            raise AttributeError(f"Cannot modify attribute '{key}' of frozen DeviceInfo instance. Use rename() method to change device_name.")
+            raise AttributeError(
+                f"Cannot modify attribute '{key}' of frozen DeviceInfo instance."
+                "Use rename() method to change device_name.")
         else:
             super().__setattr__(key, value)
 

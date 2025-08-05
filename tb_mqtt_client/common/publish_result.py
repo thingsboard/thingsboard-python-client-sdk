@@ -19,7 +19,7 @@ class PublishResult:
     def __init__(self, topic: str, qos: int, message_id: int, payload_size: int, reason_code: int,
                  datapoints_count: int = 0):
         self.topic = topic
-        self.qos = qos
+        self.qos = qos if qos is not None else 1
         self.message_id = message_id
         self.payload_size = payload_size
         self.reason_code = reason_code
@@ -58,7 +58,6 @@ class PublishResult:
         Check if the publish operation was successful based on the reason code.
         """
         return self.reason_code == 0
-
 
     @staticmethod
     def merge(results: List['PublishResult']) -> 'PublishResult':

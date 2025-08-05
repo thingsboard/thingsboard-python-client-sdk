@@ -37,13 +37,16 @@ class GatewayRPCResponse(RPCResponse, BaseGatewayEvent):
     event_type: GatewayEventType = GatewayEventType.DEVICE_RPC_RESPONSE
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of GatewayRPCResponse is not allowed. Use GatewayRPCResponse.build(device_name, request_id, result, error).")
+        raise TypeError(
+            "Direct instantiation of GatewayRPCResponse is not allowed. "
+            "Use GatewayRPCResponse.build(device_name, request_id, result, error).")
 
     def __repr__(self) -> str:
-        return f"GatewayRPCResponse(device_name={self.device_name}, request_id={self.request_id}, result={self.result}, error={self.error})"
+        return (f"GatewayRPCResponse(device_name={self.device_name}, request_id={self.request_id}, "
+                f"result={self.result}, error={self.error})")
 
     @classmethod
-    def build(cls, # noqa
+    def build(cls,  # noqa
               device_name: str,
               request_id: int,
               result: Optional[Any] = None,

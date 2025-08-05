@@ -41,7 +41,8 @@ class GatewayMessageSender:
         self._message_queue: Optional[MessageService] = None
         self._message_adapter: Optional[GatewayMessageAdapter] = None
 
-    async def send_uplink_message(self, message: GatewayUplinkMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_uplink_message(self, message: GatewayUplinkMessage, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends a list of uplink messages to the platform.
 
@@ -74,7 +75,8 @@ class GatewayMessageSender:
             futures.extend(mqtt_message.delivery_futures)
         return futures
 
-    async def send_device_connect(self, device_connect_message: DeviceConnectMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_device_connect(self, device_connect_message: DeviceConnectMessage, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends a device connect message to the platform.
 
@@ -83,13 +85,16 @@ class GatewayMessageSender:
         :returns: List of PublishResult or Future[PublishResult] if successful, None if failed.
         """
         if self._message_queue is None:
-            logger.error("Cannot send device connect message. Message queue is not set, do you connected to the platform?")
+            logger.error(
+                "Cannot send device connect message. Message queue is not set, do you connected to the platform?")
             return None
-        mqtt_message = self._message_adapter.build_device_connect_message_payload(device_connect_message=device_connect_message, qos=qos)
+        mqtt_message = self._message_adapter.build_device_connect_message_payload(
+            device_connect_message=device_connect_message, qos=qos)
         await self._message_queue.publish(mqtt_message)
         return mqtt_message.delivery_futures
 
-    async def send_device_disconnect(self, device_disconnect_message: DeviceDisconnectMessage, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_device_disconnect(self, device_disconnect_message: DeviceDisconnectMessage, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends a device disconnect message to the platform.
 
@@ -98,13 +103,16 @@ class GatewayMessageSender:
         :returns: List of PublishResult or Future[PublishResult] if successful, None if failed.
         """
         if self._message_queue is None:
-            logger.error("Cannot send device disconnect message. Message queue is not set, do you connected to the platform?")
+            logger.error(
+                "Cannot send device disconnect message. Message queue is not set, do you connected to the platform?")
             return None
-        mqtt_message = self._message_adapter.build_device_disconnect_message_payload(device_disconnect_message=device_disconnect_message, qos=qos)
+        mqtt_message = self._message_adapter.build_device_disconnect_message_payload(
+            device_disconnect_message=device_disconnect_message, qos=qos)
         await self._message_queue.publish(mqtt_message)
         return mqtt_message.delivery_futures
 
-    async def send_attributes_request(self, attribute_request: GatewayAttributeRequest, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_attributes_request(self, attribute_request: GatewayAttributeRequest, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends an attribute request message to the platform.
 
@@ -115,11 +123,13 @@ class GatewayMessageSender:
         if self._message_queue is None:
             logger.error("Cannot send attribute request. Message queue is not set, do you connected to the platform?")
             return None
-        mqtt_message = self._message_adapter.build_gateway_attribute_request_payload(attribute_request=attribute_request, qos=qos)
+        mqtt_message = self._message_adapter.build_gateway_attribute_request_payload(
+            attribute_request=attribute_request, qos=qos)
         await self._message_queue.publish(mqtt_message)
         return mqtt_message.delivery_futures
 
-    async def send_rpc_response(self, rpc_response: GatewayRPCResponse, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_rpc_response(self, rpc_response: GatewayRPCResponse, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends an RPC response message to the platform.
 
@@ -134,7 +144,8 @@ class GatewayMessageSender:
         await self._message_queue.publish(mqtt_message)
         return mqtt_message.delivery_futures
 
-    async def send_claim_request(self, claim_request: GatewayClaimRequest, qos=1) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]:
+    async def send_claim_request(self, claim_request: GatewayClaimRequest, qos=1) -> (
+            Optional)[List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Sends a claim request message to the platform.
 

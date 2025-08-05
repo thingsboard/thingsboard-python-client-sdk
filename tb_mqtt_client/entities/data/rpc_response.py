@@ -32,6 +32,7 @@ class RPCStatus(Enum):
     def __str__(self):
         return self.value
 
+
 @dataclass(slots=True, frozen=True)
 class RPCResponse:
     """
@@ -48,13 +49,15 @@ class RPCResponse:
     error: Optional[Union[str, Dict[str, Any]]] = None
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of RPCResponse is not allowed. Use RPCResponse.build(request_id, result, error).")
+        raise TypeError(
+            "Direct instantiation of RPCResponse is not allowed. Use RPCResponse.build(request_id, result, error).")
 
     def __repr__(self) -> str:
         return f"RPCResponse(request_id={self.request_id}, result={self.result}, error={self.error})"
 
     @classmethod
-    def build(cls, request_id: Union[int, str], result: Optional[Any] = None, error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'RPCResponse':
+    def build(cls, request_id: Union[int, str], result: Optional[Any] = None,
+              error: Optional[Union[str, Dict[str, JSONCompatibleType], BaseException]] = None) -> 'RPCResponse':
         """
         Constructs an RPCResponse explicitly.
         """

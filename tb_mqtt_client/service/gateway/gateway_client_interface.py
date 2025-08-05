@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 from asyncio import Future
-from typing import Union, List, Tuple, Dict, Any
+from typing import Union, List, Tuple, Dict, Any, Optional
 
 from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
@@ -29,33 +29,46 @@ from tb_mqtt_client.service.gateway.device_session import DeviceSession
 class GatewayClientInterface(BaseClient, ABC):
 
     @abstractmethod
-    async def connect_device(self, device_name: str, device_profile: str, wait_for_publish: bool) -> \
-            Tuple[DeviceSession, List[Union[PublishResult, Future[PublishResult]]]]: ...
+    async def connect_device(self,
+                             device_name: str,
+                             device_profile: str,
+                             wait_for_publish: bool) -> Tuple[DeviceSession,
+                                                              List[Union[PublishResult, Future[PublishResult]]]]: ...
 
     @abstractmethod
-    async def disconnect_device(self, device_session: DeviceSession, wait_for_publish: bool) -> \
-            List[Union[PublishResult, Future[PublishResult]]]: ...
+    async def disconnect_device(self,
+                                device_session: DeviceSession,
+                                wait_for_publish: bool) -> List[Union[PublishResult, Future[PublishResult]]]: ...
 
     @abstractmethod
     async def send_device_timeseries(self,
                                      device_session: DeviceSession,
-                                     data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
+                                     data: Union[TimeseriesEntry,
+                                                 List[TimeseriesEntry],
+                                                 Dict[str, Any],
+                                                 List[Dict[str, Any]]],
+                                     wait_for_publish: bool) -> Optional[List[Union[PublishResult,
+                                                                                    Future[PublishResult]]]]: ...
 
     @abstractmethod
     async def send_device_attributes(self,
                                      device_session: DeviceSession,
-                                     attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
+                                     attributes: Union[Dict[str, Any],
+                                                       AttributeEntry,
+                                                       List[AttributeEntry]],
+                                     wait_for_publish: bool) -> Optional[List[Union[PublishResult,
+                                                                                    Future[PublishResult]]]]: ...
 
     @abstractmethod
     async def send_device_attributes_request(self,
                                              device_session: DeviceSession,
                                              attributes: Union[AttributeRequest, GatewayAttributeRequest],
-                                             wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
+                                             wait_for_publish: bool) -> Optional[
+                                                     List[Union[PublishResult, Future[PublishResult]]]]: ...
 
     @abstractmethod
     async def send_device_claim_request(self,
                                         device_session: DeviceSession,
                                         gateway_claim_request: GatewayClaimRequest,
-                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], None]: ...
+                                        wait_for_publish: bool) -> Union[List[Union[PublishResult,
+                                                                                    Future[PublishResult]]], None]: ...

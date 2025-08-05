@@ -18,11 +18,10 @@ import asyncio
 import logging
 from random import randint
 
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.provisioning_request import AccessTokenProvisioningCredentials, ProvisioningRequest
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
 
 configure_logging()
 logger = get_logger(__name__)

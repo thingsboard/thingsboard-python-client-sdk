@@ -31,7 +31,10 @@ class MessageSplitter(BaseMessageSplitter):
     DEFAULT_MAX_PAYLOAD_SIZE = 55_000  # Default to 55_000 to allow for some overhead
 
     def __init__(self, max_payload_size: int = DEFAULT_MAX_PAYLOAD_SIZE, max_datapoints: int = 0):
-        self._max_payload_size = max_payload_size if max_payload_size is not None and max_payload_size > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
+        if max_payload_size is not None and max_payload_size > 0:
+            self._max_payload_size = max_payload_size
+        else:
+            self._max_payload_size = self.DEFAULT_MAX_PAYLOAD_SIZE
         self._max_datapoints = max_datapoints if max_datapoints is not None and max_datapoints > 0 else 0
         logger.trace("MessageSplitter initialized with max_payload_size=%d, max_datapoints=%d",
                      self._max_payload_size, self._max_datapoints)
@@ -157,7 +160,8 @@ class MessageSplitter(BaseMessageSplitter):
                         for parent in parent_futures:
                             future_map.register(parent, [shared_future])
 
-                        logger.trace("Flushed attribute batch (count=%d, size=%d)", len(built.attributes), size)
+                        logger.trace("Flushed attribute batch (count=%d, size=%d)",
+                                     len(built.attributes), size)
                     builder = DeviceUplinkMessageBuilder() \
                         .set_device_name(device_name) \
                         .set_device_profile(device_profile) \
@@ -179,7 +183,8 @@ class MessageSplitter(BaseMessageSplitter):
                 for parent in parent_futures:
                     future_map.register(parent, [shared_future])
 
-                logger.trace("Flushed final attribute batch (count=%d, size=%d)", len(built.attributes), size)
+                logger.trace("Flushed final attribute batch (count=%d, size=%d)",
+                             len(built.attributes), size)
 
         logger.trace("Total attribute batches created: %d", len(result))
         return result

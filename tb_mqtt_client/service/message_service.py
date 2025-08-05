@@ -14,7 +14,7 @@
 
 import asyncio
 from contextlib import suppress
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
@@ -62,7 +62,7 @@ class MessageService:
                                                           self._main_stop_event,
                                                           self._mqtt_manager,
                                                           self._device_rate_limiter,
-                                                          self._gateway_rate_limiter,)
+                                                          self._gateway_rate_limiter)
         self._device_uplink_messages_queue: AsyncDeque = AsyncDeque(maxlen=max_queue_size)
         self._device_uplink_message_worker = MessageQueueWorker("DeviceUplinkMessageWorker",
                                                                 self._device_uplink_messages_queue,
@@ -89,9 +89,12 @@ class MessageService:
 
         self._retry_by_qos_task = asyncio.create_task(self._dispatch_retry_by_qos_queue_loop())
         self._initial_queue_task = asyncio.create_task(self._dispatch_initial_queue_loop())
-        self._service_queue_task = asyncio.create_task(self._dispatch_queue_loop(self._service_queue, self._service_message_worker))
-        self._device_uplink_messages_queue_task = asyncio.create_task(self._dispatch_queue_loop(self._device_uplink_messages_queue, self._device_uplink_message_worker))
-        self._gateway_uplink_messages_queue_task = asyncio.create_task(self._dispatch_queue_loop(self._gateway_uplink_messages_queue, self._gateway_uplink_message_worker))
+        self._service_queue_task = asyncio.create_task(
+            self._dispatch_queue_loop(self._service_queue, self._service_message_worker))
+        self._device_uplink_messages_queue_task = asyncio.create_task(
+            self._dispatch_queue_loop(self._device_uplink_messages_queue, self._device_uplink_message_worker))
+        self._gateway_uplink_messages_queue_task = asyncio.create_task(
+            self._dispatch_queue_loop(self._gateway_uplink_messages_queue, self._gateway_uplink_message_worker))
 
         self._rate_limit_refill_task = asyncio.create_task(self._rate_limit_refill_loop())
         self.__print_queue_statistics_task = asyncio.create_task(self.print_queues_statistics())
@@ -104,7 +107,8 @@ class MessageService:
         """
         try:
             if logger.isEnabledFor(TRACE_LEVEL):
-                logger.trace(f"Pushing message to queue with delivery futures: {[f.uuid for f in message.delivery_futures]}")
+                logger.trace(
+                    f"Pushing message to queue with delivery futures: {[f.uuid for f in message.delivery_futures]}")
             await self._initial_queue.put(message)
         except Exception as e:
             logger.error("Failed to push message to queue: %s", e)
@@ -136,7 +140,8 @@ class MessageService:
                         # If the message is a DeviceUplinkMessage, process it with the device adapter
                         device_messages.append(message)
                     else:
-                        logger.warning("Unknown message type in initial queue: %s", type(message.original_payload))
+                        logger.warning("Unknown message type in initial queue: %s",
+                                       type(message.original_payload))
 
                 if gateway_messages:
                     # Process gateway messages in batches
@@ -172,11 +177,11 @@ class MessageService:
                     await asyncio.sleep(0.01)
                     continue
                 logger.trace("Processing message from queue: %s, message_id: %s, message payload: %s",
-                            message.topic, message.message_id, message.original_payload)
+                             message.topic, message.message_id, message.original_payload)
                 expected_duration, expected_tokens, triggered_rate_limit = await worker.process(message)
                 if triggered_rate_limit:
                     logger.trace("Reinserting message to the front of the queue: %s, message payload: %s",
-                                message.uuid, message.original_payload)
+                                 message.uuid, message.original_payload)
                     await queue.reinsert_front(message)
                     triggered_rate_limit.set_required_tokens(expected_duration, expected_tokens)
                     await triggered_rate_limit.required_tokens_ready.wait()
@@ -213,7 +218,8 @@ class MessageService:
                 elif isinstance(message.original_payload, DeviceUplinkMessage):
                     await self._device_uplink_messages_queue.reinsert_front(message)
                 else:
-                    logger.warning("Unknown message type in retry queue: %s", type(message.original_payload))
+                    logger.warning("Unknown message type in retry queue: %s",
+                                   type(message.original_payload))
 
             except asyncio.CancelledError:
                 break
@@ -245,7 +251,7 @@ class MessageService:
         await self.clear()
 
         logger.debug("MessageQueue shutdown complete, message queue size: %d",
-                        self._initial_queue.size())
+                     self._initial_queue.size())
 
     @staticmethod
     async def _cancel_tasks(tasks: set[asyncio.Task]):
@@ -261,7 +267,7 @@ class MessageService:
     async def clear(self):
         logger.debug("Clearing message queue...")
         for queue in [self._initial_queue, self._service_queue,
-                                    self._device_uplink_messages_queue, self._gateway_uplink_messages_queue]:
+                      self._device_uplink_messages_queue, self._gateway_uplink_messages_queue]:
             while not queue.is_empty():
                 message: MqttPublishMessage = await queue.get()
                 for future in message.delivery_futures:
@@ -270,7 +276,8 @@ class MessageService:
                             topic=message.topic,
                             qos=message.qos,
                             message_id=-1,
-                            payload_size=message.payload_size if isinstance(message.payload, bytes) else message.payload.size,
+                            payload_size=message.payload_size if isinstance(message.payload,
+                                                                            bytes) else message.payload.size,
                             reason_code=-1
                         ))
         logger.debug("Message queue cleared.")
@@ -325,6 +332,7 @@ class MessageService:
                         active)
             await asyncio.sleep(60)
 
+
 class MessageQueueWorker:
     def __init__(self,
                  name,
@@ -343,9 +351,10 @@ class MessageQueueWorker:
     async def process(self, message: MqttPublishMessage) -> Tuple[Optional[int], Optional[int], Optional[RateLimit]]:
         message_rate_limit, datapoints_rate_limit = self._get_rate_limits_for_message(message)
         if message_rate_limit.has_limit() or datapoints_rate_limit.has_limit():
-            triggered_rate_limit_entry, expected_tokens, rate_limit = await self.check_rate_limits_for_message(datapoints_count=message.datapoints,
-                                                                                                               message_rate_limit=message_rate_limit,
-                                                                                                               datapoints_rate_limit=datapoints_rate_limit)
+            triggered_rate_limit_entry, expected_tokens, rate_limit = await self.check_rate_limits_for_message(
+                datapoints_count=message.datapoints,
+                message_rate_limit=message_rate_limit,
+                datapoints_rate_limit=datapoints_rate_limit)
 
             if triggered_rate_limit_entry is not None:
                 triggered_duration = triggered_rate_limit_entry[1]
@@ -358,7 +367,6 @@ class MessageQueueWorker:
                                                         datapoints_rate_limit=datapoints_rate_limit)
         await self._mqtt_manager.publish(message)
         return None, None, None
-
 
     def _get_rate_limits_for_message(self, message: MqttPublishMessage) -> Tuple[RateLimit, RateLimit]:
 
@@ -383,8 +391,10 @@ class MessageQueueWorker:
 
     @staticmethod
     async def check_rate_limits_for_message(datapoints_count: int,
-                                      message_rate_limit: RateLimit,
-                                      datapoints_rate_limit: RateLimit) -> Tuple[Union[Tuple[int, int], None], int, Optional[RateLimit]]:
+                                            message_rate_limit: RateLimit,
+                                            datapoints_rate_limit: RateLimit) -> Tuple[Optional[Tuple[int, int]],
+                                                                                       int,
+                                                                                       Optional[RateLimit]]:
         if message_rate_limit and message_rate_limit.has_limit():
             triggered_rate_limit_entry = await message_rate_limit.try_consume(1)
             if triggered_rate_limit_entry:
@@ -397,8 +407,8 @@ class MessageQueueWorker:
 
     @staticmethod
     async def _consume_rate_limits_for_message(datapoints_count: int,
-                                      message_rate_limit: RateLimit,
-                                      datapoints_rate_limit: RateLimit) -> None:
+                                               message_rate_limit: RateLimit,
+                                               datapoints_rate_limit: RateLimit) -> None:
         if message_rate_limit and message_rate_limit.has_limit():
             await message_rate_limit.consume(1)
         if datapoints_rate_limit and datapoints_rate_limit.has_limit():

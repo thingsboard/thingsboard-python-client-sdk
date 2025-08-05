@@ -12,7 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-
 import asyncio
 from asyncio import Event
 from datetime import datetime, timedelta, UTC
@@ -33,7 +32,7 @@ class BackpressureController:
         self._max_backoff_seconds = 3600  # 1 hour
         self._can_process_messages_events: List[asyncio.Event] = []
         logger.debug("BackpressureController initialized with default pause duration of %s seconds",
-                        self._default_pause_duration.total_seconds())
+                     self._default_pause_duration.total_seconds())
 
     def notify_quota_exceeded(self, delay_seconds: Optional[int] = None):
         if self.__main_stop_event.is_set():
@@ -57,8 +56,8 @@ class BackpressureController:
             # Cap at max backoff
             delay_seconds = min(delay_seconds, self._max_backoff_seconds)
 
-        logger.warning("Applying backpressure for %d seconds (consecutive quota exceeded: %d)", 
-                      delay_seconds, self._consecutive_quota_exceeded)
+        logger.warning("Applying backpressure for %d seconds (consecutive quota exceeded: %d)",
+                       delay_seconds, self._consecutive_quota_exceeded)
 
         duration = timedelta(seconds=delay_seconds)
         self._pause_until = now + duration

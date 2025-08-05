@@ -58,7 +58,8 @@ async def test_register_request():
 
     # Assert
     assert (request.device_session.device_info.device_name, request.request_id) in handler._pending_attribute_requests
-    assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][0] == request
+    assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][
+               0] == request
 
 
 @pytest.mark.asyncio
@@ -93,10 +94,12 @@ async def test_register_request_with_timeout():
         await handler.register_request(request, timeout=10)
 
         # Assert
-        assert (request.device_session.device_info.device_name, request.request_id) in handler._pending_attribute_requests
-        assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][0] == request
-        assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][1] == mock_timeout_task
-        mock_loop.call_later.assert_called_once_with(10, handler._on_timeout, request.device_session.device_info.device_name, request.request_id)
+        assert (request.device_session.device_info.device_name,
+                request.request_id) in handler._pending_attribute_requests
+        assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][0] == request  # noqa
+        assert handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)][1] == mock_timeout_task  # noqa
+        mock_loop.call_later.assert_called_once_with(10, handler._on_timeout,
+                                                     request.device_session.device_info.device_name, request.request_id)
 
 
 @pytest.mark.asyncio
@@ -150,13 +153,15 @@ async def test_unregister_request():
     request = await GatewayAttributeRequest.build(device_session=device_session, shared_keys=["key1", "key2"])
 
     # Register the request
-    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (request, None)
+    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (
+        request, None)
 
     # Act
     handler.unregister_request(request.device_session.device_info.device_name, request.request_id)
 
     # Assert
-    assert (request.device_session.device_info.device_name, request.request_id) not in handler._pending_attribute_requests
+    assert (request.device_session.device_info.device_name,
+            request.request_id) not in handler._pending_attribute_requests
 
 
 def test_unregister_nonexistent_request():
@@ -203,15 +208,18 @@ async def test_handle_valid_response():
 
     # Register the request
     timeout_task = MagicMock()
-    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (request, timeout_task)
+    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (
+        request, timeout_task)
 
     # Mock the message adapter
-    payload = b'{"device": "test_device", "id": ' + str(request.request_id).encode() + b', "values": {"key1": "value1"}}'
+    payload = b'{"device": "test_device", "id": ' + str(
+        request.request_id).encode() + b', "values": {"key1": "value1"}}'
     deserialized_data = {"device": "test_device", "id": request.request_id, "values": {"key1": "value1"}}
     message_adapter.deserialize_to_dict.return_value = deserialized_data
 
     # Create a mock response
-    response = GatewayRequestedAttributeResponse(device_name="test_device", request_id=request.request_id, shared=[AttributeEntry("key1", "value1")])
+    response = GatewayRequestedAttributeResponse(device_name="test_device", request_id=request.request_id,
+                                                 shared=[AttributeEntry("key1", "value1")])
     message_adapter.parse_gateway_requested_attribute_response.return_value = response
 
     # Mock asyncio.create_task
@@ -306,12 +314,14 @@ async def test_on_timeout():
     request = await GatewayAttributeRequest.build(device_session=device_session, shared_keys=["key1", "key2"])
 
     # Register the request
-    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (request, None)
+    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (
+        request, None)
 
     handler._on_timeout(request.device_session.device_info.device_name, request.request_id)
 
     # Assert
-    assert (request.device_session.device_info.device_name, request.request_id) not in handler._pending_attribute_requests
+    assert (request.device_session.device_info.device_name,
+            request.request_id) not in handler._pending_attribute_requests
 
 
 def test_handle_callback_exception():
@@ -360,7 +370,8 @@ async def test_clear():
     request = await GatewayAttributeRequest.build(device_session=device_session, shared_keys=["key1", "key2"])
 
     # Register the request
-    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (request, None)
+    handler._pending_attribute_requests[(request.device_session.device_info.device_name, request.request_id)] = (
+        request, None)
 
     # Act
     handler.clear()
@@ -368,35 +379,38 @@ async def test_clear():
     # Assert
     assert len(handler._pending_attribute_requests) == 0
 
+
 @pytest.mark.asyncio
 async def test_handle_no_message_adapter_removes_request():
     adapter = MagicMock(spec=GatewayMessageAdapter)
     handler = GatewayRequestedAttributeResponseHandler(event_dispatcher=MagicMock(spec=DirectEventDispatcher),
-                                                      message_adapter=adapter,
-                                                      device_manager=MagicMock(spec=DeviceManager))
+                                                       message_adapter=adapter,
+                                                       device_manager=MagicMock(spec=DeviceManager))
     handler._pending_attribute_requests["test_device", 5] = (MagicMock(spec=AttributeRequest), AsyncMock())
     topic = "attr/request/5"
     await handler.handle(topic, b"{}")
     assert 5 not in handler._pending_attribute_requests
 
+
 @pytest.mark.asyncio
 async def test_handle_with_no_callback_registered():
     adapter = MagicMock(spec=GatewayMessageAdapter)
     handler = GatewayRequestedAttributeResponseHandler(event_dispatcher=MagicMock(spec=DirectEventDispatcher),
-                                                      message_adapter=adapter,
-                                                      device_manager=MagicMock(spec=DeviceManager))
+                                                       message_adapter=adapter,
+                                                       device_manager=MagicMock(spec=DeviceManager))
     resp = MagicMock(spec=RequestedAttributeResponse)
     resp.request_id = 42
     adapter.parse_gateway_requested_attribute_response.return_value = resp
     handler._pending_attribute_requests['test_device', 42] = (MagicMock(spec=AttributeRequest), None)
     await handler.handle("topic", b"payload")
 
+
 @pytest.mark.asyncio
 async def test_handle_with_parsing_exception():
     adapter = MagicMock(spec=GatewayMessageAdapter)
     handler = GatewayRequestedAttributeResponseHandler(event_dispatcher=MagicMock(spec=DirectEventDispatcher),
-                                                      message_adapter=adapter,
-                                                      device_manager=MagicMock(spec=DeviceManager))
+                                                       message_adapter=adapter,
+                                                       device_manager=MagicMock(spec=DeviceManager))
     adapter.parse_gateway_requested_attribute_response.side_effect = RuntimeError("bad parse")
     await handler.handle("topic", b"payload")
 

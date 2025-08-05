@@ -158,7 +158,6 @@ async def test_split_attributes_grouping():
     for i in range(3, 6):
         builder2.add_attributes(AttributeEntry(f"key_{i}", i))
 
-
     messages = [builder1.build(), builder2.build()]
     result = dispatcher.splitter.split_attributes(messages)
 
@@ -180,7 +179,7 @@ async def test_split_attributes_different_devices_not_grouped():
 
     for i in range(3):
         builder1.add_attributes(AttributeEntry(f"key_{i}", i))
-        builder2.add_attributes(AttributeEntry(f"key_{i+3}", i+3))
+        builder2.add_attributes(AttributeEntry(f"key_{i + 3}", i + 3))
 
     result = dispatcher.splitter.split_attributes([builder1.build(), builder2.build()])
 
@@ -226,6 +225,7 @@ async def test_split_timeseries_registers_futures_and_batches_correctly(mock_reg
         shared_future = args[1][0]
         assert isinstance(shared_future, asyncio.Future)
         assert hasattr(shared_future, "uuid")
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

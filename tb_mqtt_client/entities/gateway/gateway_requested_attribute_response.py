@@ -26,7 +26,6 @@ logger = get_logger(__name__)
 
 @dataclass(slots=True, frozen=True)
 class GatewayRequestedAttributeResponse(RequestedAttributeResponse, BaseGatewayEvent):
-
     device_name: str = ""
     request_id: int = -1
     shared: Optional[List[AttributeEntry]] = None
@@ -37,7 +36,8 @@ class GatewayRequestedAttributeResponse(RequestedAttributeResponse, BaseGatewayE
         super(BaseGatewayEvent, self).__setattr__('event_type', GatewayEventType.DEVICE_REQUESTED_ATTRIBUTE_RESPONSE)
 
     def __repr__(self):
-        return f"GatewayRequestedAttributeResponse(device_name={self.device_name},request_id={self.request_id}, shared={self.shared}, client={self.client})"
+        return (f"GatewayRequestedAttributeResponse(device_name={self.device_name},request_id={self.request_id}, "
+                f"shared={self.shared}, client={self.client})")
 
     def __getitem__(self, item):
         """

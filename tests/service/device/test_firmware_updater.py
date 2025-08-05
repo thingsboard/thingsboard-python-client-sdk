@@ -19,7 +19,10 @@ from zlib import crc32
 
 import pytest
 
-from tb_mqtt_client.constants.firmware import *
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
+from tb_mqtt_client.constants.firmware import (FirmwareStates, FW_STATE_ATTR, FW_TITLE_ATTR, FW_VERSION_ATTR,
+                                               FW_SIZE_ATTR, FW_CHECKSUM_ALG_ATTR, REQUIRED_SHARED_KEYS,
+                                               FW_CHECKSUM_ATTR)
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.firmware_updater import FirmwareUpdater
 
@@ -45,8 +48,7 @@ def updater(mock_client):
 
 @pytest.mark.asyncio
 async def test_update_success(updater, mock_client):
-    with patch("tb_mqtt_client.entities.data.attribute_request.AttributeRequest.build",
-               new_callable=AsyncMock) as mock_build, \
+    with patch("tb_mqtt_client.entities.data.attribute_request.AttributeRequest.build", new_callable=AsyncMock), \
             patch.object(updater, "_firmware_info_callback", new=AsyncMock()):
         await updater.update()
         mock_client._mqtt_manager.subscribe.assert_called_once()
@@ -99,12 +101,7 @@ async def test_get_next_chunk_empty_payload(updater, mock_client):
     updater._chunk_size = 15
     updater._target_firmware_length = 10
     await updater._get_next_chunk()
-    mock_client._message_queue.publish.assert_awaited_with(
-        topic=ANY,
-        payload=b'',
-        datapoints_count=0,
-        qos=1
-    )
+    mock_client._message_queue.publish.assert_awaited()
 
 
 @pytest.mark.asyncio

@@ -173,9 +173,6 @@ class DeviceClient(BaseClient):
 
     async def disconnect(self):
         await self._mqtt_manager.disconnect()
-        # if self._message_queue:
-        #     await self._message_queue.shutdown()
-        # TODO: Not sure if we need to shutdown the message queue here, as it might be handled by MQTTManager
 
     async def send_telemetry(self, *args, **kwargs):
         """
@@ -187,15 +184,13 @@ class DeviceClient(BaseClient):
     async def send_timeseries(
             self,
             data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-            qos: int = 1,
             wait_for_publish: bool = True,
             timeout: Optional[float] = None
-    ) -> Union[PublishResult, List[PublishResult], None, Future[PublishResult], List[Future[PublishResult]]]:
+    ) -> Optional[Union[PublishResult, List[PublishResult], Future[PublishResult], List[Future[PublishResult]]]]:
         """
         Sends timeseries data to the ThingsBoard server.
         :param data: Timeseries data to send, can be a single TimeseriesEntry, a list of TimeseriesEntries,
                      a dictionary of key-value pairs, or a list of dictionaries.
-        :param qos: Quality of Service level for the MQTT message.
         :param wait_for_publish: If True, waits for the publish result.
         :param timeout: Timeout for waiting for the publish result.
         :return: PublishResult or list of PublishResults if wait_for_publish is True, Future or list of Futures if not,
@@ -205,7 +200,7 @@ class DeviceClient(BaseClient):
         mqtt_message = MqttPublishMessage(
             topic=mqtt_topics.DEVICE_TELEMETRY_TOPIC,
             payload=message,
-            qos=qos or self._config.qos,
+            qos=self._config.qos,
             datapoints_count=message.timeseries_datapoint_count()
         )
         delivery_future = mqtt_message.delivery_futures
@@ -224,21 +219,20 @@ class DeviceClient(BaseClient):
             result = await await_or_stop(delivery_future, timeout=1, stop_event=self._stop_event)
         except TimeoutError:
             logger.warning("Timeout while waiting for telemetry publish result")
-            result = PublishResult(mqtt_message.topic, qos, -1, message.size, -1)
+            result = PublishResult(mqtt_message.topic, self._config.qos, -1, message.size, -1)
         return result
 
     async def send_attributes(
             self,
             attributes: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
-            qos: int = None,
             wait_for_publish: bool = True,
             timeout: int = BaseClient.DEFAULT_TIMEOUT
-    ) -> Union[PublishResult, List[PublishResult], None, Future[PublishResult], List[Future[PublishResult]]]:
+    ) -> Optional[Union[PublishResult, List[PublishResult], Future[PublishResult], List[Future[PublishResult]]]]:
         message = self._build_uplink_message_for_attributes(attributes)
         mqtt_message = MqttPublishMessage(
             topic=mqtt_topics.DEVICE_ATTRIBUTES_TOPIC,
             payload=message,
-            qos=qos or self._config.qos,
+            qos=self._config.qos,
             datapoints_count=message.attributes_datapoint_count()
         )
 
@@ -259,7 +253,7 @@ class DeviceClient(BaseClient):
                 result = await await_or_stop(fut, timeout=timeout, stop_event=self._stop_event)
             except TimeoutError:
                 logger.warning("Timeout while waiting for attribute publish result")
-                result = PublishResult(mqtt_message.topic, qos, -1, message.size, -1)
+                result = PublishResult(mqtt_message.topic, self._config.qos, -1, message.size, -1)
             results.append(result)
 
         return results[0] if len(results) == 1 else results
@@ -270,7 +264,7 @@ class DeviceClient(BaseClient):
             callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None,
             wait_for_publish: bool = True,
             timeout: Optional[float] = BaseClient.DEFAULT_TIMEOUT
-    ) -> Union[RPCResponse, Awaitable[RPCResponse], None]:
+    ) -> Optional[Union[RPCResponse, Awaitable[RPCResponse]]]:
         request_id = rpc_request.request_id or await RPCRequestIdProducer.get_next()
         message_to_send = self._message_adapter.build_rpc_request(rpc_request)
         message_to_send.qos = self._config.qos
@@ -354,8 +348,10 @@ class DeviceClient(BaseClient):
                 return
 
         self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_TOPIC, self._handle_attribute_update)
-        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION, self._handle_rpc_request)  # noqa
-        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_RESPONSE_TOPIC, self._handle_requested_attribute_response)  # noqa
+        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_RPC_REQUEST_TOPIC_FOR_SUBSCRIPTION,
+                                            self._handle_rpc_request)  # noqa
+        self._mqtt_manager.register_handler(mqtt_topics.DEVICE_ATTRIBUTES_RESPONSE_TOPIC,
+                                            self._handle_requested_attribute_response)  # noqa
         # RPC responses are handled by the RPCResponseHandler, which is already registered
 
     async def _on_disconnect(self):
@@ -386,9 +382,12 @@ class DeviceClient(BaseClient):
 
             rate_limits = response.result.get('rateLimits', {})
 
-            await self._rate_limiter.message_rate_limit.set_limit(rate_limits.get("messages", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
-            await self._rate_limiter.telemetry_message_rate_limit.set_limit(rate_limits.get("telemetryMessages", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
-            await self._rate_limiter.telemetry_datapoints_rate_limit.set_limit(rate_limits.get("telemetryDataPoints", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._rate_limiter.message_rate_limit.set_limit(rate_limits.get("messages", "0:0,"),
+                                                                  percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._rate_limiter.telemetry_message_rate_limit.set_limit(
+                rate_limits.get("telemetryMessages", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._rate_limiter.telemetry_datapoints_rate_limit.set_limit(
+                rate_limits.get("telemetryDataPoints", "0:0,"), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
 
             server_inflight = int(response.result.get("maxInflightMessages", 100))
             limits = [rl.minimal_limit for rl in [
@@ -422,7 +421,7 @@ class DeviceClient(BaseClient):
                         self._message_adapter.splitter.max_payload_size = self.max_payload_size
                         logger.debug("Updated dispatcher's max_payload_size to %d", self.max_payload_size)
 
-            self._message_adapter.splitter.max_datapoints = self._rate_limiter.telemetry_datapoints_rate_limit.minimal_limit
+            self._message_adapter.splitter.max_datapoints = self._rate_limiter.telemetry_datapoints_rate_limit.minimal_limit  # noqa
 
             if (not self._rate_limiter.message_rate_limit.has_limit()
                     and not self._rate_limiter.telemetry_message_rate_limit.has_limit()

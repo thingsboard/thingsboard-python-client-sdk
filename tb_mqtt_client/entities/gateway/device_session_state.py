@@ -14,6 +14,7 @@
 
 from enum import Enum
 
+
 class DeviceSessionState(Enum):
     CONNECTED = "CONNECTED"
     DISCONNECTED = "DISCONNECTED"

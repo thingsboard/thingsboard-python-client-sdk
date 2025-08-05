@@ -60,6 +60,7 @@ def test_publish_result_as_dict(default_publish_result):
         "datapoints_count": 0
     }
 
+
 def test_publish_request_merge():
     result1 = PublishResult(
         topic="v1/devices/me/telemetry",
@@ -79,13 +80,15 @@ def test_publish_request_merge():
 
     assert merged_result.topic == "v1/devices/me/telemetry"
     assert merged_result.qos == 1
-    assert merged_result.message_id == -1 # Merged results do not have a specific message_id
+    assert merged_result.message_id == -1  # Merged results do not have a specific message_id
     assert merged_result.payload_size == 768  # Combined payload size
     assert merged_result.reason_code == 0  # All successful
+
 
 def test_publish_result_merge_with_empty_list():
     with pytest.raises(ValueError, match="No publish results to merge."):
         PublishResult.merge([])
+
 
 def test_publish_result_is_successful_true(default_publish_result):
     assert default_publish_result.is_successful() is True
@@ -149,6 +152,7 @@ def test_publish_result_various_failure_codes(reason_code):
         reason_code=reason_code
     )
     assert result.is_successful() is False
+
 
 if __name__ == '__main__':
     pytest.main([__file__, "-v", "--tb=short"])

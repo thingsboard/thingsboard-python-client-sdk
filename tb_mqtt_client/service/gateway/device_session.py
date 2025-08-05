@@ -15,7 +15,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from time import time
-from typing import Callable, Awaitable, Optional, Union
+from typing import Callable, Awaitable, Optional
 
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
@@ -37,9 +37,12 @@ class DeviceSession:
     provisioned: bool = False
     state: DeviceSessionState = DeviceSessionState.CONNECTED
 
-    attribute_update_callback: Optional[Callable[['DeviceSession','AttributeUpdate'], Union[Awaitable[None], None]]] = None
-    attribute_response_callback: Optional[Callable[['DeviceSession','RequestedAttributeResponse'], Union[Awaitable[None], None]]] = None
-    rpc_request_callback: Optional[Callable[['DeviceSession','GatewayRPCRequest'], Union[Awaitable[Union['GatewayRPCResponse', None]], None]]] = None
+    attribute_update_callback: Optional[Callable[['DeviceSession', 'AttributeUpdate'],
+                                        Optional[Awaitable[None]]]] = None
+    attribute_response_callback: Optional[Callable[['DeviceSession', 'RequestedAttributeResponse'],
+                                          Optional[Awaitable[None]]]] = None
+    rpc_request_callback: Optional[Callable[['DeviceSession', 'GatewayRPCRequest'],
+                                   Optional[Awaitable[Optional['GatewayRPCResponse']]]]] = None
 
     def update_state(self, new_state: DeviceSessionState):
         self.state = new_state
@@ -49,16 +52,20 @@ class DeviceSession:
     def update_last_seen(self):
         self.last_seen_at = int(time() * 1000)
 
-    def set_attribute_update_callback(self, cb: Callable[['DeviceSession','AttributeUpdate'], Union[Awaitable[None], None]]):
+    def set_attribute_update_callback(self,
+                                      cb: Callable[['DeviceSession', 'AttributeUpdate'], Optional[Awaitable[None]]]):
         self.attribute_update_callback = cb
 
-    def set_attribute_response_callback(self, cb: Callable[['DeviceSession','RequestedAttributeResponse'], Union[Awaitable[None], None]]):
+    def set_attribute_response_callback(self, cb: Callable[
+        ['DeviceSession', 'RequestedAttributeResponse'], Optional[Awaitable[None]]]):
         self.attribute_response_callback = cb
 
-    def set_rpc_request_callback(self, cb: Callable[['DeviceSession','GatewayRPCRequest'], Union[Awaitable[Union['GatewayRPCResponse', None]], None]]):
+    def set_rpc_request_callback(self, cb: Callable[
+        ['DeviceSession', 'GatewayRPCRequest'], Optional[Awaitable[Optional['GatewayRPCResponse']]]]):
         self.rpc_request_callback = cb
 
-    async def handle_event_to_device(self, event: BaseGatewayEvent) -> Optional[Awaitable[Union['GatewayRPCResponse', None]]]:
+    async def handle_event_to_device(self, event: BaseGatewayEvent) -> (
+            Optional)[Awaitable[Optional['GatewayRPCResponse']]]:
         cb = None
         if GatewayEventType.DEVICE_ATTRIBUTE_UPDATE == event.event_type \
                 and isinstance(event, AttributeUpdate):

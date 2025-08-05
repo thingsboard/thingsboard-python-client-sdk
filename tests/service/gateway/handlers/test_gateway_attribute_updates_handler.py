@@ -33,32 +33,32 @@ async def test_handle_with_existing_device():
     event_dispatcher = AsyncMock(spec=DirectEventDispatcher)
     message_adapter = MagicMock(spec=GatewayMessageAdapter)
     device_manager = MagicMock(spec=DeviceManager)
-    
+
     # Create a handler
     handler = GatewayAttributeUpdatesHandler(
         event_dispatcher=event_dispatcher,
         message_adapter=message_adapter,
         device_manager=device_manager
     )
-    
+
     # Mock the device session
     device_session = MagicMock(spec=DeviceSession)
     device_manager.get_by_name.return_value = device_session
-    
+
     # Mock the message adapter
     payload = b'{"device": "test_device", "data": {"key": "value"}}'
     deserialized_data = {"device": "test_device", "data": {"key": "value"}}
     message_adapter.deserialize_to_dict.return_value = deserialized_data
-    
+
     # Create a mock attribute update
     attribute_update = AttributeUpdate([AttributeEntry(key="key", value="value")])
     gateway_attribute_update = GatewayAttributeUpdate(device_name="test_device", attribute_update=attribute_update)
     message_adapter.parse_attribute_update.return_value = gateway_attribute_update
     gateway_attribute_update.set_device_session = AsyncMock()
-    
+
     # Act
     await handler.handle("topic", payload)
-    
+
     # Assert
     message_adapter.deserialize_to_dict.assert_called_once_with(payload)
     message_adapter.parse_attribute_update.assert_called_once_with(deserialized_data)
@@ -73,37 +73,39 @@ async def test_handle_with_nonexistent_device():
     event_dispatcher = AsyncMock(spec=DirectEventDispatcher)
     message_adapter = MagicMock(spec=GatewayMessageAdapter)
     device_manager = MagicMock(spec=DeviceManager)
-    
+
     # Create a handler
     handler = GatewayAttributeUpdatesHandler(
         event_dispatcher=event_dispatcher,
         message_adapter=message_adapter,
         device_manager=device_manager
     )
-    
+
     # Mock the device session (nonexistent)
     device_manager.get_by_name.return_value = None
-    
+
     # Mock the message adapter
     payload = b'{"device": "nonexistent_device", "data": {"key": "value"}}'
     deserialized_data = {"device": "nonexistent_device", "data": {"key": "value"}}
     message_adapter.deserialize_to_dict.return_value = deserialized_data
-    
+
     # Create a mock attribute update
     attribute_update = AttributeUpdate([AttributeEntry("key", "value")])
-    gateway_attribute_update = GatewayAttributeUpdate(device_name="nonexistent_device", attribute_update=attribute_update)
+    gateway_attribute_update = GatewayAttributeUpdate(device_name="nonexistent_device",
+                                                      attribute_update=attribute_update)
     message_adapter.parse_attribute_update.return_value = gateway_attribute_update
     gateway_attribute_update.set_device_session = AsyncMock()
-    
+
     # Act
     await handler.handle("topic", payload)
-    
+
     # Assert
     message_adapter.deserialize_to_dict.assert_called_once_with(payload)
     message_adapter.parse_attribute_update.assert_called_once_with(deserialized_data)
     device_manager.get_by_name.assert_called_once_with("nonexistent_device")
     # set_device_session should not be called since a device is None
-    assert not hasattr(gateway_attribute_update, 'set_device_session') or not gateway_attribute_update.set_device_session.called
+    assert not hasattr(gateway_attribute_update,
+                       'set_device_session') or not gateway_attribute_update.set_device_session.called
     event_dispatcher.dispatch.assert_awaited_once_with(attribute_update, device_session=None)
 
 

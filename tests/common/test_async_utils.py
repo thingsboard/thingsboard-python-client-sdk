@@ -34,6 +34,7 @@ async def test_future_map_register_and_get_parents():
     assert set(fm.get_parents(child1)) == {parent}
     assert set(fm.get_parents(child2)) == {parent}
 
+
 @pytest.mark.asyncio
 async def test_future_map_child_resolved_merges_results():
     fm = FutureMap()
@@ -55,6 +56,7 @@ async def test_future_map_child_resolved_merges_results():
     assert isinstance(result, PublishResult)
     assert result.reason_code == 0
 
+
 @pytest.mark.asyncio
 async def test_future_map_child_resolved_no_publish_result():
     fm = FutureMap()
@@ -67,6 +69,7 @@ async def test_future_map_child_resolved_no_publish_result():
     assert parent.done()
     assert parent.result() is None
 
+
 @pytest.mark.asyncio
 async def test_future_map_child_resolved_with_cancelled_child():
     fm = FutureMap()
@@ -78,34 +81,47 @@ async def test_future_map_child_resolved_with_cancelled_child():
     assert parent.done()
     assert parent.result() is None
 
+
 @pytest.mark.asyncio
 async def test_await_or_stop_coroutine_finishes_first():
     stop_event = asyncio.Event()
+
     async def coro(): return 123
+
     result = await await_or_stop(coro(), stop_event, timeout=1)
     assert result == 123
+
 
 @pytest.mark.asyncio
 async def test_await_or_stop_stop_event_first():
     stop_event = asyncio.Event()
+
     async def coro(): await asyncio.sleep(0.5)
+
     asyncio.get_event_loop().call_soon(stop_event.set)
     result = await await_or_stop(coro(), stop_event, timeout=1)
     assert result is None
 
+
 @pytest.mark.asyncio
 async def test_await_or_stop_timeout():
     stop_event = asyncio.Event()
+
     async def coro(): await asyncio.sleep(1)
+
     with pytest.raises(asyncio.TimeoutError):
         await await_or_stop(coro(), stop_event, timeout=0.01)
+
 
 @pytest.mark.asyncio
 async def test_await_or_stop_negative_timeout():
     stop_event = asyncio.Event()
+
     async def coro(): return "ok"
+
     result = await await_or_stop(coro(), stop_event, timeout=-1)
     assert result == "ok"
+
 
 @pytest.mark.asyncio
 async def test_await_or_stop_future_done():
@@ -115,17 +131,21 @@ async def test_await_or_stop_future_done():
     result = await await_or_stop(fut, stop_event, timeout=1)
     assert result == "done"
 
+
 @pytest.mark.asyncio
 async def test_await_or_stop_invalid_type():
     stop_event = asyncio.Event()
     with pytest.raises(TypeError):
         await await_or_stop("not a future", stop_event, timeout=1)
 
+
 @pytest.mark.asyncio
 async def test_await_or_stop_cancelled_error():
     stop_event = asyncio.Event()
+
     async def coro():
         raise asyncio.CancelledError()
+
     result = await await_or_stop(coro(), stop_event, timeout=1)
     assert result is None
 

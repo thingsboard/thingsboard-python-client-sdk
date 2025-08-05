@@ -17,6 +17,7 @@ from typing import Union, List, Dict
 JSONPrimitive = Union[str, int, float, bool, None]
 JSONCompatibleType = Union[JSONPrimitive, List["JSONType"], Dict[str, "JSONType"]]
 
+
 def validate_json_compatibility(value: object) -> None:
     """
     Validates that the input value is fully JSON-compatible in structure and type.

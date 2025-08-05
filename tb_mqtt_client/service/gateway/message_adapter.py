@@ -45,6 +45,7 @@ class GatewayMessageAdapter(ABC):
     """
     Adapter for converting events to uplink messages and received messages to events.
     """
+
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         self._splitter = GatewayMessageSplitter(max_payload_size, max_datapoints)
         logger.trace("GatewayMessageAdapter initialized with max_payload_size=%s, max_datapoints=%s",
@@ -60,8 +61,8 @@ class GatewayMessageAdapter(ABC):
 
     @abstractmethod
     def build_uplink_messages(
-        self,
-        messages: List[MqttPublishMessage]
+            self,
+            messages: List[MqttPublishMessage]
     ) -> List[MqttPublishMessage]:
         """
         Build a list of topic-payload pairs from the given messages.
@@ -71,7 +72,9 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage, qos) -> MqttPublishMessage:
+    def build_device_connect_message_payload(self,
+                                             device_connect_message: DeviceConnectMessage,
+                                             qos) -> MqttPublishMessage:
         """
         Build the payload for a device connect message.
         This method should be implemented to handle the specific format of the payload.
@@ -79,7 +82,9 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_device_disconnect_message_payload(self, device_disconnect_message: DeviceDisconnectMessage, qos) -> MqttPublishMessage:
+    def build_device_disconnect_message_payload(self,
+                                                device_disconnect_message: DeviceDisconnectMessage,
+                                                qos) -> MqttPublishMessage:
         """
         Build the payload for a device disconnect message.
         This method should be implemented to handle the specific format of the payload.
@@ -87,7 +92,9 @@ class GatewayMessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest, qos) -> MqttPublishMessage:
+    def build_gateway_attribute_request_payload(self,
+                                                attribute_request: GatewayAttributeRequest,
+                                                qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway attribute request.
         This method should be implemented to handle the specific format of the payload.
@@ -121,7 +128,8 @@ class GatewayMessageAdapter(ABC):
     @abstractmethod
     def parse_gateway_requested_attribute_response(self,
                                                    gateway_attribute_request: GatewayAttributeRequest,
-                                                   data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
+                                                   data: Dict[str, Any]) -> Union[
+        GatewayRequestedAttributeResponse, None]:
         """
         Parse the gateway attribute response data into an GatewayAttributeResponse.
         This method should be implemented to handle the specific format of the payload.
@@ -225,33 +233,41 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         logger.trace("Generated %d MqttPublishMessage(s) for gateway uplink.", len(result))
         return result
 
-    def build_device_connect_message_payload(self, device_connect_message: DeviceConnectMessage, qos) -> MqttPublishMessage:
+    def build_device_connect_message_payload(self,
+                                             device_connect_message: DeviceConnectMessage,
+                                             qos) -> MqttPublishMessage:
         """
         Build the payload for a device connect message.
         This method serializes the DeviceConnectMessage to JSON format.
         """
         try:
             payload = dumps(device_connect_message.to_payload_format())
-            logger.trace("Built device connect message payload for device='%s'", device_connect_message.device_name)
+            logger.trace("Built device connect message payload for device='%s'",
+                         device_connect_message.device_name)
             return MqttPublishMessage(GATEWAY_CONNECT_TOPIC, payload, qos=1)
         except Exception as e:
             logger.error("Failed to build device connect message payload: %s", str(e))
             raise ValueError("Invalid device connect message format") from e
 
-    def build_device_disconnect_message_payload(self,device_disconnect_message: DeviceDisconnectMessage, qos) -> MqttPublishMessage:
+    def build_device_disconnect_message_payload(self,
+                                                device_disconnect_message: DeviceDisconnectMessage,
+                                                qos) -> MqttPublishMessage:
         """
         Build the payload for a device disconnect message.
         This method serializes the DeviceDisconnectMessage to JSON format.
         """
         try:
             payload = dumps(device_disconnect_message.to_payload_format())
-            logger.trace("Built device disconnect message payload for device='%s'", device_disconnect_message.device_name)
+            logger.trace("Built device disconnect message payload for device='%s'",
+                         device_disconnect_message.device_name)
             return MqttPublishMessage(GATEWAY_DISCONNECT_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build device disconnect message payload: %s", str(e))
             raise ValueError("Invalid device disconnect message format") from e
 
-    def build_gateway_attribute_request_payload(self, attribute_request: GatewayAttributeRequest, qos) -> MqttPublishMessage:
+    def build_gateway_attribute_request_payload(self,
+                                                attribute_request: GatewayAttributeRequest,
+                                                qos) -> MqttPublishMessage:
         """
         Build the payload for a gateway attribute request.
         This method serializes the GatewayAttributeRequest to JSON format.
@@ -286,7 +302,8 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         """
         try:
             payload = dumps(claim_request.to_payload_format())
-            logger.trace("Built claim request payload for devices: %s", list(claim_request.devices_requests.keys()))
+            logger.trace("Built claim request payload for devices: %s",
+                         list(claim_request.devices_requests.keys()))
             return MqttPublishMessage(GATEWAY_CLAIM_TOPIC, payload, qos)
         except Exception as e:
             logger.error("Failed to build claim request payload: %s", str(e))
@@ -303,7 +320,8 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
 
     def parse_gateway_requested_attribute_response(self,
                                                    gateway_attribute_request: GatewayAttributeRequest,
-                                                   data: Dict[str, Any]) -> Union[GatewayRequestedAttributeResponse, None]:
+                                                   data: Dict[str, Any]) -> Union[
+        GatewayRequestedAttributeResponse, None]:
         """
         Parse the gateway attribute response data into a GatewayRequestedAttributeResponse.
         This method extracts the device name, shared and client attributes from the payload.
@@ -352,7 +370,7 @@ class JsonGatewayMessageAdapter(GatewayMessageAdapter):
         This method deserializes the payload into a GatewayRPCRequest object.
         """
         try:
-            return GatewayRPCRequest._deserialize_from_dict(data) # noqa
+            return GatewayRPCRequest._deserialize_from_dict(data)  # noqa
         except Exception as e:
             logger.error("Failed to parse RPC request: %s", str(e))
             raise ValueError("Invalid RPC request format") from e

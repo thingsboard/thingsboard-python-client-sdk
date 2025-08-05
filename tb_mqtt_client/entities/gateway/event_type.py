@@ -14,6 +14,7 @@
 
 from enum import Enum
 
+
 class GatewayEventType(Enum):
     """
     Enum representing different types of gateway events.

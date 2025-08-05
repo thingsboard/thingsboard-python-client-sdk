@@ -194,6 +194,7 @@ async def test_rpc_request_build_and_str_and_payload_format():
     assert payload["method"] == "myMethod"
     assert payload["params"] == {"y": 2}
 
+
 @pytest.mark.asyncio
 async def test_rpc_request_build_invalid_method_type():
     with pytest.raises(ValueError):

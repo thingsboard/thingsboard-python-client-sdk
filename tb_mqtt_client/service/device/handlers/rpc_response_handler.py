@@ -47,7 +47,8 @@ class RPCResponseHandler:
         logger.debug("Message adapter set for RPCResponseHandler.")
 
     def register_request(self, request_id: Union[str, int],
-                         callback: Optional[Callable[[RPCResponse], Awaitable[None]]] = None) -> asyncio.Future[RPCResponse]:
+                         callback: Optional[Callable[[RPCResponse],
+                                                     Awaitable[None]]] = None) -> asyncio.Future[RPCResponse]:
         """
         Called when a request is sent to the platform and a response is awaited.
         """

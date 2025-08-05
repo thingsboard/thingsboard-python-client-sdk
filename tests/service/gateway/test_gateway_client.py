@@ -33,40 +33,21 @@ from tb_mqtt_client.service.gateway.client import GatewayClient
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 
-# @pytest.mark.asyncio
-# async def test_connect():
-#     # Setup
-#     client = GatewayClient()
-#     client._mqtt_manager = AsyncMock()
-#     client._mqtt_manager.is_connected = MagicMock(return_value=True)
-#     client._mqtt_manager.await_ready = AsyncMock()
-#     client._mqtt_manager.subscribe = AsyncMock(return_value=asyncio.Future())
-#     client._mqtt_manager.register_handler = MagicMock()
-#
-#     # Act
-#     await client.connect()
-#
-#     # Assert
-#     client._mqtt_manager.connect.assert_awaited_once()
-#     assert client._mqtt_manager.subscribe.call_count == 3  # Should subscribe to 3 topics
-#     assert client._mqtt_manager.register_handler.call_count == 3  # Should register 3 handlers
-
-
 @pytest.mark.asyncio
 async def test_connect_device():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
     client._event_dispatcher.dispatch = AsyncMock()
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     future.set_result(PublishResult(topic=GATEWAY_CONNECT_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     device_session, result = await client.connect_device("test_device", wait_for_publish=True)
-    
+
     # Assert
     assert device_session is not None
     assert device_session.device_info.device_name == "test_device"
@@ -81,18 +62,18 @@ async def test_connect_device_with_connect_message():
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
     client._event_dispatcher.dispatch = AsyncMock()
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     future.set_result(PublishResult(topic=GATEWAY_CONNECT_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a device connect message
     connect_message = DeviceConnectMessage.build("test_device", "custom_profile")
-    
+
     # Act
     device_session, result = await client.connect_device(connect_message, wait_for_publish=True)
-    
+
     # Assert
     assert device_session is not None
     assert device_session.device_info.device_name == "test_device"
@@ -107,14 +88,14 @@ async def test_connect_device_no_wait():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     device_session, futures = await client.connect_device("test_device", wait_for_publish=False)
-    
+
     # Assert
     assert device_session is not None
     assert device_session.device_info.device_name == "test_device"
@@ -127,19 +108,20 @@ async def test_disconnect_device():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_DISCONNECT_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_DISCONNECT_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     session, result = await client.disconnect_device(device_session, wait_for_publish=True)
-    
+
     # Assert
     assert session is not None
     assert isinstance(result, PublishResult)
@@ -152,18 +134,18 @@ async def test_disconnect_device_no_wait():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     session, futures = await client.disconnect_device(device_session, wait_for_publish=False)
-    
+
     # Assert
     assert session is not None
     assert isinstance(futures[0], asyncio.Future)
@@ -175,19 +157,20 @@ async def test_send_device_timeseries():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_TELEMETRY_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_TELEMETRY_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     result = await client.send_device_timeseries(device_session, {"temperature": 25.5}, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_TELEMETRY_TOPIC
@@ -199,22 +182,23 @@ async def test_send_device_timeseries_with_timeseries_entry():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_TELEMETRY_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_TELEMETRY_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a timeseries entry
     timeseries = TimeseriesEntry("temperature", 25.5)
-    
+
     # Act
     result = await client.send_device_timeseries(device_session, timeseries, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_TELEMETRY_TOPIC
@@ -226,19 +210,19 @@ async def test_send_device_timeseries_no_wait():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     future = await client.send_device_timeseries(device_session, {"temperature": 25.5}, wait_for_publish=False)
-    
+
     # Assert
     assert isinstance(future, asyncio.Future)
     client._event_dispatcher.dispatch.assert_awaited_once()
@@ -249,20 +233,21 @@ async def test_send_device_attributes():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_ATTRIBUTES_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_ATTRIBUTES_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     result = await client.send_device_attributes(device_session, {"firmware_version": "1.0.0"}, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_ATTRIBUTES_TOPIC
@@ -274,23 +259,24 @@ async def test_send_device_attributes_with_attribute_entry():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_ATTRIBUTES_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_ATTRIBUTES_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create an attribute entry
     attributes = AttributeEntry("firmware_version", "1.0.0")
-    
+
     # Act
     result = await client.send_device_attributes(device_session, attributes, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_ATTRIBUTES_TOPIC
@@ -302,19 +288,19 @@ async def test_send_device_attributes_no_wait():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Act
     future = await client.send_device_attributes(device_session, {"firmware_version": "1.0.0"}, wait_for_publish=False)
-    
+
     # Assert
     assert isinstance(future, asyncio.Future)
     client._event_dispatcher.dispatch.assert_awaited_once()
@@ -326,23 +312,24 @@ async def test_send_device_attributes_request():
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
     client._gateway_requested_attribute_response_handler = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
-    future.set_result(PublishResult(topic=GATEWAY_ATTRIBUTES_REQUEST_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
+    future.set_result(
+        PublishResult(topic=GATEWAY_ATTRIBUTES_REQUEST_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a gateway attribute request
     request = await GatewayAttributeRequest.build(device_session, shared_keys=["firmware_version"], client_keys=None)
-    
+
     # Act
     result = await client.send_device_attributes_request(device_session, request, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_ATTRIBUTES_REQUEST_TOPIC
@@ -356,22 +343,22 @@ async def test_send_device_attributes_request_no_wait():
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
     client._gateway_requested_attribute_response_handler = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that will be returned by dispatch
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a gateway attribute request
     request = await GatewayAttributeRequest.build(device_session, shared_keys=["firmware_version"], client_keys=None)
-    
+
     # Act
     future = await client.send_device_attributes_request(device_session, request, wait_for_publish=False)
-    
+
     # Assert
     assert isinstance(future, asyncio.Future)
     client._gateway_requested_attribute_response_handler.register_request.assert_awaited_once()
@@ -383,24 +370,25 @@ async def test_send_device_claim_request():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that dispatch will return
     future = asyncio.Future()
     future.set_result(PublishResult(topic=GATEWAY_CLAIM_TOPIC, qos=1, message_id=1, payload_size=100, reason_code=0))
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a gateway claim request
     device_claim_request = ClaimRequest.build(secret_key="secret", duration=1000)
-    gateway_claim_request = GatewayClaimRequestBuilder().add_device_request(device_session, device_claim_request).build()
-    
+    gateway_claim_request = GatewayClaimRequestBuilder().add_device_request(device_session,
+                                                                            device_claim_request).build()
+
     # Act
     result = await client.send_device_claim_request(device_session, gateway_claim_request, wait_for_publish=True)
-    
+
     # Assert
     assert isinstance(result, PublishResult)
     assert result.topic == GATEWAY_CLAIM_TOPIC
@@ -412,23 +400,24 @@ async def test_send_device_claim_request_no_wait():
     # Setup
     client = GatewayClient()
     client._event_dispatcher = AsyncMock()
-    
+
     # Create a device session
-    
+
     info = DeviceInfo("test_device", "default")
     device_session = DeviceSession(device_info=info)
-    
+
     # Create a future that dispatch will return
     future = asyncio.Future()
     client._event_dispatcher.dispatch.return_value = [future]
-    
+
     # Create a gateway claim request
     device_claim_request = ClaimRequest.build(secret_key="secret", duration=1000)
-    gateway_claim_request = GatewayClaimRequestBuilder().add_device_request(device_session, device_claim_request).build()
-    
+    gateway_claim_request = GatewayClaimRequestBuilder().add_device_request(device_session,
+                                                                            device_claim_request).build()
+
     # Act
     future = await client.send_device_claim_request(device_session, gateway_claim_request, wait_for_publish=False)
-    
+
     # Assert
     assert isinstance(future, asyncio.Future)
     client._event_dispatcher.dispatch.assert_awaited_once()
@@ -440,10 +429,10 @@ async def test_disconnect():
     client = GatewayClient()
     client._mqtt_manager = AsyncMock()
     client._mqtt_manager.unsubscribe = AsyncMock(return_value=asyncio.Future())
-    
+
     # Act
     await client.disconnect()
-    
+
     # Assert
     client._mqtt_manager.unsubscribe.assert_awaited()
     client._mqtt_manager.disconnect.assert_awaited_once()
@@ -460,7 +449,7 @@ async def test_handle_rate_limit_response():
     client._gateway_rate_limiter.message_rate_limit = AsyncMock()
     client._gateway_rate_limiter.telemetry_message_rate_limit = AsyncMock()
     client._gateway_rate_limiter.telemetry_datapoints_rate_limit = AsyncMock()
-    
+
     # Create a response with gateway rate limits
     response = RPCResponse.build(1, result={
         'gatewayRateLimits': {
@@ -470,12 +459,12 @@ async def test_handle_rate_limit_response():
         },
         'maxPayloadSize': 512
     })
-    
+
     # Mock the parent class method
     with patch('tb_mqtt_client.service.device.client.DeviceClient._handle_rate_limit_response', return_value=True):
         # Act
         result = await client._handle_rate_limit_response(response)
-        
+
         # Assert
         assert result is True
         client._gateway_rate_limiter.message_rate_limit.set_limit.assert_awaited_once()

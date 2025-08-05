@@ -32,15 +32,16 @@ class MqttPublishMessage(Message):
     A custom Publish MQTT message class that extends the gmqtt Message class.
     Contains additional information like datapoints, to avoid rate limits exceeding.
     """
+
     def __init__(self,
                  topic: str,
                  payload: Union[bytes, GatewayUplinkMessage, DeviceUplinkMessage],
                  qos: int = 1,
                  retain: bool = False,
                  datapoints: int = 0,
-                 delivery_futures = None,
+                 delivery_futures=None,
                  main_ts: Optional[int] = None,
-                 original_payload = None,
+                 original_payload=None,
                  **kwargs):
         """
         Initialize the MqttMessage with topic, payload, QoS, retain flag, and datapoints.
@@ -58,7 +59,7 @@ class MqttPublishMessage(Message):
         self.topic = topic
         self.is_service_message = self.topic not in mqtt_topics.TOPICS_WITH_DATAPOINTS_CHECK
         self.is_device_message = not isinstance(original_payload, GatewayUplinkMessage)
-        self.qos = qos
+        self.qos = qos if qos is not None else 1
         if self.qos < 0 or self.qos > 1:
             logger.warning(f"Invalid QoS {self.qos} for topic {topic}, using default QoS 1")
             self.qos = 1
@@ -79,7 +80,7 @@ class MqttPublishMessage(Message):
             if not hasattr(future, 'uuid'):
                 future.uuid = uuid4()
         logger.trace(f"Created MqttMessage with topic: {topic}, payload type: {type(payload).__name__}, "
-                    f"datapoints: {datapoints}, delivery_future id: {self.delivery_futures[0].uuid}")
+                     f"datapoints: {datapoints}, delivery_future id: {self.delivery_futures[0].uuid}")
 
     def mark_as_sent(self, message_id: int):
         """Mark the message as sent."""

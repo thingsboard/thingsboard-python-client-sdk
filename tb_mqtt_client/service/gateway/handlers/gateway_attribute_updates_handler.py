@@ -19,6 +19,7 @@ from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 
 class GatewayAttributeUpdatesHandler:
     """Handles shared attribute updates for devices connected to a gateway."""
+
     def __init__(self,
                  event_dispatcher: DirectEventDispatcher,
                  message_adapter: GatewayMessageAdapter,
@@ -36,4 +37,5 @@ class GatewayAttributeUpdatesHandler:
         device_session = self.device_manager.get_by_name(gateway_attribute_update.device_name)
         if device_session:
             gateway_attribute_update.set_device_session(device_session)
-        await self.event_dispatcher.dispatch(gateway_attribute_update.attribute_update, device_session=device_session)  # noqa
+        await self.event_dispatcher.dispatch(gateway_attribute_update.attribute_update,  # noqa
+                                             device_session=device_session)

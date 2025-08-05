@@ -90,7 +90,9 @@ async def test_send_timeseries_with_dict():
 
     # Assert
     assert isinstance(result, PublishResult)
-    assert result.message_id == -1  # The initial mqtt message doesn't contain message_id, expected behavior because an initial message can be split to separated messages or grouped with other messages
+    # The initial mqtt message doesn't contain message_id,
+    # expected behavior because an initial message can be split to separated messages or grouped with other messages
+    assert result.message_id == -1
     assert result.topic == mqtt_msg.topic
     assert result.payload_size == mqtt_msg.payload_size
     assert result.datapoints_count == mqtt_msg.datapoints
@@ -144,6 +146,7 @@ async def test_send_attributes_with_dict():
 
     async def fake_await_ready():
         return
+
     client._mqtt_manager.await_ready = fake_await_ready
 
     await client.connect()

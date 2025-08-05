@@ -28,6 +28,7 @@ def test_init_with_list_of_entries():
     assert isinstance(obj.attribute_update, AttributeUpdate)
     assert str(obj) == f"GatewayAttributeUpdate(device_name=deviceA, attribute_update={obj.attribute_update})"
 
+
 def test_init_with_single_entry():
     entry = AttributeEntry("k", "v")
     obj = GatewayAttributeUpdate("deviceB", entry)
@@ -37,6 +38,7 @@ def test_init_with_single_entry():
     assert isinstance(obj.attribute_update, AttributeUpdate)
     assert "deviceB" in str(obj)
 
+
 def test_init_with_attribute_update():
     update = AttributeUpdate([AttributeEntry("ka", "va")])
     obj = GatewayAttributeUpdate("deviceC", update)
@@ -44,6 +46,7 @@ def test_init_with_attribute_update():
     assert len(obj.entries) == 1
     assert isinstance(obj.attribute_update, AttributeUpdate)
     assert "deviceC" in str(obj)
+
 
 def test_init_with_invalid_type():
     with pytest.raises(TypeError) as exc:

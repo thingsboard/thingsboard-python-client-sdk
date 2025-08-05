@@ -45,8 +45,8 @@ class MessageAdapter(ABC):
 
     @abstractmethod
     def build_uplink_messages(
-        self,
-        messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
+            self,
+            messages: List[MqttPublishMessage]) -> List[MqttPublishMessage]:
         """
         Build a list of topic-payload pairs from the given messages.
         Each pair consists of a topic string, payload bytes, the number of datapoints,
@@ -133,7 +133,9 @@ class MessageAdapter(ABC):
         pass
 
     @abstractmethod
-    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> ProvisioningResponse:
+    def parse_provisioning_response(self,
+                                    provisioning_request: ProvisioningRequest,
+                                    payload: bytes) -> ProvisioningResponse:
         """
         Parse the provisioning response from the given payload.
         This method should be implemented to handle the specific format of the provisioning response.
@@ -145,6 +147,7 @@ class JsonMessageAdapter(MessageAdapter):
     """
     A concrete implementation of MessageDispatcher that operates with JSON payloads.
     """
+
     def __init__(self, max_payload_size: Optional[int] = None, max_datapoints: Optional[int] = None):
         super().__init__(max_payload_size, max_datapoints)
         logger.trace("JsonMessageDispatcher created.")
@@ -161,7 +164,8 @@ class JsonMessageAdapter(MessageAdapter):
             data = loads(payload)
             logger.trace("Parsing attribute request response from payload: %s", data)
             if not isinstance(data, dict):
-                logger.error("Invalid requested attribute response format: expected dict, got %s", type(data).__name__)
+                logger.error("Invalid requested attribute response format: expected dict, got %s",
+                             type(data).__name__)
                 raise ValueError("Invalid requested attribute response format")
             data["request_id"] = request_id  # Add request_id to the data dictionary
             return RequestedAttributeResponse.from_dict(data)
@@ -178,7 +182,7 @@ class JsonMessageAdapter(MessageAdapter):
         try:
             data = loads(payload)
             logger.trace("Parsing attribute update from payload: %s", data)
-            return AttributeUpdate._deserialize_from_dict(data)
+            return AttributeUpdate._deserialize_from_dict(data)  # noqa
         except Exception as e:
             logger.error("Failed to parse attribute update: %s", str(e))
             raise ValueError("Invalid attribute update format") from e
@@ -212,13 +216,14 @@ class JsonMessageAdapter(MessageAdapter):
                 data = RPCResponse.build(request_id, error=payload)
             else:
                 parsed = loads(payload)
-                data = RPCResponse.build(request_id, parsed)  # noqa
+                data = RPCResponse.build(request_id, parsed)
             return data
         except Exception as e:
             logger.error("Failed to parse RPC response: %s", str(e))
             raise ValueError("Invalid RPC response format") from e
 
-    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest, payload: bytes) -> 'ProvisioningResponse':
+    def parse_provisioning_response(self, provisioning_request: ProvisioningRequest,
+                                    payload: bytes) -> 'ProvisioningResponse':
         """
         Parse the provisioning response from the given payload.
         :param provisioning_request: The ProvisioningRequest that initiated the provisioning.
@@ -278,7 +283,7 @@ class JsonMessageAdapter(MessageAdapter):
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.trace(
                             "Built telemetry payload for '%s' with %d datapoints, futures=%r",
-                            device_name, count, [f.uuid for f in child_futures]
+                            device_name, count, [f.uuid for f in child_futures]  # noqa
                         )
 
             if attr_msgs:
@@ -302,7 +307,7 @@ class JsonMessageAdapter(MessageAdapter):
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.trace(
                             "Built attribute payload for '%s' with %d attributes, futures=%r",
-                            device_name, count, [f.uuid for f in child_futures]
+                            device_name, count, [f.uuid for f in child_futures]  # noqa
                         )
 
             # Register child futures to all original parent futures
@@ -379,7 +384,8 @@ class JsonMessageAdapter(MessageAdapter):
         :param provision_request: The ProvisioningRequest to build the payload for.
         :return: A tuple of topic and payload bytes.
         """
-        if not provision_request.credentials.provision_device_key or not provision_request.credentials.provision_device_secret:
+        if (not provision_request.credentials.provision_device_key
+                or not provision_request.credentials.provision_device_secret):
             raise ValueError("ProvisioningRequest must have valid device key and secret.")
 
         topic = mqtt_topics.PROVISION_REQUEST_TOPIC

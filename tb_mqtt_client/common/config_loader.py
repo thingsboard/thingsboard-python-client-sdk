@@ -22,7 +22,8 @@ class DeviceConfig:
     This class loads configuration options from environment variables, allowing for flexible deployment
     and easy customization of device connection settings.
     """
-    def __init__(self, config = None):
+
+    def __init__(self, config=None):
         if config is not None:
             self.host: str = config.get("host", "localhost")
             self.port: int = config.get("port", 1883)
@@ -71,6 +72,7 @@ class GatewayConfig(DeviceConfig):
     Configuration class for ThingsBoard gateway clients.
     This class extends DeviceConfig to include additional options specific to gateways.
     """
+
     def __init__(self, config=None):
         # TODO: REFACTOR, temporary solution for development
         super().__init__(config)
@@ -99,8 +101,6 @@ class GatewayConfig(DeviceConfig):
 
         if os.getenv("TB_GW_QOS") is not None:
             self.qos: int = int(os.getenv("TB_GW_QOS", 1))
-
-
 
     def __repr__(self):
         return (f"GatewayConfig(host={self.host}, port={self.port}, "

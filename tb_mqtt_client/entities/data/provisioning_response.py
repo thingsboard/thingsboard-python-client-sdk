@@ -27,7 +27,8 @@ class ProvisioningResponse:
     error: Optional[str] = None
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of ProvisioningResponse is not allowed. Use ProvisioningResponse.build(result, error).")  # noqa
+        raise TypeError(
+            "Direct instantiation of ProvisioningResponse is not allowed. Use ProvisioningResponse.build(result, error).")  # noqa
 
     def __repr__(self) -> str:
         return f"ProvisioningResponse(status={self.status}, result={self.result}, error={self.error})"

@@ -68,6 +68,7 @@ async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
         response = RPCResponse.build(request_id=request.request_id, result=response_data)
     return response
 
+
 async def rpc_response_callback(response: RPCResponse):
     """
     Callback function to handle RPC responses for client side RPC requests.

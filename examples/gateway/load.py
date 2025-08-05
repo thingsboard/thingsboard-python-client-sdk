@@ -21,11 +21,11 @@ from random import randint
 from typing import List
 
 from tb_mqtt_client.common.config_loader import GatewayConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+from tb_mqtt_client.common.publish_result import PublishResult
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.gateway.client import GatewayClient
 from tb_mqtt_client.service.gateway.device_session import DeviceSession
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-from tb_mqtt_client.common.publish_result import PublishResult
 
 # --- Logging ---
 configure_logging()
@@ -34,12 +34,16 @@ logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 # --- Constants ---
+THINGSBOARD_HOST = "localhost"
+ACCESS_TOKEN = "YOUR_ACCESS_TOKEN"  # Replace with your actual access token
 NUM_DEVICES = 10
 BATCH_SIZE = 1000
 MAX_PENDING = 10
 FUTURE_TIMEOUT = 1.0
 DEVICE_PREFIX = "perf-test-device"
-WAIT_FOR_PUBLISH = False  # Set to True if you want to wait for publish confirmation (can slow down the test, because each message will wait for confirmation)
+WAIT_FOR_PUBLISH = False    # Set to True if you want to wait for publish confirmation
+# (can slow down the test, because each message will wait for confirmation)
+
 
 # --- Test logic ---
 async def send_batch(client: GatewayClient, session: DeviceSession) -> List[asyncio.Future]:
@@ -51,6 +55,7 @@ async def send_batch(client: GatewayClient, session: DeviceSession) -> List[asyn
     elif result is not None:
         return [result]
     return []
+
 
 async def wait_for_futures(futures: List[asyncio.Future]) -> int:
     delivered = 0
@@ -87,8 +92,8 @@ async def main():
             signal.signal(sig, lambda *_: _shutdown())
 
     config = GatewayConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
+    config.host = THINGSBOARD_HOST
+    config.access_token = ACCESS_TOKEN
 
     client = GatewayClient(config)
     await client.connect()
@@ -113,8 +118,8 @@ async def main():
     try:
         while not stop_event.is_set():
             for session in sessions:
-                futs = await send_batch(client, session)
-                pending_futures.extend(futs)
+                futures = await send_batch(client, session)
+                pending_futures.extend(futures)
                 sent_batches += 1
 
             if len(pending_futures) >= MAX_PENDING:

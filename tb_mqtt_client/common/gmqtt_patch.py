@@ -12,7 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-
 import asyncio
 import heapq
 import struct
@@ -50,7 +49,8 @@ class PublishPacket(PackageFactory):
         if message.payload_size == 0:
             logger.debug("Sending PUBLISH (q%d), '%s' (NULL payload)", message.qos, message.topic)
         else:
-            logger.debug("Sending PUBLISH (q%d), '%s', ... (%d bytes)", message.qos, message.topic, message.payload_size)
+            logger.debug("Sending PUBLISH (q%d), '%s', ... (%d bytes)", message.qos, message.topic,
+                         message.payload_size)
 
         if message.qos > 0:
             remaining_length += 2
@@ -140,7 +140,6 @@ class PatchUtils:
             logger.warning("Failed to parse properties: %s", e)
 
         return dict(properties_dict)
-
 
     @staticmethod
     def extract_reason_code(packet):
@@ -271,13 +270,13 @@ class PatchUtils:
         and pass the exception to the handler.
         """
         try:
-            original_base_connection_lost = BaseMQTTProtocol.connection_lost
+
             def patched_base_connection_lost(self, exc):
                 self._connected.clear()
                 super(BaseMQTTProtocol, self).connection_lost(exc)
+
             BaseMQTTProtocol.connection_lost = patched_base_connection_lost
 
-            original_mqtt_connection_lost = MQTTProtocol.connection_lost
             def patched_mqtt_connection_lost(self, exc):
                 super(MQTTProtocol, self).connection_lost(exc)
                 reason_code = 0
@@ -318,6 +317,7 @@ class PatchUtils:
             MQTTProtocol.connection_lost = patched_mqtt_connection_lost
 
             original_call = MqttPackageHandler.__call__
+
             def patched_call(self, cmd, packet):
                 try:
                     if cmd == MQTTCommands.DISCONNECT and hasattr(self._connection, '_disconnect_exc'):
@@ -351,6 +351,7 @@ class PatchUtils:
 
     def patch_puback_handling(self, on_puback_with_reason_and_properties: Callable[[int, int, dict], None]):
         original_handler = MqttPackageHandler._handle_puback_packet
+
         def wrapped_handle_puback(self, cmd, packet):
             try:
                 mid = struct.unpack("!H", packet[:2])[0]
@@ -368,6 +369,7 @@ class PatchUtils:
             except Exception as e:
                 logger.exception("Error while handling PUBACK with properties: %s", e)
             return original_handler(self, cmd, packet)
+
         MqttPackageHandler._handle_puback_packet = wrapped_handle_puback
         logger.debug("Patched _handle_puback_packet for QoS1 support.")
 
@@ -377,6 +379,7 @@ class PatchUtils:
 
             patch_utils_instance.client._persistent_storage._check_empty()
             return tm, mid, raw_package
+
         patch_utils_instance.client._persistent_storage.pop_message = pop_message_with_tm
 
     async def _retry_loop(self):
@@ -410,7 +413,8 @@ class PatchUtils:
                         logger.error("Resending PUBLISH message with mid=%r, topic=%s", mid, mqtt_msg.topic)
 
                         try:
-                            await self.client.put_retry_message(mqtt_msg)  # noqa This method sets in message service to the client
+                            await self.client.put_retry_message(
+                                mqtt_msg)  # noqa This method sets in message service to the client
                         except AttributeError as e:
                             logger.trace("Failed to resend message with mid=%r: %s", mid, e)
 

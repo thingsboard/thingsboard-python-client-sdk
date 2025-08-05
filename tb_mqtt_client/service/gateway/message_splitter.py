@@ -32,7 +32,10 @@ class GatewayMessageSplitter(BaseMessageSplitter):
     DEFAULT_MAX_PAYLOAD_SIZE = 55000  # Default max payload size in bytes
 
     def __init__(self, max_payload_size: int = 55000, max_datapoints: int = 0):
-        self._max_payload_size = max_payload_size if max_payload_size is not None and max_payload_size > 0 else self.DEFAULT_MAX_PAYLOAD_SIZE
+        if max_payload_size is not None and max_payload_size > 0:
+            self._max_payload_size = max_payload_size
+        else:
+            self._max_payload_size = self.DEFAULT_MAX_PAYLOAD_SIZE
         self._max_payload_size = self._max_payload_size - DEFAULT_FIELDS_SIZE
         self._max_datapoints = max_datapoints if max_datapoints is not None and max_datapoints > 0 else 0
         logger.trace("GatewayMessageSplitter initialized with max_payload_size=%d, max_datapoints=%d",

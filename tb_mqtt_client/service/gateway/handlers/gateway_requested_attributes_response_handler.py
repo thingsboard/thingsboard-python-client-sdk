@@ -24,7 +24,6 @@ from tb_mqtt_client.service.gateway.message_adapter import GatewayMessageAdapter
 
 logger = get_logger(__name__)
 
-
 AttributeResponseCallback: TypeAlias = Callable[[GatewayRequestedAttributeResponse], Coroutine[Any, Any, None]]
 
 
@@ -37,8 +36,7 @@ class GatewayRequestedAttributeResponseHandler:
         self._event_dispatcher = event_dispatcher
         self._message_adapter: Union[GatewayMessageAdapter, None] = message_adapter
         self._device_manager = device_manager
-        self._pending_attribute_requests: Dict[Tuple[str, int], Tuple[GatewayAttributeRequest,
-                                                                      Union[Task, None]]] = {}
+        self._pending_attribute_requests: Dict[Tuple[str, int], Tuple[GatewayAttributeRequest, Union[Task, None]]] = {}
 
     async def register_request(self,
                                request: GatewayAttributeRequest,
@@ -55,7 +53,8 @@ class GatewayRequestedAttributeResponseHandler:
         if timeout > 0:
             timeout_task = asyncio.get_event_loop().call_later(timeout, self._on_timeout, device_name, request_id)
         self._pending_attribute_requests[key] = (request, timeout_task)
-        logger.debug("Registered attribute request with ID %s for device %s", request_id, device_name)
+        logger.debug("Registered attribute request with ID %s for device %s",
+                     request_id, device_name)
 
     def unregister_request(self, device_name: str, request_id: int):
         """
@@ -65,9 +64,11 @@ class GatewayRequestedAttributeResponseHandler:
         key = (device_name, request_id)
         if key in self._pending_attribute_requests:
             self._pending_attribute_requests.pop(key)
-            logger.debug("Unregistered attribute request with ID %s for device %s", request_id, device_name)
+            logger.debug("Unregistered attribute request with ID %s for device %s",
+                         request_id, device_name)
         else:
-            logger.debug("Attempted to unregister non-existent request ID %s for device %s", request_id, device_name)
+            logger.debug("Attempted to unregister non-existent request ID %s for device %s",
+                         request_id, device_name)
 
     async def handle(self, topic: str, payload: bytes):
         """
@@ -90,7 +91,8 @@ class GatewayRequestedAttributeResponseHandler:
             attribute_request, timeout_task = attribute_request_with_callback
             if timeout_task:
                 timeout_task.cancel()
-            requested_attribute_response = self._message_adapter.parse_gateway_requested_attribute_response(attribute_request, deserialized_data)
+            requested_attribute_response = self._message_adapter.parse_gateway_requested_attribute_response(
+                                                                                attribute_request, deserialized_data)
             device_session = self._device_manager.get_by_name(device_name)
             if not device_session:
                 logger.warning("No device session found for device: %s", device_name)
@@ -113,9 +115,11 @@ class GatewayRequestedAttributeResponseHandler:
         key = (device_name, request_id)
         if key in self._pending_attribute_requests:
             self._pending_attribute_requests.pop(key)
-            logger.warning("Request ID %s for device %s has timed out and has been unregistered.", request_id, device_name)
+            logger.warning("Request ID %s for device %s has timed out and has been unregistered.",
+                           request_id, device_name)
         else:
-            logger.debug("Attempted to unregister non-existent request ID %s for device %s on timeout", request_id, device_name)
+            logger.debug("Attempted to unregister non-existent request ID %s for device %s on timeout",
+                         request_id, device_name)
 
     def _handle_callback_exception(self, task: asyncio.Task):
         try:

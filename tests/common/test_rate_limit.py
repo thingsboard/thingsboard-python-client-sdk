@@ -121,6 +121,7 @@ async def test_rate_limit_refill_behavior():
     await rl.refill()
     assert (await rl.try_consume()) is None
 
+
 @pytest.mark.asyncio
 async def test_set_required_tokens_and_clear_event():
     rl = RateLimit("5:1", "token-test")

@@ -57,7 +57,8 @@ async def requested_attributes_handler(device_session: DeviceSession, response: 
                 response.shared)
 
 
-async def device_rpc_request_handler(device_session: DeviceSession, rpc_request: GatewayRPCRequest) -> GatewayRPCResponse:
+async def device_rpc_request_handler(device_session: DeviceSession,
+                                     rpc_request: GatewayRPCRequest) -> GatewayRPCResponse:
     logger.info("Received RPC request for %s: %r", device_session.device_info.device_name, rpc_request)
     response_data = {
         "status": "success",
@@ -111,7 +112,8 @@ async def main():
 
         # Register callbacks for each device
         client.device_manager.set_attribute_update_callback(session.device_info.device_id, attribute_update_handler)
-        client.device_manager.set_attribute_response_callback(session.device_info.device_id, requested_attributes_handler)
+        client.device_manager.set_attribute_response_callback(session.device_info.device_id,
+                                                              requested_attributes_handler)
         client.device_manager.set_rpc_request_callback(session.device_info.device_id, device_rpc_request_handler)
 
     # ---- Main loop ----

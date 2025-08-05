@@ -48,7 +48,8 @@ async def setup_manager():
         rate_limits_handler=rate_limits_handler,
         rpc_response_handler=rpc_response_handler
     )
-    return manager, stop_event, message_adapter, on_connect, on_disconnect, on_publish_result, rate_limits_handler, rpc_response_handler
+    return (manager, stop_event, message_adapter, on_connect, on_disconnect,
+            on_publish_result, rate_limits_handler, rpc_response_handler)
 
 
 @pytest.mark.asyncio
@@ -124,7 +125,8 @@ async def test_publish_fails_without_rate_limits(setup_manager):
     manager._MQTTManager__rate_limits_retrieved = False
     manager._MQTTManager__is_waiting_for_rate_limits_publish = False
     with pytest.raises(RuntimeError, match="Cannot publish before rate limits are retrieved."):
-        await manager.publish("topic", b"payload")
+        mqtt_message = MqttPublishMessage("topic", b"payload")
+        await manager.publish(mqtt_message, force=False)
 
 
 @pytest.mark.asyncio
@@ -139,7 +141,7 @@ async def test_publish_force_bypasses_limits(setup_manager):
     manager._client._persistent_storage = MagicMock()
 
     mqtt_publish_message = MqttPublishMessage("topic", b"payload", qos=1)
-    await manager.publish(mqtt_publish_message, qos=1, force=True)
+    await manager.publish(mqtt_publish_message, force=True)
     assert manager._client._connection.publish.call_count == 1
 
 
@@ -172,7 +174,8 @@ async def test_handle_puback_reason_code(setup_manager):
     manager, *_ = setup_manager
     fut = asyncio.Future()
     fut.uuid = "test-future"
-    manager._pending_publishes[123] = (fut, MqttPublishMessage("topic", b"payload", delivery_futures=[fut]), monotonic())
+    manager._pending_publishes[123] = (fut, MqttPublishMessage("topic", b"payload", delivery_futures=[fut]),
+                                       monotonic())
     manager._handle_puback_reason_code(123, 0, {})
     assert fut.done()
     assert fut.result().message_id == 123
@@ -264,7 +267,7 @@ async def test_publish_qos_zero_sets_result_immediately(setup_manager):
     manager._client._persistent_storage = MagicMock()
     future = asyncio.Future()
 
-    await manager.publish(MqttPublishMessage("topic", b"payload", delivery_futures=future), qos=0, force=True)
+    await manager.publish(MqttPublishMessage("topic", b"payload", qos=0, delivery_futures=future), force=True)
     await asyncio.sleep(0.05)  # Allow async tasks to complete
     assert future.done()
     assert future.result() == PublishResult("topic", 0, -1, 7, 0)
@@ -315,9 +318,8 @@ async def test_connect_loop_retry_and_success(setup_manager):
     manager._client.connect = AsyncMock(side_effect=[Exception("fail1"), AsyncMock()])
 
     with patch.object(type(manager._client), "is_connected", new_callable=PropertyMock) as mock_connected, \
-         patch("asyncio.sleep", new_callable=AsyncMock), \
-         patch.object(manager, "_connect_params", new=("host", 1883, None, None, False, 60, None)):
-
+            patch("asyncio.sleep", new_callable=AsyncMock), \
+            patch.object(manager, "_connect_params", new=("host", 1883, None, None, False, 60, None)):
         mock_connected.side_effect = [False, False, True]
 
         await asyncio.wait_for(manager._connect_loop(), timeout=1)

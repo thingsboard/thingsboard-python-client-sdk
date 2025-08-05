@@ -20,7 +20,6 @@ from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 
 @dataclass(slots=True, frozen=True)
 class RequestedAttributeResponse:
-
     request_id: int
     shared: List[AttributeEntry]
     client: List[AttributeEntry]
@@ -89,5 +88,5 @@ class RequestedAttributeResponse:
         """
         shared = [AttributeEntry(k, v) for k, v in data.get('shared', {}).items()]
         client = [AttributeEntry(k, v) for k, v in data.get('client', {}).items()]
-        request_id = data.get('request_id', -1) # Default to -1 if not provided
+        request_id = data.get('request_id', -1)  # Default to -1 if not provided
         return cls(shared=shared, client=client, request_id=request_id)

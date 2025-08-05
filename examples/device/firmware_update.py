@@ -19,15 +19,13 @@ import logging
 from time import monotonic
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tb_mqtt_client.service.device.client import DeviceClient
 from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
+from tb_mqtt_client.service.device.client import DeviceClient
 
 configure_logging()
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
-
 
 firmware_received = asyncio.Event()
 firmware_update_timeout = 30

@@ -80,7 +80,9 @@ async def setup_message_service():
         service._rate_limit_refill_task = MagicMock()
         service.__print_queue_statistics_task = MagicMock()
 
-        yield service, mqtt_manager, main_stop_event, device_rate_limiter, message_adapter, gateway_message_adapter, gateway_rate_limiter
+        yield (service, mqtt_manager, main_stop_event, device_rate_limiter,
+               message_adapter, gateway_message_adapter, gateway_rate_limiter)
+
 
 @pytest_asyncio.fixture
 async def setup_retry_loop_service(setup_message_service):
@@ -98,6 +100,7 @@ async def setup_retry_loop_service(setup_message_service):
     service._QUEUE_COOLDOWN = 0
 
     return service, mqtt_manager
+
 
 @pytest.mark.asyncio
 async def test_publish_success(setup_message_service):
@@ -163,10 +166,10 @@ async def test_shutdown():
 
         # Patch the methods that would create tasks to return our mock task
         with patch.object(MessageService, '_dispatch_initial_queue_loop', return_value=mock_task()), \
-             patch.object(MessageService, '_dispatch_queue_loop', return_value=mock_task()), \
-             patch.object(MessageService, '_rate_limit_refill_loop', return_value=mock_task()), \
-             patch.object(MessageService, 'print_queues_statistics', return_value=mock_task()), \
-             patch.object(MessageService, 'clear', new_callable=AsyncMock) as mock_clear:
+                patch.object(MessageService, '_dispatch_queue_loop', return_value=mock_task()), \
+                patch.object(MessageService, '_rate_limit_refill_loop', return_value=mock_task()), \
+                patch.object(MessageService, 'print_queues_statistics', return_value=mock_task()), \
+                patch.object(MessageService, 'clear', new_callable=AsyncMock) as mock_clear:
 
             # Create the service
             service = MessageService(
@@ -503,14 +506,14 @@ async def test_print_queue_statistics(setup_message_service):
     service, mqtt_manager, main_stop_event, _, _, _, _ = setup_message_service
 
     # Create a patched version of the print_queue_statistics method to avoid infinite loop
-    original_print_queue_statistics = service.print_queues_statistics
+    original_print_queue_statistics = service.print_queues_statistics  # noqa
 
     async def patched_print_queue_statistics():
         # Just run the body of the loop once
-        initial_queue_size = service._initial_queue.size()
-        service_queue_size = service._service_queue.size()
-        device_uplink_queue_size = service._device_uplink_messages_queue.size()
-        gateway_uplink_queue_size = service._gateway_uplink_messages_queue.size()
+        initial_queue_size = service._initial_queue.size()  # noqa
+        service_queue_size = service._service_queue.size()  # noqa
+        device_uplink_queue_size = service._device_uplink_messages_queue.size()  # noqa
+        gateway_uplink_queue_size = service._gateway_uplink_messages_queue.size()  # noqa
         # We don't need to log anything in the test
 
     # Replace the method with our patched version
@@ -671,7 +674,8 @@ async def test_message_queue_worker_process_with_rate_limits_triggered():
     # Set up the rate limit to be triggered
     triggered_rate_limit_entry = (10, 5)  # (tokens, duration)
     expected_tokens = 5
-    worker.check_rate_limits_for_message = AsyncMock(return_value=(triggered_rate_limit_entry, expected_tokens, message_rate_limit))
+    worker.check_rate_limits_for_message = AsyncMock(
+        return_value=(triggered_rate_limit_entry, expected_tokens, message_rate_limit))
 
     # Create a test message
     message = MqttPublishMessage("test/topic", b"test_payload")
@@ -1053,6 +1057,7 @@ async def test_retry_loop_with_not_connected_and_empty_message(setup_retry_loop_
 
     with patch("asyncio.sleep", new=AsyncMock()):
         await service._dispatch_retry_by_qos_queue_loop()
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

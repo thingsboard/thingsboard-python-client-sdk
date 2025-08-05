@@ -117,6 +117,7 @@ async def test_handle_no_message_adapter_uses_json_adapter():
     assert fut.done()
     assert fut.result().result == {'result': {"foo": "bar"}}
 
+
 @pytest.mark.asyncio
 async def test_handle_no_message_adapter_uses_json_adapter_with_error_rpc():
     handler = RPCResponseHandler()

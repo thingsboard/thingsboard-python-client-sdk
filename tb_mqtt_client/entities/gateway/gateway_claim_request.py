@@ -12,7 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-
 from dataclasses import dataclass
 from typing import Dict, Any, Union
 
@@ -24,12 +23,12 @@ from tb_mqtt_client.service.gateway.device_session import DeviceSession
 
 @dataclass(slots=True, frozen=True)
 class GatewayClaimRequest(BaseGatewayEvent):
-
     devices_requests: Dict[Union[DeviceSession, str], ClaimRequest] = None
     event_type: GatewayEventType = GatewayEventType.GATEWAY_CLAIM_REQUEST
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of GatewayClaimRequest is not allowed. Use 'GatewayClaimRequestBuilder.build(...)'.")
+        raise TypeError(
+            "Direct instantiation of GatewayClaimRequest is not allowed. Use 'GatewayClaimRequestBuilder.build(...)'.")
 
     def __repr__(self) -> str:
         return f"GatewayClaimRequest(devices_requests={self.devices_requests})"
@@ -68,15 +67,18 @@ class GatewayClaimRequestBuilder:
     Builder class for GatewayClaimRequest.
     Allows adding multiple device claim requests in a fluent interface style.
     """
+
     def __init__(self):
         self._devices_requests: Dict[Union[DeviceSession, str], ClaimRequest] = {}
 
-    def add_device_request(self, device_name_or_session: Union[DeviceSession, str], device_claim_request: ClaimRequest) -> 'GatewayClaimRequestBuilder':
+    def add_device_request(self, device_name_or_session: Union[DeviceSession, str],
+                           device_claim_request: ClaimRequest) -> 'GatewayClaimRequestBuilder':
         """
         Add a device claim request to the builder.
         """
         if not isinstance(device_name_or_session, (DeviceSession, str)):
-            raise ValueError("device_session must be an instance of DeviceSession or a string representing the device name")
+            raise ValueError(
+                "device_session must be an instance of DeviceSession or a string representing the device name")
         if not isinstance(device_claim_request, ClaimRequest):
             raise ValueError("device_claim_request must be an instance of ClaimRequest")
         self._devices_requests[device_name_or_session] = device_claim_request

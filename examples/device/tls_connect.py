@@ -19,26 +19,23 @@ import logging
 from random import randint
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
 
 configure_logging()
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
-
 PLATFORM_HOST = 'localhost'  # Update with your ThingsBoard host
 PLATFORM_PORT = 8883  # Default port for MQTT over SSL
-
 
 # Update with your CA certificate, client certificate, and client key paths. There are no default files generated.
 # You can generate them using the following guides:
 # Certificates for server - https://thingsboard.io/docs/user-guide/mqtt-over-ssl/
 # Certificates for client - https://thingsboard.io/docs/user-guide/certificates/?ubuntuThingsboardX509=X509Leaf
-CA_CERT_PATH = "mqttserver.pem"  # Update with your CA certificate path (Default - mqttserver.pem in the examples directory)
+CA_CERT_PATH = "ca_cert.pem"  # Update with your CA certificate path (Default - ca_cert.pem in the examples directory)
 CLIENT_CERT_PATH = "cert.pem"  # Update with your client certificate path (Default - cert.pem in the examples directory)
 CLIENT_KEY_PATH = "key.pem"  # Update with your client key path (Default - key.pem in the examples directory)
 
@@ -65,6 +62,7 @@ async def main():
         logger.error(f"Failed to send telemetry: {result}")
 
     await client.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

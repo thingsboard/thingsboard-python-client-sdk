@@ -44,19 +44,18 @@ IMPLEMENTATION_SPECIFIC_ERROR = 0x83  # MQTT 5 reason code (131)
 
 
 class MQTTManager:
-
     _PUBLISH_TIMEOUT = 10.0  # Default timeout for publish operations
 
     def __init__(
-        self,
-        client_id: str,
-        main_stop_event: asyncio.Event,
-        message_adapter: MessageAdapter,
-        on_connect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
-        on_disconnect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
-        on_publish_result: Optional[Callable[[PublishResult], Coroutine[Any, Any, None]]] = None,
-        rate_limits_handler: Optional[Callable[[RPCResponse], Coroutine[Any, Any, None]]] = None,
-        rpc_response_handler: Optional[RPCResponseHandler] = None,
+            self,
+            client_id: str,
+            main_stop_event: asyncio.Event,
+            message_adapter: MessageAdapter,
+            on_connect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+            on_disconnect: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+            on_publish_result: Optional[Callable[[PublishResult], Coroutine[Any, Any, None]]] = None,
+            rate_limits_handler: Optional[Callable[[RPCResponse], Coroutine[Any, Any, None]]] = None,
+            rpc_response_handler: Optional[RPCResponseHandler] = None,
     ):
         self._main_stop_event = main_stop_event
         self._message_adapter = message_adapter
@@ -98,7 +97,7 @@ class MQTTManager:
         self.__rate_limiter: Optional[RateLimiter] = None
         self.__gateway_rate_limiter: Optional[RateLimiter] = None
         self.__is_gateway = False
-        self.__is_waiting_for_rate_limits_publish = True  # Start with True to prevent publishing before rate limits are retrieved
+        self.__is_waiting_for_rate_limits_publish = True  # True to prevent publishing before rate limits are retrieved
         self._rate_limits_ready_event = asyncio.Event()
 
     async def connect(self, host: str, port: int = 1883, username: Optional[str] = None,
@@ -153,7 +152,6 @@ class MQTTManager:
 
     async def publish(self,
                       message: MqttPublishMessage,
-                      qos: int = 1, # TODO: probably should be removed, as qos is set in MqttPublishMessage
                       force=False):
 
         if not force:
@@ -173,14 +171,14 @@ class MQTTManager:
             raise RuntimeError("Publishing temporarily paused due to backpressure.")
 
         if not message.dup:
-            return await self.process_regular_publish(message, qos)
+            return await self.process_regular_publish(message, message.qos)
         else:
-            # If a message is a duplicate, we should not process it as a regular publish message, it should be sent immediately
+            # If a message is a duplicate, it should be sent immediately
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.trace("Processing duplicate message with topic: %s, qos: %d, payload size: %d",
-                             message.topic, qos, len(message.payload))
+                             message.topic, message.qos, len(message.payload))
 
-            protocol = self._client._connection._protocol # noqa
+            protocol = self._client._connection._protocol  # noqa
 
             if protocol:
                 try:
@@ -203,17 +201,21 @@ class MQTTManager:
         mqtt_future = asyncio.get_event_loop().create_future()
         mqtt_future.uuid = uuid4()
         if logger.isEnabledFor(TRACE_LEVEL):
-            logger.trace("Publishing message with topic: %s, qos: %d, payload size: %d, mqtt_future id: %r, delivery futures: %r",
-                        message.topic, qos, len(message.payload), mqtt_future.uuid, [f.uuid for f in message.delivery_futures])
+            logger.trace(
+                "Publishing message with topic: %s, qos: %d, "
+                "payload size: %d, mqtt_future id: %r, delivery futures: %r",
+                message.topic, qos, len(message.payload),
+                mqtt_future.uuid, [f.uuid for f in message.delivery_futures])
         if message.delivery_futures is not None:
-            await self._add_future_chain_processing(mqtt_future, message)
+            await self._add_future_chain_processing(mqtt_future, message)  # noqa
 
         mid, package = self._client._connection.publish(message)  # noqa
 
         message.mark_as_sent(mid)
 
         if qos > 0:
-            logger.trace("Publishing mid=%s, storing publish main future with id: %r", mid, mqtt_future.uuid)
+            logger.trace("Publishing mid=%s, storing publish main future with id: %r",
+                         mid, mqtt_future.uuid)
             self._pending_publishes[mid] = (mqtt_future, message, monotonic())
             self._client._persistent_storage.push_message_nowait(mid, message)  # noqa
         else:
@@ -253,7 +255,8 @@ class MQTTManager:
             self._connected_event.clear()
             return
         logger.info("Connected to the platform.")
-        logger.debug("Connection session_present: %s, reason code: %s, properties: %s", session_present, reason_code, properties)
+        logger.debug("Connection session_present: %s, reason code: %s, properties: %s", session_present, reason_code,
+                     properties)
         if hasattr(client, '_connection'):
             client._connection._on_disconnect_called = False  # noqa
         self._connected_event.set()
@@ -317,7 +320,7 @@ class MQTTManager:
         if reason_code == 142:
             logger.error("Session was taken over, looks like another client connected with the same credentials.")
             self._backpressure.notify_disconnect(delay_seconds=10)
-        if reason_code in (131, 142, 143, 151): # 131, 142, 151 may be caused by rate limits or issue with the data
+        if reason_code in (131, 142, 143, 151):  # 131, 142, 151 may be caused by rate limits or issue with the data
             reached_time = 1
             for rate_limit in self.__rate_limiter.values():
                 if isinstance(rate_limit, RateLimit):
@@ -325,7 +328,7 @@ class MQTTManager:
                         reached_limit = run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
                     except TimeoutError:
                         logger.warning("Timeout while checking rate limit reaching.")
-                        reached_time = 10 # Default to 10 seconds if timeout occurs
+                        reached_time = 10  # Default to 10 seconds if timeout occurs
                         break
                     reached_index, reached_time, reached_duration = reached_limit if reached_limit else (None, None, 1)
             self._backpressure.notify_disconnect(delay_seconds=reached_time)
@@ -375,8 +378,10 @@ class MQTTManager:
             logger.warning("PUBACK received with QUOTA_EXCEEDED for mid=%s", mid)
             self._backpressure.notify_quota_exceeded(delay_seconds=10)
         elif reason_code == IMPLEMENTATION_SPECIFIC_ERROR:
-            logger.warning("PUBACK received with IMPLEMENTATION_SPECIFIC_ERROR for mid=%s, treating as rate limit reached", mid)
-            self._backpressure.notify_quota_exceeded(delay_seconds=15)  # Treat implementation specific error as quota exceeded
+            logger.warning(
+                "PUBACK received with IMPLEMENTATION_SPECIFIC_ERROR for mid=%s, treating as rate limit reached", mid)
+            self._backpressure.notify_quota_exceeded(
+                delay_seconds=15)  # Treat implementation specific error as quota exceeded
         elif reason_code != 0:
             logger.warning("PUBACK received with error code %s for mid=%s", reason_code, mid)
 
@@ -425,7 +430,7 @@ class MQTTManager:
         response_future = self._rpc_response_handler.register_request(request.request_id, self.__rate_limits_handler)
 
         try:
-            await self.publish(mqtt_message, qos=1, force=True)
+            await self.publish(mqtt_message, force=True)
             await await_or_stop(response_future, self._main_stop_event, timeout=10)
             logger.info("Successfully processed rate limits.")
             # self.__rate_limits_retrieved = True
@@ -463,7 +468,9 @@ class MQTTManager:
             await asyncio.sleep(0.1)
         await self.check_pending_publishes(monotonic())
 
-    def patch_client_for_retry_logic(self, put_retry_message_method: Callable[[MqttPublishMessage], Coroutine[Any, Any, None]]):
+    def patch_client_for_retry_logic(self,
+                                     put_retry_message_method: Callable[[MqttPublishMessage],
+                                                                        Coroutine[Any, Any, None]]):
         self._client.put_retry_message = put_retry_message_method
 
     async def check_pending_publishes(self, time_to_check):

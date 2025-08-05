@@ -90,9 +90,9 @@ async def main():
             TimeseriesEntry(key="temperature%i" % i, value=loop_counter, ts=ts) for i in range(20)
         ]
         logger.info("Sending TimeseriesEntry objects: %s", timeseries_entries)
-        await client.send_device_timeseries(device_session=device_session, data=timeseries_entries, wait_for_publish=True)
+        await client.send_device_timeseries(device_session=device_session, data=timeseries_entries,
+                                            wait_for_publish=True)
         logger.info("TimeseriesEntry objects sent successfully.")
-
 
         try:
             logger.info("Waiting before next iteration...")

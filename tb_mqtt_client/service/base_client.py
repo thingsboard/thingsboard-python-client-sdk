@@ -70,16 +70,14 @@ class BaseClient(ABC):
                                           Dict[str, Any],
                                           List[Dict[str, Any]]],
                               wait_for_publish: bool = True,
-                              timeout: Optional[float] = None) -> Union[asyncio.Future[PublishResult],
-                                                                        PublishResult,
-                                                                        None,
-                                                                        List[PublishResult],
-                                                                        List[asyncio.Future[PublishResult]]]:
+                              timeout: Optional[float] = None) -> Optional[Union[asyncio.Future[PublishResult],
+                                                                           PublishResult,
+                                                                           List[PublishResult],
+                                                                           List[asyncio.Future[PublishResult]]]]:
         """
         Sends timeseries data to the ThingsBoard server.
         :param data: Timeseries data to send, can be a single TimeseriesEntry, a list of TimeseriesEntries,
                      a dictionary of key-value pairs, or a list of dictionaries.
-        :param qos: Quality of Service level for the MQTT message.
         :param wait_for_publish: If True, waits for the publish result.
         :param timeout: Timeout for waiting for the publish result.
         :return: PublishResult or list of PublishResults if wait_for_publish is True, Future or list of Futures if not,
@@ -142,9 +140,9 @@ class BaseClient(ABC):
 
     @staticmethod
     def _build_uplink_message_for_telemetry(payload: Union[Dict[str, Any],
-                                                     TimeseriesEntry,
-                                                     List[TimeseriesEntry],
-                                                     List[Dict[str, Any]]],
+                                                           TimeseriesEntry,
+                                                           List[TimeseriesEntry],
+                                                           List[Dict[str, Any]]],
                                             device_session: Optional[DeviceSession] = None,
                                             ) -> Union[DeviceUplinkMessage, GatewayUplinkMessage]:
         timeseries_entries = []
@@ -192,9 +190,9 @@ class BaseClient(ABC):
 
     @staticmethod
     def _build_uplink_message_for_attributes(payload: Union[Dict[str, Any],
-                                             AttributeEntry,
-                                             List[AttributeEntry]],
-                                             device_session = None) -> Union[DeviceUplinkMessage, GatewayUplinkMessage]:
+                                                            AttributeEntry,
+                                                            List[AttributeEntry]],
+                                             device_session=None) -> Union[DeviceUplinkMessage, GatewayUplinkMessage]:
 
         if isinstance(payload, dict):
             payload = [AttributeEntry(k, v) for k, v in payload.items()]

@@ -31,13 +31,18 @@ class GatewayAttributeRequest(AttributeRequest):
     device_session: DeviceSession = None  # type: ignore[assignment]
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of GatewayAttributeRequest is not allowed. Use 'await GatewayAttributeRequest.build(...)'.")
+        raise TypeError(
+            "Direct instantiation of GatewayAttributeRequest is not allowed. "
+            "Use 'await GatewayAttributeRequest.build(...)'.")
 
     def __repr__(self) -> str:
-        return f"GatewayAttributeRequest(device_session={self.device_session}, id={self.request_id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})"
+        return (f"GatewayAttributeRequest(device_session={self.device_session}, id={self.request_id}, "
+                f"shared_keys={self.shared_keys}, client_keys={self.client_keys})")
 
     @classmethod
-    async def build(cls, device_session: DeviceSession, shared_keys: Optional[List[str]] = None, client_keys: Optional[List[str]] = None) -> 'GatewayAttributeRequest':  # noqa
+    async def build(cls, device_session: DeviceSession, # noqa
+                    shared_keys: Optional[List[str]] = None,
+                    client_keys: Optional[List[str]] = None) -> 'GatewayAttributeRequest':
         """
         Build a new GatewayAttributeRequest with a unique request ID, using the global ID generator.
         """
@@ -53,7 +58,8 @@ class GatewayAttributeRequest(AttributeRequest):
         return self
 
     @classmethod
-    async def from_attribute_request(cls, device_session: DeviceSession, attribute_request: AttributeRequest) -> 'GatewayAttributeRequest':
+    async def from_attribute_request(cls, device_session: DeviceSession,
+                                     attribute_request: AttributeRequest) -> 'GatewayAttributeRequest':
         """
         Create a GatewayAttributeRequest from an existing AttributeRequest and a DeviceSession.
         """
@@ -67,19 +73,20 @@ class GatewayAttributeRequest(AttributeRequest):
         object.__setattr__(self, 'event_type', GatewayEventType.DEVICE_ATTRIBUTE_REQUEST)
         return self
 
-
     def to_payload_format(self) -> Dict[str, Union[str, bool]]:
         """
         Convert the attribute request into the expected MQTT payload format.
         """
         payload = {"device": self.device_session.device_info.device_name, "id": self.request_id}
-        single_key_request = (self.client_keys is not None and len(self.client_keys) == 1) or (self.shared_keys is not None and len(self.shared_keys) == 1)
+        single_key_request = (self.client_keys is not None and len(self.client_keys) == 1) or (
+                    self.shared_keys is not None and len(self.shared_keys) == 1)
         request_key = 'key' if single_key_request else 'keys'
         if self.client_keys is not None and self.client_keys:
             payload['client'] = True
             payload[request_key] = self.client_keys[0] if single_key_request else self.client_keys
         elif self.shared_keys is not None and self.shared_keys:
-            # TODO: In current realisation on server it is not possible to request values for the both scopes simultaneously, recommended to improve the platform API
+            # TODO: In current realization on server it is not possible to request values for the both scopes
+            # TODO: at the same time, recommended to improve the platform API
             payload['client'] = False
             payload[request_key] = self.shared_keys[0] if single_key_request else self.shared_keys
         return payload

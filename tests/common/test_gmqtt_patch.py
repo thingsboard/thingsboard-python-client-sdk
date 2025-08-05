@@ -29,12 +29,14 @@ def test_parse_mqtt_properties_valid_and_invalid():
     pkt = bytes([1]) + bytes([255])
     assert PatchUtils.parse_mqtt_properties(pkt) == {}
 
-    # Exception path (invalid varint)
+    # Exception path (invalid variant)
     assert PatchUtils.parse_mqtt_properties(b"\xff") == {}
 
 
 def test_extract_reason_code_all_paths():
-    class Obj: reason_code = 42
+    class Obj:
+        reason_code = 42
+
     assert PatchUtils.extract_reason_code(Obj()) == 42
     assert PatchUtils.extract_reason_code(b"\x00*") == 42
     assert PatchUtils.extract_reason_code(b"") is None
@@ -44,6 +46,7 @@ def test_extract_reason_code_all_paths():
 def test_patch_puback_handling_and_storage(monkeypatch):
     pu = PatchUtils(None, asyncio.Event())
     called = {}
+
     def on_puback(mid, reason, props):
         called["hit"] = (mid, reason, props)
 
@@ -51,11 +54,9 @@ def test_patch_puback_handling_and_storage(monkeypatch):
     pu.patch_puback_handling(on_puback)
 
     # Call wrapped handler
-    pkt = struct.pack("!HB", 10, 1) + b"\x00"
     handler = types.SimpleNamespace(
         _connection=types.SimpleNamespace(persistent_storage=types.SimpleNamespace(remove=lambda m: None))
     )
-    handler2 = handler
     MqttHandlerClass = type("H", (), {})
     pu_handler = MqttHandlerClass()
     pu_handler._connection = handler._connection
@@ -67,8 +68,8 @@ def test_patch_puback_handling_and_storage(monkeypatch):
 
     # patch_storage test
     client = types.SimpleNamespace(_persistent_storage=types.SimpleNamespace(
-        _queue=[(0,1,"raw")],
-        _check_empty=lambda : None
+        _queue=[(0, 1, "raw")],
+        _check_empty=lambda: None
     ))
     pu.client = client
     pu.patch_storage()
@@ -78,18 +79,23 @@ def test_patch_puback_handling_and_storage(monkeypatch):
 @pytest.mark.asyncio
 async def test_retry_loop_and_task_controls(monkeypatch):
     storage_queue = []
+
     class Storage:
         def _check_empty(self): pass
+
         async def pop_message(self):
             if not storage_queue:
                 raise IndexError
             return storage_queue.pop(0)
 
     msgs_sent = []
+
     class FakeClient:
         is_connected = True
+
         async def put_retry_message(self, msg):
             msgs_sent.append(msg)
+
         _persistent_storage = Storage()
 
     pu = PatchUtils(FakeClient(), asyncio.Event(), retry_interval=0)
@@ -112,8 +118,8 @@ async def test_retry_loop_and_task_controls(monkeypatch):
 def test_apply_calls_patch_and_starts_task(monkeypatch):
     pu = PatchUtils(None, asyncio.Event())
     monkeypatch.setattr(pu, "patch_puback_handling", lambda cb: setattr(pu, "_patched", True))
-    monkeypatch.setattr(pu, "start_retry_task", lambda : setattr(pu, "_started", True))
-    pu.apply(lambda a,b,c: None)
+    monkeypatch.setattr(pu, "start_retry_task", lambda: setattr(pu, "_started", True))
+    pu.apply(lambda a, b, c: None)
     assert pu._patched
     assert pu._started
 

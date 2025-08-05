@@ -30,7 +30,8 @@ class DeviceConnectMessage(BaseGatewayEvent):
     event_type: GatewayEventType = GatewayEventType.DEVICE_CONNECT
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of DeviceConnectMessage is not allowed. Use 'await DeviceConnectMessage.build(...)'.")
+        raise TypeError(
+            "Direct instantiation of DeviceConnectMessage is not allowed. Use 'await DeviceConnectMessage.build(...)'.")
 
     def __repr__(self):
         return f"DeviceConnectMessage(device_name={self.device_name}, device_profile={self.device_profile})"

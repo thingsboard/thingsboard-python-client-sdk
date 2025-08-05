@@ -14,6 +14,7 @@
 
 from tb_mqtt_client.entities.gateway.event_type import GatewayEventType
 
+
 class BaseGatewayEvent:
     def __init__(self, event_type: GatewayEventType):
         self.__event_type = event_type

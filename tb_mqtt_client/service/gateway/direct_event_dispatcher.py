@@ -30,6 +30,7 @@ class DirectEventDispatcher:
     """
     Direct event dispatcher for handling gateway events.
     """
+
     def __init__(self):
         self._handlers: Dict[GatewayEventType, List[EventCallback]] = defaultdict(list)
         self._lock = asyncio.Lock()
@@ -46,7 +47,7 @@ class DirectEventDispatcher:
             if not self._handlers[event_type]:
                 del self._handlers[event_type]
 
-    async def dispatch(self, event: GatewayEvent, *args, device_session: DeviceSession=None, **kwargs):
+    async def dispatch(self, event: GatewayEvent, *args, device_session: DeviceSession = None, **kwargs):
         if device_session is not None:
             return await device_session.handle_event_to_device(event)
         async with self._lock:

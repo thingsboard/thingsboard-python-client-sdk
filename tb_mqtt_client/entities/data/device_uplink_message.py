@@ -39,7 +39,9 @@ class DeviceUplinkMessage:
     main_ts: Optional[int] = None
 
     def __new__(cls, *args, **kwargs):
-        raise TypeError("Direct instantiation of DeviceUplinkMessage is not allowed. Use DeviceUplinkMessageBuilder to construct instances.")
+        raise TypeError(
+            "Direct instantiation of DeviceUplinkMessage is not allowed. "
+            "Use DeviceUplinkMessageBuilder to construct instances.")
 
     def __repr__(self):
         return (f"DeviceUplinkMessage(device_name={self.device_name}, "
@@ -127,8 +129,10 @@ class DeviceUplinkMessageBuilder:
             self.__size += attribute.size
         return self
 
-    def add_timeseries(self, timeseries: Union[TimeseriesEntry, List[TimeseriesEntry], OrderedDict[
-        int, List[TimeseriesEntry]]]) -> 'DeviceUplinkMessageBuilder':
+    def add_timeseries(self,
+                       timeseries: Union[TimeseriesEntry,
+                                         List[TimeseriesEntry],
+                                         OrderedDict[int, List[TimeseriesEntry]]]) -> 'DeviceUplinkMessageBuilder':
         if isinstance(timeseries, OrderedDict):
             self._timeseries = timeseries
             return self
@@ -149,8 +153,8 @@ class DeviceUplinkMessageBuilder:
             self.__size += timeseries_entry.size
         return self
 
-    def add_delivery_futures(self, futures: Union[
-        asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
+    def add_delivery_futures(self, futures: Union[asyncio.Future[PublishResult],
+                                                  List[asyncio.Future[PublishResult]]]) -> 'DeviceUplinkMessageBuilder':
         if not isinstance(futures, list):
             futures = [futures]
         if futures:

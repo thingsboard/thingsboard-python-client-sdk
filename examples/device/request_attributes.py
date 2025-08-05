@@ -18,11 +18,10 @@ import asyncio
 import logging
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
 
 configure_logging()
 logger = get_logger(__name__)
@@ -31,9 +30,11 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 response_received = asyncio.Event()
 
+
 async def attribute_request_callback(response: RequestedAttributeResponse):
     logger.info("Received attribute response: %r", response)
     response_received.set()
+
 
 async def main():
     config = DeviceConfig()
@@ -59,6 +60,7 @@ async def main():
         logger.info("Attribute request cancelled.")
 
     await client.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

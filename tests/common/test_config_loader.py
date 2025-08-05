@@ -70,6 +70,7 @@ class TestDeviceConfig(unittest.TestCase):
         config = DeviceConfig()
         self.assertTrue(config.use_tls())
 
+
 class TestGatewayConfig(unittest.TestCase):
 
     def loads_gateway_specific_env_vars(self):

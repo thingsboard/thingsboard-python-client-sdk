@@ -68,14 +68,21 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
 
         self._event_dispatcher: DirectEventDispatcher = DirectEventDispatcher()
         self._uplink_message_sender = GatewayMessageSender()
-        self._event_dispatcher.register(GatewayEventType.DEVICE_CONNECT, self._uplink_message_sender.send_device_connect)
-        self._event_dispatcher.register(GatewayEventType.DEVICE_DISCONNECT, self._uplink_message_sender.send_device_disconnect)
-        self._event_dispatcher.register(GatewayEventType.DEVICE_UPLINK, self._uplink_message_sender.send_uplink_message)
-        self._event_dispatcher.register(GatewayEventType.DEVICE_ATTRIBUTE_REQUEST, self._uplink_message_sender.send_attributes_request)
-        self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_RESPONSE, self._uplink_message_sender.send_rpc_response)
-        self._event_dispatcher.register(GatewayEventType.GATEWAY_CLAIM_REQUEST, self._uplink_message_sender.send_claim_request)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_CONNECT,
+                                        self._uplink_message_sender.send_device_connect)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_DISCONNECT,
+                                        self._uplink_message_sender.send_device_disconnect)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_UPLINK,
+                                        self._uplink_message_sender.send_uplink_message)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_ATTRIBUTE_REQUEST,
+                                        self._uplink_message_sender.send_attributes_request)
+        self._event_dispatcher.register(GatewayEventType.DEVICE_RPC_RESPONSE,
+                                        self._uplink_message_sender.send_rpc_response)
+        self._event_dispatcher.register(GatewayEventType.GATEWAY_CLAIM_REQUEST,
+                                        self._uplink_message_sender.send_claim_request)
 
-        self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter(1000, 1)  # Default max payload size and datapoints count limit, should be changed after connection established
+        # Default max payload size and datapoints count limit, should be changed after connection established
+        self._gateway_message_adapter: GatewayMessageAdapter = JsonGatewayMessageAdapter(1000, 1)
         self._uplink_message_sender.set_message_adapter(self._gateway_message_adapter)
 
         self._multiplex_dispatcher = None  # Placeholder for multiplex dispatcher, if needed
@@ -83,12 +90,14 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
                                                       message_adapter=self._gateway_message_adapter,
                                                       device_manager=self.device_manager,
                                                       stop_event=self._stop_event)
-        self._gateway_attribute_updates_handler = GatewayAttributeUpdatesHandler(event_dispatcher=self._event_dispatcher,
-                                                                                 message_adapter=self._gateway_message_adapter,
-                                                                                 device_manager=self.device_manager)
-        self._gateway_requested_attribute_response_handler = GatewayRequestedAttributeResponseHandler(event_dispatcher=self._event_dispatcher,
-                                                                                                      message_adapter=self._gateway_message_adapter,
-                                                                                                      device_manager=self.device_manager)
+        self._gateway_attribute_updates_handler = GatewayAttributeUpdatesHandler(
+            event_dispatcher=self._event_dispatcher,
+            message_adapter=self._gateway_message_adapter,
+            device_manager=self.device_manager)
+        self._gateway_requested_attribute_response_handler = GatewayRequestedAttributeResponseHandler(
+            event_dispatcher=self._event_dispatcher,
+            message_adapter=self._gateway_message_adapter,
+            device_manager=self.device_manager)
 
         # Gateway-specific rate limits
         self._device_messages_rate_limit = RateLimit("0:0,", name="device_messages")
@@ -114,11 +123,12 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
 
         logger.info("Gateway connected to ThingsBoard.")
 
-
     async def connect_device(self,
                              device_name_or_device_connect_message: Union[str, DeviceConnectMessage],
                              device_profile: str = 'default',
-                             wait_for_publish=False) -> Tuple[DeviceSession, List[Union[PublishResult, Future[PublishResult]]]]:
+                             wait_for_publish=False) -> Tuple[
+                                 DeviceSession,
+                                 List[Union[PublishResult, Future[PublishResult]]]]:
         """
         Connect a device to the gateway.
 
@@ -195,8 +205,14 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
 
     async def send_device_timeseries(self,
                                      device_session: DeviceSession,
-                                     data: Union[TimeseriesEntry, List[TimeseriesEntry], Dict[str, Any], List[Dict[str, Any]]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
+                                     data: Union[TimeseriesEntry,
+                                                 List[TimeseriesEntry],
+                                                 Dict[str, Any],
+                                                 List[Dict[str, Any]]],
+                                     wait_for_publish: bool) -> Optional[Union[
+                                         List[Union[PublishResult, Future[PublishResult]]],
+                                         PublishResult,
+                                         Future[PublishResult]]]:
         """
         Send timeseries data to the platform for a specific device.
         :param device_session: The DeviceSession object for the device
@@ -231,18 +247,21 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
 
         return results[0] if len(results) == 1 else results
 
-
     async def send_device_attributes(self,
                                      device_session: DeviceSession,
                                      data: Union[Dict[str, Any], AttributeEntry, list[AttributeEntry]],
-                                     wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
+                                     wait_for_publish: bool) -> Optional[Union[
+                                         List[Union[PublishResult, Future[PublishResult]]],
+                                         PublishResult,
+                                         Future[PublishResult]]]:
         """
         Send attributes data to the platform for a specific device.
         :param device_session: The DeviceSession object for the device
         :param data: Attributes data to send, can be a single entry or a list of entries
         :param wait_for_publish: Whether to wait for the publish result
         """
-        logger.trace("Sending attributes data for device %s", device_session.device_info.device_name)
+        logger.trace("Sending attributes data for device %s",
+                     device_session.device_info.device_name)
         if not device_session or not data:
             logger.warning("No device session or data provided for sending attributes")
             return None
@@ -264,23 +283,27 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
             results.append(result)
         return results[0] if len(results) == 1 else results
 
-
     async def send_device_attributes_request(self,
                                              device_session: DeviceSession,
                                              attribute_request: Union[AttributeRequest, GatewayAttributeRequest],
-                                             wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
+                                             wait_for_publish: bool) -> Optional[Union[
+                                                 List[Union[PublishResult, Future[PublishResult]]],
+                                                 PublishResult,
+                                                 Future[PublishResult]]]:
         """
         Send a request for device attributes to the platform.
         :param device_session: The DeviceSession object for the device
         :param attribute_request: Attributes to request, can be a single AttributeRequest or GatewayAttributeRequest
         :param wait_for_publish: Whether to wait for the publish result
         """
-        logger.trace("Sending attributes request for device %s", device_session.device_info.device_name)
+        logger.trace("Sending attributes request for device %s",
+                     device_session.device_info.device_name)
         if not device_session or not attribute_request:
             logger.warning("No device session or attributes provided for sending attributes request")
             return None
         if isinstance(attribute_request, AttributeRequest):
-            attribute_request = await GatewayAttributeRequest.from_attribute_request(device_session=device_session, attribute_request=attribute_request)
+            attribute_request = await GatewayAttributeRequest.from_attribute_request(device_session=device_session,
+                                                                                     attribute_request=attribute_request)  # noqa
 
         await self._gateway_requested_attribute_response_handler.register_request(attribute_request)
         futures = await self._event_dispatcher.dispatch(attribute_request, qos=self._config.qos)
@@ -306,7 +329,10 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
     async def send_device_claim_request(self,
                                         device_session: DeviceSession,
                                         gateway_claim_request: GatewayClaimRequest,
-                                        wait_for_publish: bool) -> Union[List[Union[PublishResult, Future[PublishResult]]], PublishResult, Future[PublishResult], None]:
+                                        wait_for_publish: bool) -> Optional[Union[
+                                            List[Union[PublishResult, Future[PublishResult]]],
+                                            PublishResult,
+                                            Future[PublishResult]]]:
         """
         Send a claim request for a device to the platform.
         :param device_session: The DeviceSession object for the device
@@ -365,9 +391,12 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         while not sub_future.done():
             await sleep(0.01)
 
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC, self._gateway_attribute_updates_handler.handle)
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_RPC_TOPIC, self._gateway_rpc_handler.handle)
-        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC, self._gateway_requested_attribute_response_handler.handle)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_TOPIC,
+                                            self._gateway_attribute_updates_handler.handle)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_RPC_TOPIC,
+                                            self._gateway_rpc_handler.handle)
+        self._mqtt_manager.register_handler(mqtt_topics.GATEWAY_ATTRIBUTES_RESPONSE_TOPIC,
+                                            self._gateway_requested_attribute_response_handler.handle)
 
     async def _unsubscribe_from_gateway_topics(self):
         """
@@ -404,12 +433,15 @@ class GatewayClient(DeviceClient, GatewayClientInterface):
         try:
             gateway_rate_limits = response.result.get('gatewayRateLimits', {})
 
-            await self._gateway_rate_limiter.message_rate_limit.set_limit(gateway_rate_limits.get('messages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
-            await self._gateway_rate_limiter.telemetry_message_rate_limit.set_limit(gateway_rate_limits.get('telemetryMessages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
-            await self._gateway_rate_limiter.telemetry_datapoints_rate_limit.set_limit(gateway_rate_limits.get('telemetryDataPoints', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._gateway_rate_limiter.message_rate_limit.set_limit(gateway_rate_limits.get('messages', '0:0,'),
+                                                                          percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._gateway_rate_limiter.telemetry_message_rate_limit.set_limit(
+                gateway_rate_limits.get('telemetryMessages', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
+            await self._gateway_rate_limiter.telemetry_datapoints_rate_limit.set_limit(
+                gateway_rate_limits.get('telemetryDataPoints', '0:0,'), percentage=DEFAULT_RATE_LIMIT_PERCENTAGE)
 
             self._gateway_message_adapter.splitter.max_payload_size = self.max_payload_size
-            self._gateway_message_adapter.splitter.max_datapoints = self._gateway_rate_limiter.telemetry_datapoints_rate_limit.minimal_limit
+            self._gateway_message_adapter.splitter.max_datapoints = self._gateway_rate_limiter.telemetry_datapoints_rate_limit.minimal_limit  # noqa
 
             self._mqtt_manager.set_gateway_rate_limits_received()
             return device_rate_limits_processing_result

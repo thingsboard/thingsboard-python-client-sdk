@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+
 import asyncio
 import threading
 from typing import Union, Optional, Any, List, Set, Dict
@@ -59,7 +60,9 @@ class FutureMap:
                         parent.set_result(None)
                     self._parent_to_remaining.pop(parent, None)
 
+
 future_map = FutureMap()
+
 
 async def await_or_stop(future_or_coroutine: Union[asyncio.Future, asyncio.Task, Any],
                         stop_event: asyncio.Event,
@@ -97,10 +100,11 @@ async def await_or_stop(future_or_coroutine: Union[asyncio.Future, asyncio.Task,
         if not stop_task.done():
             stop_task.cancel()
 
-def run_coroutine_sync(coro_func, timeout: float = 3.0, raise_on_timeout: bool = False):
+
+def run_coroutine_sync(coroutine, timeout: float = 3.0, raise_on_timeout: bool = False):
     """
     Run async coroutine and return its result from a sync function even if event loop is running.
-    :param coro_func: async function with no arguments (like: lambda: some_async_fn())
+    :param coroutine: async function with no arguments (like: lambda: some_async_fn())
     :param timeout: max wait time in seconds
     :param raise_on_timeout: if True, raise TimeoutError on timeout; otherwise return None
     """
@@ -109,7 +113,7 @@ def run_coroutine_sync(coro_func, timeout: float = 3.0, raise_on_timeout: bool =
 
     async def wrapper():
         try:
-            result = await coro_func()
+            result = await coroutine()
             result_container['result'] = result
         except Exception as e:
             result_container['error'] = e
@@ -122,9 +126,9 @@ def run_coroutine_sync(coro_func, timeout: float = 3.0, raise_on_timeout: bool =
     completed = event.wait(timeout=timeout)
 
     if not completed:
-        logger.warning("Timeout while waiting for coroutine to finish: %s", coro_func)
+        logger.warning("Timeout while waiting for coroutine to finish: %s", coroutine)
         if raise_on_timeout:
-            raise TimeoutError(f"Coroutine {coro_func} did not complete in {timeout} seconds.")
+            raise TimeoutError(f"Coroutine {coroutine} did not complete in {timeout} seconds.")
         return None
 
     if 'error' in result_container:

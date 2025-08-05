@@ -107,5 +107,6 @@ def test_hash_works_in_set():
     s = {d}
     assert d in s
 
+
 if __name__ == '__main__':
     pytest.main([__file__, "--tb=short", "-v"])

@@ -33,13 +33,15 @@ class AttributeRequest(BaseGatewayEvent):
     event_type: GatewayEventType = GatewayEventType.DEVICE_ATTRIBUTE_REQUEST
 
     def __new__(self, *args, **kwargs):
-        raise TypeError("Direct instantiation of AttributeRequest is not allowed. Use 'await AttributeRequest.build(...)'.")
+        raise TypeError(
+            "Direct instantiation of AttributeRequest is not allowed. Use 'await AttributeRequest.build(...)'.")
 
     def __repr__(self) -> str:
         return f"AttributeRequest(id={self.request_id}, shared_keys={self.shared_keys}, client_keys={self.client_keys})"
 
     @classmethod
-    async def build(cls, shared_keys: Optional[List[str]] = None, client_keys: Optional[List[str]] = None) -> 'AttributeRequest':
+    async def build(cls, shared_keys: Optional[List[str]] = None,
+                    client_keys: Optional[List[str]] = None) -> 'AttributeRequest':
         """
         Build a new AttributeRequest with a unique request ID, using the global ID generator.
         """

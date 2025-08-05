@@ -66,6 +66,7 @@ GATEWAY_TOPICS = frozenset({
     GATEWAY_CLAIM_TOPIC
 })
 
+
 # Topic Builders
 
 

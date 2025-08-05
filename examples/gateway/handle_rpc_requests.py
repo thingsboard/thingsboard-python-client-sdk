@@ -25,7 +25,8 @@ configure_logging()
 logger = get_logger(__name__)
 
 
-async def device_rpc_request_handler(device_session: DeviceSession, rpc_request: GatewayRPCRequest) -> GatewayRPCResponse:
+async def device_rpc_request_handler(device_session: DeviceSession,
+                                     rpc_request: GatewayRPCRequest) -> GatewayRPCResponse:
     """
     Callback to handle RPC requests from the device.
     :param device_session: Device session for which the request was made.
@@ -44,7 +45,9 @@ async def device_rpc_request_handler(device_session: DeviceSession, rpc_request:
         }
     }
 
-    rpc_response = GatewayRPCResponse.build(device_session.device_info.device_name, rpc_request.request_id, response_data)
+    rpc_response = GatewayRPCResponse.build(device_session.device_info.device_name,
+                                            rpc_request.request_id,
+                                            response_data)
 
     logger.info("Sending RPC response for request id %r: %r", rpc_request.request_id, rpc_response)
 

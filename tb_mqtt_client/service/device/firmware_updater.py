@@ -22,6 +22,7 @@ from zlib import crc32
 
 from tb_mqtt_client.common.install_package_utils import install_package
 from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.constants import mqtt_topics
 from tb_mqtt_client.constants.firmware import (
     FW_CHECKSUM_ALG_ATTR,
@@ -100,7 +101,8 @@ class FirmwareUpdater:
             payload = str(self._chunk_size).encode()
 
         topic = mqtt_topics.build_firmware_update_request_topic(self._firmware_request_id, self._current_chunk)
-        await self._client._message_queue.publish(topic=topic, payload=payload, datapoints_count=0, qos=1)
+        mqtt_message = MqttPublishMessage(topic, payload)
+        await self._client._message_queue.publish(mqtt_message, wait_for_publish=True)
 
     async def _verify_downloaded_firmware(self):
         self._log.info('Verifying downloaded firmware...')

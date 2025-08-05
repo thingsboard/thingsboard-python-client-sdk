@@ -71,7 +71,6 @@ class DummyAdapter(MessageAdapter):
         return self.result
 
 
-
 @pytest.mark.asyncio
 async def test_set_message_adapter_and_callback_called():
     handler = AttributeUpdatesHandler()

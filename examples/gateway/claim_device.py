@@ -64,8 +64,10 @@ async def main():
         logger.error("Failed to send claim request for device: %s", device_name)
         return
 
-    logger.info("Claim request sent successfully for device: %s, you have %r seconds to claim device using ThingsBoard UI or API.",
-                device_name, CLAIMING_DURATION_MS / 1000)
+    logger.info(
+        "Claim request sent successfully for device: %s, "
+        "you have %r seconds to claim device using ThingsBoard UI or API.",
+        device_name, CLAIMING_DURATION_MS / 1000)
 
     # Disconnect device
     logger.info("Disconnecting device: %s", device_name)

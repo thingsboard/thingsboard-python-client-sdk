@@ -45,7 +45,6 @@ def dummy_provisioning_request():
     return ProvisioningRequest("some-device", credentials, device_name="dev", gateway=False)
 
 
-
 def build_msg(device="devX", with_attr=False, with_ts=False):
     builder = DeviceUplinkMessageBuilder().set_device_name(device)
     if with_attr:
@@ -53,6 +52,7 @@ def build_msg(device="devX", with_attr=False, with_ts=False):
     if with_ts:
         builder.add_timeseries(TimeseriesEntry("t", 2, ts=1234567890))
     return builder.build()
+
 
 @pytest.fixture
 def adapter():
@@ -256,12 +256,13 @@ async def test_build_uplink_payloads_both(adapter: JsonMessageAdapter):
     initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
 
     with patch.object(adapter._splitter, "split_attributes", return_value=[msg]), \
-         patch.object(adapter._splitter, "split_timeseries", return_value=[msg]):
+            patch.object(adapter._splitter, "split_timeseries", return_value=[msg]):
         result = adapter.build_uplink_messages([initial_mqtt_message])
         assert len(result) == 2
         topics = {r.topic for r in result}
         assert DEVICE_ATTRIBUTES_TOPIC in topics
         assert DEVICE_TELEMETRY_TOPIC in topics
+
 
 def test_build_payload_without_device_name(adapter: JsonMessageAdapter):
     builder = DeviceUplinkMessageBuilder().add_attributes(AttributeEntry("x", 9))
@@ -291,7 +292,8 @@ def test_pack_timeseries_no_ts(monkeypatch):
 
 
 def test_build_uplink_payloads_error_handling(adapter: JsonMessageAdapter):
-    with patch("tb_mqtt_client.service.device.message_adapter.DeviceUplinkMessage.has_attributes", side_effect=Exception("boom")):
+    with patch("tb_mqtt_client.service.device.message_adapter.DeviceUplinkMessage.has_attributes",
+               side_effect=Exception("boom")):
         msg = build_msg(with_attr=True)
         initial_mqtt_message = MqttPublishMessage(topic="", payload=msg)
         with pytest.raises(Exception, match="boom"):
@@ -319,6 +321,7 @@ def test_parse_provisioning_response_failure(adapter, dummy_provisioning_request
         assert args[0] == dummy_provisioning_request
         assert args[1]["status"] == "FAILURE"
         assert "errorMsg" in args[1]
+
 
 if __name__ == '__main__':
     pytest.main([__file__, "--tb=short", "-v"])

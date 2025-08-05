@@ -39,7 +39,8 @@ class GatewayUplinkMessage(DeviceUplinkMessage, BaseGatewayEvent):
 
     def __new__(cls, *args, **kwargs):
         raise TypeError(
-            "Direct instantiation of GatewayUplinkMessage is not allowed. Use GatewayUplinkMessageBuilder to construct instances.")
+            "Direct instantiation of GatewayUplinkMessage is not allowed. "
+            "Use GatewayUplinkMessageBuilder to construct instances.")
 
     def __repr__(self):
         return (f"GatewayUplinkMessage(device_name={self.device_name}, "
@@ -128,8 +129,10 @@ class GatewayUplinkMessageBuilder:
             self.__size += attribute.size
         return self
 
-    def add_timeseries(self, timeseries: Union[TimeseriesEntry, List[TimeseriesEntry], OrderedDict[
-        int, List[TimeseriesEntry]]]) -> 'GatewayUplinkMessageBuilder':
+    def add_timeseries(self,
+                       timeseries: Union[TimeseriesEntry,
+                                         List[TimeseriesEntry],
+                                         OrderedDict[int, List[TimeseriesEntry]]]) -> 'GatewayUplinkMessageBuilder':
         if isinstance(timeseries, OrderedDict):
             self._timeseries = timeseries
             return self
@@ -149,8 +152,9 @@ class GatewayUplinkMessageBuilder:
             self.__size += entry.size
         return self
 
-    def add_delivery_futures(self, futures: Union[
-        asyncio.Future[PublishResult], List[asyncio.Future[PublishResult]]]) -> 'GatewayUplinkMessageBuilder':
+    def add_delivery_futures(self,
+                             futures: Union[asyncio.Future[PublishResult],
+                                            List[asyncio.Future[PublishResult]]]) -> 'GatewayUplinkMessageBuilder':
         if not isinstance(futures, list):
             futures = [futures]
         if futures:

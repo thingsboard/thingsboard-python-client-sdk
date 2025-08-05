@@ -33,7 +33,8 @@ async def test_build_assigns_values_and_repr():
     mock_session = MagicMock()
     mock_session.device_info.device_name = "TestDevice"
 
-    with patch("tb_mqtt_client.common.request_id_generator.AttributeRequestIdProducer.get_next", new=AsyncMock(return_value=123)):
+    with patch("tb_mqtt_client.common.request_id_generator.AttributeRequestIdProducer.get_next",
+               new=AsyncMock(return_value=123)):
         req = await GatewayAttributeRequest.build(
             device_session=mock_session,
             shared_keys=["s1", "s2"],

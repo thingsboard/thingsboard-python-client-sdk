@@ -31,7 +31,7 @@ configure_logging()
 def test_init_default():
     # Setup & Act
     splitter = GatewayMessageSplitter()
-    
+
     # Assert
     assert splitter.max_payload_size == 55000 - DEFAULT_FIELDS_SIZE
     assert splitter.max_datapoints == 0
@@ -40,7 +40,7 @@ def test_init_default():
 def test_init_custom():
     # Setup & Act
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=100)
-    
+
     # Assert
     assert splitter.max_payload_size == 10000 - DEFAULT_FIELDS_SIZE
     assert splitter.max_datapoints == 100
@@ -49,7 +49,7 @@ def test_init_custom():
 def test_init_invalid_values():
     # Setup & Act
     splitter = GatewayMessageSplitter(max_payload_size=-1, max_datapoints=-1)
-    
+
     # Assert
     assert splitter.max_payload_size == 55000 - DEFAULT_FIELDS_SIZE  # Default value
     assert splitter.max_datapoints == 0  # Default value
@@ -58,10 +58,10 @@ def test_init_invalid_values():
 def test_max_payload_size_property():
     # Setup
     splitter = GatewayMessageSplitter()
-    
+
     # Act
     splitter.max_payload_size = 20000
-    
+
     # Assert
     assert splitter.max_payload_size == 20000 - DEFAULT_FIELDS_SIZE
 
@@ -69,10 +69,10 @@ def test_max_payload_size_property():
 def test_max_payload_size_property_invalid():
     # Setup
     splitter = GatewayMessageSplitter()
-    
+
     # Act
     splitter.max_payload_size = -1
-    
+
     # Assert
     assert splitter.max_payload_size == 55000 - DEFAULT_FIELDS_SIZE  # Default value
 
@@ -80,10 +80,10 @@ def test_max_payload_size_property_invalid():
 def test_max_datapoints_property():
     # Setup
     splitter = GatewayMessageSplitter()
-    
+
     # Act
     splitter.max_datapoints = 200
-    
+
     # Assert
     assert splitter.max_datapoints == 200
 
@@ -91,10 +91,10 @@ def test_max_datapoints_property():
 def test_max_datapoints_property_invalid():
     # Setup
     splitter = GatewayMessageSplitter()
-    
+
     # Act
     splitter.max_datapoints = -1
-    
+
     # Assert
     assert splitter.max_datapoints == 0  # Default value
 
@@ -103,15 +103,14 @@ def test_max_datapoints_property_invalid():
 async def test_split_timeseries_no_split_needed():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=100)
-    
+
     # Create a message with timeseries that doesn't need splitting
     timeseries = TimeseriesEntry("temp", 22.5)
     message = GatewayUplinkMessageBuilder().set_device_name("test_device").add_timeseries(timeseries).build()
 
-    
     # Act
     result = splitter.split_timeseries([message])
-    
+
     # Assert
     assert len(result) == 1
     assert result[0] == message
@@ -121,31 +120,31 @@ async def test_split_timeseries_no_split_needed():
 async def test_split_timeseries_by_size():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=100 + DEFAULT_FIELDS_SIZE, max_datapoints=100)
-    
+
     # Create a message with timeseries that needs splitting by size
     message_builder = GatewayUplinkMessageBuilder().set_device_name("test_device")
-    
+
     # Mock the size property to force splitting
     timeseries_entry = TimeseriesEntry("temp", 22.5)
-    entries = [TimeseriesEntry("temp", 22.5) for _ in range(int(60/timeseries_entry.size + 1))]
-    entries.extend([TimeseriesEntry("humidity", 45) for _ in range(int(60/timeseries_entry.size + 1))])
+    entries = [TimeseriesEntry("temp", 22.5) for _ in range(int(60 / timeseries_entry.size + 1))]
+    entries.extend([TimeseriesEntry("humidity", 45) for _ in range(int(60 / timeseries_entry.size + 1))])
     message_builder.add_timeseries(entries)
     message = message_builder.build()
-    
+
     # Mock the event loop
     loop_mock = MagicMock()
     future = asyncio.Future()
     loop_mock.create_future.return_value = future
-    
+
     with patch('asyncio.get_running_loop', return_value=loop_mock):
         # Act
         result = splitter.split_timeseries([message])
-        
+
         # Assert
         assert len(result) == 2
         assert result[0].device_name == "test_device"
         assert result[1].device_name == "test_device"
-        
+
         # Check that each result has only one of the timeseries entries
         assert result[0].size - DEFAULT_FIELDS_SIZE < splitter.max_payload_size
         assert result[1].size - DEFAULT_FIELDS_SIZE < splitter.max_payload_size
@@ -155,7 +154,7 @@ async def test_split_timeseries_by_size():
 async def test_split_timeseries_by_datapoints():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=1)
-    
+
     # Create a message with timeseries that needs splitting by datapoints
     message_builder = GatewayUplinkMessageBuilder().set_device_name("test_device")
     entries = [
@@ -164,25 +163,25 @@ async def test_split_timeseries_by_datapoints():
     ]
     message_builder.add_timeseries(entries)
     message = message_builder.build()
-    
+
     # Mock the event loop
     loop_mock = MagicMock()
     future = asyncio.Future()
     loop_mock.create_future.return_value = future
-    
+
     with patch('asyncio.get_running_loop', return_value=loop_mock):
         # Act
         result = splitter.split_timeseries([message])
-        
+
         # Assert
         assert len(result) == 2
         assert result[0].device_name == "test_device"
         assert result[1].device_name == "test_device"
-        
+
         # Check that each result has only one of the timeseries entries
         assert len(result[0].timeseries[0]) == 1
         assert len(result[1].timeseries[0]) == 1
-        
+
         # The entries should be in separate messages
         key0 = result[0].timeseries[0][0].key
         key1 = result[1].timeseries[0][0].key
@@ -195,7 +194,7 @@ async def test_split_timeseries_by_datapoints():
 async def test_split_timeseries_multiple_messages():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=100)
-    
+
     # Create multiple messages with timeseries
     message1 = GatewayUplinkMessageBuilder().set_device_name("device1").add_timeseries(
         TimeseriesEntry("temp", 22.5)
@@ -204,17 +203,17 @@ async def test_split_timeseries_multiple_messages():
     message2 = GatewayUplinkMessageBuilder().set_device_name("device2").add_timeseries(
         TimeseriesEntry("humidity", 45)
     ).build()
-    
+
     # Act
     result = splitter.split_timeseries([message1, message2])
-    
+
     # Assert
     assert len(result) == 2
-    
+
     # Check that the messages are for different devices
     devices = {msg.device_name for msg in result}
     assert devices == {"device1", "device2"}
-    
+
     # Check that each result has the correct timeseries
     for msg in result:
         if msg.device_name == "device1":
@@ -248,7 +247,7 @@ async def test_split_timeseries_with_delivery_futures():
     loop_mock.create_future.return_value = future
 
     with patch('asyncio.get_running_loop', return_value=loop_mock), \
-         patch('tb_mqtt_client.common.async_utils.future_map.register') as mock_register:
+            patch('tb_mqtt_client.common.async_utils.future_map.register') as mock_register:
         # Act
         result = splitter.split_timeseries([message])
 
@@ -263,16 +262,16 @@ async def test_split_timeseries_with_delivery_futures():
 async def test_split_attributes_no_split_needed():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=100)
-    
+
     # Create a message with attributes that doesn't need splitting
     message = (GatewayUplinkMessageBuilder()
                .set_device_name("test_device")
                .add_attributes(AttributeEntry("key1", "value1"))
                .build())
-    
+
     # Act
     result = splitter.split_attributes([message])
-    
+
     # Assert
     assert len(result) == 1
     assert result[0] == message
@@ -308,32 +307,32 @@ async def test_split_attributes_by_size():
 async def test_split_attributes_by_datapoints():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=1)
-    
+
     # Create a message with attributes that needs splitting by datapoints
     message = (GatewayUplinkMessageBuilder()
                .set_device_name("test_device")
                .add_attributes([AttributeEntry("key1", "value1"),
                                 AttributeEntry("key2", "value2")])
                .build())
-    
+
     # Mock the event loop
     loop_mock = MagicMock()
     future = asyncio.Future()
     loop_mock.create_future.return_value = future
-    
+
     with patch('asyncio.get_running_loop', return_value=loop_mock):
         # Act
         result = splitter.split_attributes([message])
-        
+
         # Assert
         assert len(result) == 2
         assert result[0].device_name == "test_device"
         assert result[1].device_name == "test_device"
-        
+
         # Check that each result has only one of the attribute entries
         assert len(result[0].attributes) == 1
         assert len(result[1].attributes) == 1
-        
+
         # The entries should be in separate messages
         keys0 = {attr.key for attr in result[0].attributes}
         keys1 = {attr.key for attr in result[1].attributes}
@@ -345,7 +344,7 @@ async def test_split_attributes_by_datapoints():
 async def test_split_attributes_multiple_messages():
     # Setup
     splitter = GatewayMessageSplitter(max_payload_size=10000, max_datapoints=100)
-    
+
     # Create multiple messages with attributes
     message1 = (GatewayUplinkMessageBuilder()
                 .set_device_name("device1")
@@ -356,17 +355,17 @@ async def test_split_attributes_multiple_messages():
                 .set_device_name("device2")
                 .add_attributes(AttributeEntry("key2", "value2"))
                 .build())
-    
+
     # Act
     result = splitter.split_attributes([message1, message2])
-    
+
     # Assert
     assert len(result) == 2
-    
+
     # Check that the messages are for different devices
     devices = {msg.device_name for msg in result}
     assert devices == {"device1", "device2"}
-    
+
     # Check that each result has the correct attributes
     for msg in result:
         if msg.device_name == "device1":
@@ -398,7 +397,7 @@ async def test_split_attributes_with_delivery_futures():
     loop_mock.create_future.return_value = future
 
     with patch('asyncio.get_running_loop', return_value=loop_mock), \
-         patch('tb_mqtt_client.common.async_utils.future_map.register') as mock_register:
+            patch('tb_mqtt_client.common.async_utils.future_map.register') as mock_register:
         # Act
         result = splitter.split_attributes([message])
 

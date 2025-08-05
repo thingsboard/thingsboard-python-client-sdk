@@ -18,10 +18,9 @@ import asyncio
 import logging
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
 
 configure_logging()
 logger = get_logger(__name__)
@@ -51,6 +50,7 @@ async def main():
         logger.info("Shutting down...")
 
     await client.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

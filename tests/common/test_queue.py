@@ -23,8 +23,10 @@ from tb_mqtt_client.common.queue import AsyncDeque
 @pytest.fixture
 def make_item():
     """Factory to create unique or duplicate-like test items."""
+
     def _make(uuid):
         return SimpleNamespace(uuid=uuid)
+
     return _make
 
 
@@ -150,6 +152,7 @@ async def test_get_waits_until_item_available(make_item):
     asyncio.create_task(delayed_put())
     got = await q.get()
     assert got.uuid == "later"
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

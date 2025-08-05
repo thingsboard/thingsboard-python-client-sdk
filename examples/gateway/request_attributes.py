@@ -58,7 +58,8 @@ async def main():
         return
 
     # Register callback for requested attributes
-    client.device_manager.set_attribute_response_callback(device_session.device_info.device_id, requested_attributes_handler)
+    client.device_manager.set_attribute_response_callback(device_session.device_info.device_id,
+                                                          requested_attributes_handler)
 
     logger.info("Device connected successfully: %s", device_name)
 
@@ -77,7 +78,8 @@ async def main():
     # Request attributes for the device
     logger.info("Requesting attributes for device: %s", device_name)
     attributes_to_request = ["maintenance", "id", "location"]
-    attribute_request = await GatewayAttributeRequest.build(device_session=device_session, client_keys=attributes_to_request)
+    attribute_request = await GatewayAttributeRequest.build(device_session=device_session,
+                                                            client_keys=attributes_to_request)
 
     await client.send_device_attributes_request(device_session, attribute_request, wait_for_publish=True)
 

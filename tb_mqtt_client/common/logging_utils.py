@@ -16,7 +16,6 @@ import logging
 import sys
 from typing import Optional
 
-
 DEFAULT_LOG_FORMAT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] %(name)s - %(lineno)d - %(message)s"
 DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -28,9 +27,11 @@ class ExtendedLogger(logging.Logger):
     """
     Custom logger class that supports TRACE level logging.
     """
+
     def trace(self, message, *args, **kwargs):
         if self.isEnabledFor(TRACE_LEVEL):
             self._log(TRACE_LEVEL, message, args, **kwargs)
+
 
 logging.setLoggerClass(ExtendedLogger)
 

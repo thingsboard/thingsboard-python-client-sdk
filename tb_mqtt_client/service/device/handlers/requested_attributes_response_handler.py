@@ -29,7 +29,8 @@ class RequestedAttributeResponseHandler:
 
     def __init__(self):
         self._message_adapter = None
-        self._pending_attribute_requests: Dict[int, Tuple[AttributeRequest, Callable[[RequestedAttributeResponse], Awaitable[None]]]] = {}
+        self._pending_attribute_requests: Dict[
+            int, Tuple[AttributeRequest, Callable[[RequestedAttributeResponse], Awaitable[None]]]] = {}
 
     def set_message_adapter(self, message_adapter: MessageAdapter):
         """
@@ -41,7 +42,8 @@ class RequestedAttributeResponseHandler:
         self._message_adapter = message_adapter
         logger.debug("Message adapter set for RequestedAttributeResponseHandler.")
 
-    async def register_request(self, request: AttributeRequest, callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
+    async def register_request(self, request: AttributeRequest,
+                               callback: Callable[[RequestedAttributeResponse], Awaitable[None]]):
         """
         Called when a request is sent to the platform and a response is awaited.
         """
@@ -52,7 +54,7 @@ class RequestedAttributeResponseHandler:
 
     def unregister_request(self, request_id: int):
         """
-        Unregisters a request by its ID.
+        Unregister a request by its ID.
         This is useful if the request is no longer needed or has timed out.
         """
         if request_id in self._pending_attribute_requests:
@@ -73,18 +75,22 @@ class RequestedAttributeResponseHandler:
                 return
 
             requested_attribute_response = self._message_adapter.parse_requested_attribute_response(topic, payload)
-            pending_request_details = self._pending_attribute_requests.pop(requested_attribute_response.request_id, None)
+            pending_request_details = self._pending_attribute_requests.pop(requested_attribute_response.request_id,
+                                                                           None)
             if not pending_request_details:
-                logger.warning("No future awaiting request ID %s. Ignoring.", requested_attribute_response.request_id)
+                logger.warning("No future awaiting request ID %s. Ignoring.",
+                               requested_attribute_response.request_id)
                 return
 
             request, callback = pending_request_details
 
             if callback:
-                logger.trace("Invoking callback for requested attribute response with ID %s", requested_attribute_response.request_id)
+                logger.trace("Invoking callback for requested attribute response with ID %s",
+                             requested_attribute_response.request_id)
                 await callback(requested_attribute_response)
             else:
-                logger.error("No callback registered for requested attribute response with ID %s", requested_attribute_response.request_id)
+                logger.error("No callback registered for requested attribute response with ID %s",
+                             requested_attribute_response.request_id)
 
         except Exception as e:
             logger.exception("Failed to handle requested attribute response: %s", e)

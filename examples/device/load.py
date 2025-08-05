@@ -6,13 +6,13 @@ from datetime import UTC, datetime
 from random import randint
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.common.publish_result import PublishResult
-from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.entities.data.timeseries_entry import TimeseriesEntry
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 
 # --- Logging setup ---
 configure_logging()
@@ -21,6 +21,8 @@ logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 # --- Constants ---
+THINGSBOARD_HOST = "localhost"
+ACCESS_TOKEN = "YOUR_ACCESS_TOKEN"  # Replace with your actual access token
 BATCH_SIZE = 1000
 MAX_PENDING_BATCHES = 100
 FUTURE_TIMEOUT = 1.0
@@ -115,8 +117,8 @@ async def main():
             signal.signal(sig, lambda *_: _shutdown_handler())
 
     config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
+    config.host = THINGSBOARD_HOST
+    config.access_token = ACCESS_TOKEN
 
     client = DeviceClient(config)
     client.set_attribute_update_callback(attribute_update_callback)
@@ -136,7 +138,8 @@ async def main():
 
     try:
         delivery_start_ts = time.perf_counter()
-        ts_now = int(datetime.now(UTC).timestamp() * 1000)
+        # ts_now = int(datetime.now(UTC).timestamp() * 1000)
+        # You can add ts=ts_now to try with entities with ts, it will group messages by ts and send them together
         entries = [TimeseriesEntry(f"temperature{i}", randint(20, 40)) for i in range(BATCH_SIZE)]
         while not stop_event.is_set():
 

@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+
 import asyncio
 from typing import Awaitable, Callable, Optional
 
@@ -71,12 +72,14 @@ class GatewayRPCHandler:
             elif not isinstance(result, GatewayRPCResponse):
                 raise TypeError("RPC callback must return an instance of GatewayRPCResponse, got: %s", type(result))
             logger.debug("RPC response for device %r method id: %i - %s with result: %s",
-                            rpc_request.device_name, result.request_id, rpc_request.method, result.result)
+                         rpc_request.device_name, result.request_id, rpc_request.method, result.result)
         except Exception as e:
             logger.exception("Failed to process RPC request: %s", e)
             if rpc_request is None:
                 return None
-            result = GatewayRPCResponse.build(device_name=rpc_request.device_name, request_id=rpc_request.request_id, error=e)
+            result = GatewayRPCResponse.build(device_name=rpc_request.device_name,
+                                              request_id=rpc_request.request_id,
+                                              error=e)
 
         if not device_session:
             logger.warning("No device session found for device: %s, cannot send RPC response",
@@ -86,8 +89,9 @@ class GatewayRPCHandler:
         future = await self._event_dispatcher.dispatch(result)  # noqa
 
         if not future:
-            logger.warning("No publish futures were returned from message queue for RPC response of device %s, request id %i",
-                           rpc_request.device_name, rpc_request.request_id)
+            logger.warning(
+                "No publish futures were returned from message queue for RPC response of device %s, request id %i",
+                rpc_request.device_name, rpc_request.request_id)
             return None
         try:
             await await_or_stop(future, timeout=1, stop_event=self._stop_event)

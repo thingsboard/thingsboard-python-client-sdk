@@ -18,11 +18,10 @@ import asyncio
 import logging
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
 from tb_mqtt_client.service.device.client import DeviceClient
-from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
-
 
 configure_logging()
 logger = get_logger(__name__)
@@ -37,6 +36,7 @@ async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
         return RPCResponse.build(request_id=request.request_id, result={"pong": True})
     else:
         return RPCResponse.build(request_id=request.request_id, result={"message": "Unknown method"})
+
 
 async def main():
     config = DeviceConfig()
@@ -55,6 +55,7 @@ async def main():
         logger.info("Shutting down...")
 
     await client.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
