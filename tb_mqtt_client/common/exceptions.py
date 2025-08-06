@@ -65,4 +65,13 @@ class ExceptionHandler:
         loop.set_exception_handler(_asyncio_handler)
 
 
+class BackpressureException(Exception):
+    """
+    Exception raised when the client is under backpressure.
+    This should be used to signal that the client cannot process more messages at the moment.
+    """
+    def __init__(self, message: str = "Client is under backpressure. Please retry later."):
+        super().__init__(message)
+
+
 exception_handler = ExceptionHandler()

@@ -23,6 +23,7 @@ from uuid import uuid4
 from gmqtt import Client as GMQTTClient, Subscription
 
 from tb_mqtt_client.common.async_utils import await_or_stop, future_map, run_coroutine_sync
+from tb_mqtt_client.common.exceptions import BackpressureException
 from tb_mqtt_client.common.gmqtt_patch import PatchUtils, PublishPacket
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
@@ -63,7 +64,7 @@ class MQTTManager:
         self._patch_utils.patch_gmqtt_protocol_connection_lost()
         self._patch_utils.patch_mqtt_handler_disconnect()
 
-        self._client = GMQTTClient(client_id)
+        self._client: GMQTTClient = GMQTTClient(client_id)
         self._patch_utils.client = self._client
         self._patch_utils.patch_handle_connack()
         self._patch_utils.apply(self._handle_puback_reason_code)
@@ -79,7 +80,6 @@ class MQTTManager:
         self._on_publish_result_callback = on_publish_result
 
         self._connected_event = asyncio.Event()
-        self._connect_params = None  # Will be set in connect method
         self._handlers: Dict[str, Callable[[str, bytes], Coroutine[Any, Any, None]]] = {}
 
         self._pending_publishes: Dict[int, Tuple[asyncio.Future[PublishResult], MqttPublishMessage, float]] = {}
@@ -103,33 +103,22 @@ class MQTTManager:
     async def connect(self, host: str, port: int = 1883, username: Optional[str] = None,
                       password: Optional[str] = None, tls: bool = False,
                       keepalive: int = 60, ssl_context: Optional[ssl.SSLContext] = None):
-        self._connect_params = (host, port, username, password, tls, keepalive, ssl_context)
-        asyncio.create_task(self._connect_loop())
+        if username:
+            self._client.set_auth_credentials(username, password)
 
-    async def _connect_loop(self):
-        host, port, username, password, tls, keepalive, ssl_context = self._connect_params
-        retry_delay = 3
+        if tls:
+            if ssl_context is None:
+                ssl_context = ssl.create_default_context()
+            await self._client.connect(host, port, ssl=ssl_context, keepalive=keepalive, raise_exc=False)
+        else:
+            await self._client.connect(host, port, keepalive=keepalive, raise_exc=False)
 
         while not self._client.is_connected and not self._main_stop_event.is_set():
             try:
-                if username:
-                    self._client.set_auth_credentials(username, password)
-
-                if tls:
-                    if ssl_context is None:
-                        ssl_context = ssl.create_default_context()
-                    await self._client.connect(host, port, ssl=ssl_context, keepalive=keepalive)
-                else:
-                    await self._client.connect(host, port, keepalive=keepalive)
-
-                logger.info("MQTT connection initiated, waiting for on_connect...")
                 await self._connected_event.wait()
-                logger.info("MQTT connected.")
                 break
-
-            except Exception as e:
-                logger.warning("Initial MQTT connection failed: %s. Retrying in %s seconds...", str(e), retry_delay)
-                await asyncio.sleep(retry_delay)
+            except Exception as exc:
+                logger.warning("MQTT connection failed, waiting for connection: %s", str(exc))
 
     def is_connected(self) -> bool:
         return (self._client.is_connected
@@ -168,7 +157,7 @@ class MQTTManager:
 
         if not force and self._backpressure.should_pause():
             logger.trace("Backpressure active. Publishing suppressed.")
-            raise RuntimeError("Publishing temporarily paused due to backpressure.")
+            raise BackpressureException("Publishing temporarily paused due to backpressure.")
 
         if not message.dup:
             return await self.process_regular_publish(message, message.qos)
@@ -322,20 +311,22 @@ class MQTTManager:
             self._backpressure.notify_disconnect(delay_seconds=10)
         if reason_code in (131, 142, 143, 151):  # 131, 142, 151 may be caused by rate limits or issue with the data
             reached_time = 1
-            for rate_limit in self.__rate_limiter.values():
-                if isinstance(rate_limit, RateLimit):
-                    try:
-                        reached_limit = run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
-                    except TimeoutError:
-                        logger.warning("Timeout while checking rate limit reaching.")
-                        reached_time = 10  # Default to 10 seconds if timeout occurs
-                        break
-                    reached_index, reached_time, reached_duration = reached_limit if reached_limit else (None, None, 1)
+            if self.__rate_limiter:
+                for rate_limit in self.__rate_limiter.values():
+                    if isinstance(rate_limit, RateLimit):
+                        try:
+                            reached_limit = run_coroutine_sync(rate_limit.reach_limit, raise_on_timeout=True)
+                        except TimeoutError:
+                            logger.warning("Timeout while checking rate limit reaching.")
+                            reached_time = 10  # Default to 10 seconds if timeout occurs
+                            break
+                        reached_index, reached_time, reached_duration = reached_limit if reached_limit else (None, None, 1)
             self._backpressure.notify_disconnect(delay_seconds=reached_time)
         elif reason_code != 0:
             # Default disconnect handling
             self._backpressure.notify_disconnect(delay_seconds=15)
 
+        self._rpc_response_handler.clear()
         if self._on_disconnect_callback:
             asyncio.create_task(self._on_disconnect_callback())
 

@@ -198,7 +198,6 @@ class PatchUtils:
 
                 # Set a flag on the connection object to indicate that on_disconnect has been called
                 self._connection._on_disconnect_called = True
-                original_handle_disconnect(self, cmd, packet)
 
             # Apply the patch
             MqttPackageHandler._handle_disconnect_packet = patched_handle_disconnect_packet

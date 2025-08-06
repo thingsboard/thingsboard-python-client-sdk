@@ -2,7 +2,6 @@ import asyncio
 import logging
 import signal
 import time
-from datetime import UTC, datetime
 from random import randint
 
 from tb_mqtt_client.common.config_loader import DeviceConfig

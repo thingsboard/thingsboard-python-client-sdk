@@ -16,6 +16,7 @@ import asyncio
 from contextlib import suppress
 from typing import List, Optional, Tuple
 
+from tb_mqtt_client.common.exceptions import BackpressureException
 from tb_mqtt_client.common.logging_utils import get_logger, TRACE_LEVEL
 from tb_mqtt_client.common.mqtt_message import MqttPublishMessage
 from tb_mqtt_client.common.publish_result import PublishResult
@@ -167,7 +168,7 @@ class MessageService:
     async def _dispatch_queue_loop(self, queue: AsyncDeque, worker: 'MessageQueueWorker'):
         """Loop to process messages from the service queue."""
         while not self._main_stop_event.is_set() and self._active.is_set():
-            message = None
+            message: Optional[MqttPublishMessage] = None
             try:
                 if not self._mqtt_manager.is_connected():
                     await asyncio.sleep(self._QUEUE_COOLDOWN)
@@ -191,6 +192,12 @@ class MessageService:
 
             except asyncio.CancelledError:
                 break
+            except BackpressureException:
+                logger.warning("Backpressure exception occurred, re-inserting message to the front of the queue: %s",
+                               message.uuid if message else "Unknown")
+                if message:
+                    await queue.reinsert_front(message)
+                await asyncio.sleep(1)
             except Exception as e:
                 logger.exception("Service queue loop error: %s", e)
                 if message:

@@ -53,13 +53,6 @@ async def setup_manager():
 
 
 @pytest.mark.asyncio
-async def test_connect_sets_connect_params(setup_manager):
-    manager, *_ = setup_manager
-    await manager.connect("localhost", 1883, "user", "pass", tls=False)
-    assert manager._connect_params[:4] == ("localhost", 1883, "user", "pass")
-
-
-@pytest.mark.asyncio
 async def test_is_connected_returns_false_if_not_ready(setup_manager):
     manager, *_ = setup_manager
     assert not manager.is_connected()
@@ -308,21 +301,6 @@ async def test_handle_puback_reason_code_errors(setup_manager):
     assert f2.result().reason_code == QUOTA_EXCEEDED
 
     manager._handle_puback_reason_code(9999, 1, {})  # Should log warning, not crash
-
-
-@pytest.mark.asyncio
-async def test_connect_loop_retry_and_success(setup_manager):
-    manager, stop_event, *_ = setup_manager
-    manager._connected_event.set()
-
-    manager._client.connect = AsyncMock(side_effect=[Exception("fail1"), AsyncMock()])
-
-    with patch.object(type(manager._client), "is_connected", new_callable=PropertyMock) as mock_connected, \
-            patch("asyncio.sleep", new_callable=AsyncMock), \
-            patch.object(manager, "_connect_params", new=("host", 1883, None, None, False, 60, None)):
-        mock_connected.side_effect = [False, False, True]
-
-        await asyncio.wait_for(manager._connect_loop(), timeout=1)
 
 
 @pytest.mark.asyncio
