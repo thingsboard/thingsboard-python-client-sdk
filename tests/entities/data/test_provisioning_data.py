@@ -86,7 +86,7 @@ def test_error_response():
 
 
 def test_success_access_token(access_token_request):
-    payload = {"credentialsValue": "ACCESS-TOKEN-123"}
+    payload = {"credentialsValue": "ACCESS-TOKEN-123", "status": "SUCCESS"}
 
     response = ProvisioningResponse.build(access_token_request, payload)
 
@@ -104,7 +104,8 @@ def test_success_mqtt_basic(mqtt_basic_request):
             "clientId": "my-client-id",
             "userName": "user1",
             "password": "pass123"
-        }
+        },
+        "status": "SUCCESS"
     }
 
     response = ProvisioningResponse.build(mqtt_basic_request, payload)
@@ -121,7 +122,7 @@ def test_success_mqtt_basic(mqtt_basic_request):
 
 
 def test_success_x509(x509_request):
-    payload = {"credentialsValue": None}  # Should be ignored for X509
+    payload = {"credentialsValue": None, "status": "SUCCESS"}  # Should be ignored for X509
 
     response = ProvisioningResponse.build(x509_request, payload)
 
@@ -136,7 +137,7 @@ def test_success_x509(x509_request):
 
 
 def test_repr_output(access_token_request):
-    payload = {"credentialsValue": "access-token"}
+    payload = {"credentialsValue": "access-token", "status": "SUCCESS"}
     response = ProvisioningResponse.build(access_token_request, payload)
 
     r = repr(response)
@@ -148,21 +149,21 @@ def test_repr_output(access_token_request):
 
 
 def test_missing_credentials_value_for_access_token(access_token_request):
-    payload = {}  # Missing 'credentialsValue'
+    payload = {"status": "SUCCESS"}  # Missing 'credentialsValue'
 
     with pytest.raises(KeyError):
         ProvisioningResponse.build(access_token_request, payload)
 
 
 def test_mqtt_basic_missing_fields(mqtt_basic_request):
-    payload = {"credentialsValue": {}}  # All fields missing
+    payload = {"credentialsValue": {}, "status": "SUCCESS"}  # All fields missing
 
     with pytest.raises(KeyError):
         ProvisioningResponse.build(mqtt_basic_request, payload)
 
 
 def test_access_token_none_is_accepted(access_token_request):
-    payload = {"credentialsValue": None}
+    payload = {"credentialsValue": None, "status": "SUCCESS"}
     response = ProvisioningResponse.build(access_token_request, payload)
 
     assert response.status == ProvisioningResponseStatus.SUCCESS

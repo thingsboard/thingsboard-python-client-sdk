@@ -370,7 +370,7 @@ class JsonMessageAdapter(MessageAdapter):
         :param rpc_response: The RPC response to build the payload for.
         :return: A tuple of topic and payload bytes.
         """
-        if not rpc_response.request_id:
+        if rpc_response.request_id is None or rpc_response.request_id < 0:
             raise ValueError("RPCResponse must have a valid request ID.")
 
         payload = dumps(rpc_response.to_payload_format())

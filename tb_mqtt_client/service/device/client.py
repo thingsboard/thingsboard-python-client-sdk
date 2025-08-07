@@ -33,6 +33,7 @@ from tb_mqtt_client.entities.data.attribute_request import AttributeRequest
 from tb_mqtt_client.entities.data.attribute_update import AttributeUpdate
 from tb_mqtt_client.entities.data.claim_request import ClaimRequest
 from tb_mqtt_client.entities.data.provisioning_request import ProvisioningRequest
+from tb_mqtt_client.entities.data.provisioning_response import ProvisioningResponse
 from tb_mqtt_client.entities.data.requested_attribute_response import RequestedAttributeResponse
 from tb_mqtt_client.entities.data.rpc_request import RPCRequest
 from tb_mqtt_client.entities.data.rpc_response import RPCResponse
@@ -453,17 +454,17 @@ class DeviceClient(BaseClient):
             logger.error("Publish failed: %r", publish_result)
 
     @staticmethod
-    async def provision(provision_request: 'ProvisioningRequest', timeout=BaseClient.DEFAULT_TIMEOUT):
+    async def provision(provision_request: 'ProvisioningRequest', timeout=BaseClient.DEFAULT_TIMEOUT) -> Optional[ProvisioningResponse]:
         provision_client = ProvisioningClient(
             host=provision_request.host,
             port=provision_request.port,
             provision_request=provision_request
         )
 
-        device_credentials = None
+        provisioning_response = None
         try:
-            device_credentials = await wait_for(provision_client.provision(), timeout=timeout)
+            provisioning_response = await wait_for(provision_client.provision(), timeout=timeout)
         except TimeoutError:
             logger.error("Provisioning timed out")
 
-        return device_credentials
+        return provisioning_response

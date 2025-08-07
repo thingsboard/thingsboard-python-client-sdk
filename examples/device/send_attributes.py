@@ -27,13 +27,15 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
+
 
 async def main():
-    config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
+
     await client.connect()
 
     # Send attribute as raw dictionary

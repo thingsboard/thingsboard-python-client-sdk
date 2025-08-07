@@ -30,6 +30,10 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
 response_received = asyncio.Event()
 
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
+
 
 async def attribute_request_callback(response: RequestedAttributeResponse):
     logger.info("Received attribute response: %r", response)
@@ -37,9 +41,6 @@ async def attribute_request_callback(response: RequestedAttributeResponse):
 
 
 async def main():
-    config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
     await client.connect()

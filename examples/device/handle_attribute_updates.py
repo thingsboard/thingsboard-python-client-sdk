@@ -27,15 +27,15 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
 
 async def attribute_update_callback(update: AttributeUpdate):
     logger.info("Received attribute update: %r", update)
 
 
 async def main():
-    config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
     client.set_attribute_update_callback(attribute_update_callback)

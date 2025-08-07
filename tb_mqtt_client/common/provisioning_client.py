@@ -39,26 +39,25 @@ class ProvisioningClient:
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._provisioned = Event()
-        self._device_config: Optional[Union[DeviceConfig, ProvisioningResponse]] = None
+        self._provisioning_response: Optional[ProvisioningResponse] = None
         self.__message_adapter = JsonMessageAdapter()
 
     def _on_connect(self, client, _, rc, __):
         if rc == 0:
             self._log.debug("[Provisioning client] Connected to ThingsBoard")
             client.subscribe(PROVISION_RESPONSE_TOPIC)
-            topic, payload = self.__message_adapter.build_provision_request(self._provision_request)
-            self._log.debug("[Provisioning client] Sending provisioning request %s" % payload)
-            client.publish(topic, payload)
+            provision_message = self.__message_adapter.build_provision_request(self._provision_request)
+            self._log.debug("[Provisioning client] Sending provisioning request %s", provision_message)
+            client.publish(provision_message.topic, provision_message.payload)
         else:
-            self._device_config = ProvisioningResponse.build(self._provision_request,
-                                                             {'status': 'FAILURE',
+            self._provisioning_response = ProvisioningResponse.build(self._provision_request,
+                                                                     {'status': 'FAILURE',
                                                               'errorMsg': 'Cannot connect to ThingsBoard!'})
             self._provisioned.set()
             self._log.error("[Provisioning client] Cannot connect to ThingsBoard!, result: %s" % rc)
 
     async def _on_message(self, _, __, payload, ___, ____):
-        provisioning_response = self.__message_adapter.parse_provisioning_response(self._provision_request, payload)
-        self._device_config = provisioning_response.result
+        self._provisioning_response = self.__message_adapter.parse_provisioning_response(self._provision_request, payload)
 
         await self._client.disconnect()
         self._provisioned.set()
@@ -67,4 +66,4 @@ class ProvisioningClient:
         await self._client.connect(self._host, self._port)
         await self._provisioned.wait()
 
-        return self._device_config
+        return self._provisioning_response

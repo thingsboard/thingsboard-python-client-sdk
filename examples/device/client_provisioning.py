@@ -28,20 +28,28 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
+device_name = "ProvisionedDevice"
+
+provisioning_credentials = AccessTokenProvisioningCredentials(
+    provision_device_key='YOUR_PROVISION_DEVICE_KEY',
+    provision_device_secret='YOUR_PROVISION_DEVICE_SECRET',
+)
+provisioning_request = ProvisioningRequest('localhost',
+                                           credentials=provisioning_credentials,
+                                           device_name=device_name)
 
 async def main():
-    provisioning_credentials = AccessTokenProvisioningCredentials(
-        provision_device_key='YOUR_PROVISION_DEVICE_KEY',
-        provision_device_secret='YOUR_PROVISION_DEVICE_SECRET',
-    )
-    provisioning_request = ProvisioningRequest('localhost', credentials=provisioning_credentials)
     provisioning_response = await DeviceClient.provision(provisioning_request)
+
+    if not provisioning_response:
+        logger.error(f"Provisioning failed, no response received.")
+        return
 
     if provisioning_response.error is not None:
         logger.error(f"Provisioning failed: {provisioning_response.error}")
         return
 
-    logger.info('Provisioned device configuration: ', provisioning_response)
+    logger.info(f'Provisioned device configuration: {provisioning_response}')
 
     # Create a DeviceClient instance with the provisioned device configuration
     client = DeviceClient(provisioning_response.result)

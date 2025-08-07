@@ -19,22 +19,25 @@ from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
 from tb_mqtt_client.entities.data.attribute_entry import AttributeEntry
 from tb_mqtt_client.service.gateway.client import GatewayClient
 
+
 configure_logging()
 logger = get_logger(__name__)
 
+config = GatewayConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
+
+device_name = "Test Device B1"
+device_profile = "Test devices"
+
 
 async def main():
-    config = GatewayConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
     client = GatewayClient(config)
 
     await client.connect()
 
     # Connecting device
 
-    device_name = "Test Device B1"
-    device_profile = "Test devices"
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)
 

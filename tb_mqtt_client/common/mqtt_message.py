@@ -86,3 +86,14 @@ class MqttPublishMessage(Message):
         """Mark the message as sent."""
         self.message_id = message_id
         self._is_sent = True
+
+    def __str__(self):
+        return f"MqttPublishMessage(topic={self.topic}, payload_size={self.payload_size}, " \
+               f"datapoints={self.datapoints}, qos={self.qos}, retain={self.retain}, " \
+               f"main_ts={self.main_ts}, is_device_message={self.is_device_message})"
+
+    def __repr__(self):
+        return f"MqttPublishMessage(topic={self.topic}, payload={self.payload}, payload_size={self.payload_size}, " \
+                f"datapoints={self.datapoints}, qos={self.qos}, retain={self.retain}, " \
+                f"main_ts={self.main_ts}, is_device_message={self.is_device_message}, " \
+                f"delivery_futures={self.delivery_futures})"

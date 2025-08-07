@@ -23,6 +23,13 @@ from tb_mqtt_client.service.gateway.device_session import DeviceSession
 configure_logging()
 logger = get_logger(__name__)
 
+config = GatewayConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
+
+device_name = "Test Device B1"
+device_profile = "Test devices"
+
 
 async def attribute_update_handler(device_session: DeviceSession, attribute_update: AttributeUpdate):
     """
@@ -35,17 +42,11 @@ async def attribute_update_handler(device_session: DeviceSession, attribute_upda
 
 
 async def main():
-    config = GatewayConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
     client = GatewayClient(config)
 
     await client.connect()
 
     # Connecting device
-
-    device_name = "Test Device B1"
-    device_profile = "Test devices"
     logger.info("Connecting device: %s", device_name)
     device_session, publish_results = await client.connect_device(device_name, device_profile, wait_for_publish=True)
 

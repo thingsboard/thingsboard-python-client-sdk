@@ -40,16 +40,16 @@ class ProvisioningResponse:
         """
         self = object.__new__(cls)
 
-        if payload.get('status') == ProvisioningResponseStatus.ERROR.value:
-            object.__setattr__(self, 'error', payload.get('errorMsg'))
-            object.__setattr__(self, 'status', ProvisioningResponseStatus.ERROR)
-            object.__setattr__(self, 'result', None)
-        else:
+        if payload.get('status') == ProvisioningResponseStatus.SUCCESS.value:
             device_config = ProvisioningResponse._build_device_config(provision_request, payload)
 
             object.__setattr__(self, 'result', device_config)
             object.__setattr__(self, 'status', ProvisioningResponseStatus.SUCCESS)
             object.__setattr__(self, 'error', None)
+        else:
+            object.__setattr__(self, 'error', payload.get('errorMsg'))
+            object.__setattr__(self, 'status', ProvisioningResponseStatus.ERROR)
+            object.__setattr__(self, 'result', None)
 
         return self
 

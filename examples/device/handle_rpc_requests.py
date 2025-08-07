@@ -28,6 +28,9 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
 
 async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
     logger.info("Received RPC: %r", request)
@@ -39,9 +42,6 @@ async def rpc_request_callback(request: RPCRequest) -> RPCResponse:
 
 
 async def main():
-    config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
     client.set_rpc_request_callback(rpc_request_callback)
