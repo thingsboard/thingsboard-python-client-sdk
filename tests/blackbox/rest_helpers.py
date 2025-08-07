@@ -14,6 +14,8 @@
 
 import asyncio
 from time import time
+from typing import Tuple
+
 import requests
 
 
@@ -129,6 +131,78 @@ def create_device_profile_with_provisioning(device_profile_name: str,
     device_profile['provisionDeviceKey'] = provisioning_device_key
 
     response = requests.post(url, json=device_profile, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        response.raise_for_status()
+
+def create_device_profile_and_firmware(firmware_name: str,
+                                       firmware_version: str,
+                                       firmware_data: bytes,
+                                       base_url: str,
+                                       headers: dict,
+                                       firmware_data_headers: dict) -> Tuple[dict, dict]:
+    device_profile = get_default_device_profile(base_url, headers)
+    device_profile['id'] = None
+    device_profile['createdTime'] = None
+    device_profile['name'] = 'pytest-firmware-profile'
+    if 'profileData' not in device_profile:
+        device_profile['profileData'] = {
+                                            "configuration": {
+                                                "type": "DEFAULT"
+                                            },
+                                            "transportConfiguration": {
+                                                "type": "DEFAULT"
+                                            }
+        }
+    response = requests.post(f"{base_url}/api/deviceProfile", json=device_profile, headers=headers)
+    if response.status_code == 200:
+        device_profile = response.json()
+    else:
+        response.raise_for_status()
+
+    # Create OTA package
+    init_ota_package ={
+        "id": None,
+        "createdTime": None,
+        "deviceProfileId": {
+            "entityType": "DEVICE_PROFILE",
+            "id": device_profile['id']['id']
+        },
+        "type": "FIRMWARE",
+        "title": firmware_name,
+        "version": firmware_version,
+        "tag": firmware_name + " " + firmware_version,
+        "url": None,
+        "hasData": False,
+        "fileName": None,
+        "contentType": None,
+        "checksumAlgorithm": None,
+        "checksum": None,
+        "dataSize": None,
+        "externalId": None,
+        "name": firmware_name,
+        "additionalInfo": {
+            "description": ""
+        }
+    }
+    created_ota_package = requests.post(f"{base_url}/api/otaPackage", json=init_ota_package, headers=headers)
+    initial_ota_package = None
+    if created_ota_package.status_code == 200:
+        initial_ota_package = created_ota_package.json()
+    else:
+        created_ota_package.raise_for_status()
+    # Upload firmware data
+    firmware_data_url = f"{base_url}/api/otaPackage/{initial_ota_package['id']['id']}?checksumAlgorithm=SHA256"
+    response = requests.post(firmware_data_url, data=firmware_data, headers=firmware_data_headers)
+    if response.status_code == 200:
+        return device_profile, response.json()
+    else:
+        response.raise_for_status()
+
+def save_device(device: dict, base_url: str, headers: dict) -> dict:
+    url = f"{base_url}/api/device"
+    response = requests.post(url, json=device, headers=headers)
     if response.status_code == 200:
         return response.json()
     else:

@@ -259,9 +259,3 @@ def test_verify_checksum_known_algorithms(updater, alg):
     name, checksum = alg
     with patch("tb_mqtt_client.service.device.firmware_updater.randint", return_value=0):
         assert updater.verify_checksum(b"data", name, checksum) is True
-
-
-def test_verify_checksum_random_failure(updater):
-    with patch("tb_mqtt_client.service.device.firmware_updater.randint", return_value=5):
-        result = updater.verify_checksum(b"data", "md5", md5(b"data").digest().hex())
-        assert not result

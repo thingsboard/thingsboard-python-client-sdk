@@ -16,7 +16,6 @@
 
 import asyncio
 import logging
-from time import monotonic
 
 from tb_mqtt_client.common.config_loader import DeviceConfig
 from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
@@ -30,25 +29,24 @@ logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
 firmware_received = asyncio.Event()
 firmware_update_timeout = 30
 
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
 
-async def firmware_update_callback(_, payload):
-    logger.info(f"Firmware update payload received: {payload}")
+
+async def firmware_update_callback(firmware_data, firmware_info):
+    logger.info(f"Firmware update payload received: {firmware_info}")
     firmware_received.set()
 
 
 async def main():
-    config = DeviceConfig()
-    config.host = "localhost"
-    config.access_token = "YOUR_ACCESS_TOKEN"
 
     client = DeviceClient(config)
     await client.connect()
 
-    await client.update_firmware(on_received_callback=firmware_update_callback)
+    await client.update_firmware(on_received_callback=firmware_update_callback, save_firmware=False)  # Set save_firmware to True if you want to save the firmware data
 
-    update_started = monotonic()
-    while not firmware_received.is_set() and monotonic() - update_started < firmware_update_timeout:
-        await asyncio.sleep(1)
+    await asyncio.wait_for(firmware_received.wait(), timeout=firmware_update_timeout)
 
     await client.stop()
 

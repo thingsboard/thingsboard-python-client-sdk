@@ -18,12 +18,14 @@ import time
 import pytest
 import requests
 import logging
+import uuid
 
 from requests import HTTPError
 
 from tb_mqtt_client.common.config_loader import GatewayConfig
 from tb_mqtt_client.common.config_loader import DeviceConfig
-from tests.blackbox.rest_helpers import find_related_entity_id, get_device_info_by_id
+from tests.blackbox.rest_helpers import find_related_entity_id, get_device_info_by_id, \
+    create_device_profile_and_firmware
 
 TB_HOST = os.getenv("SDK_BLACKBOX_TB_HOST", "localhost")
 TB_HTTP_PORT = int(os.getenv("SDK_BLACKBOX_TB_PORT", 8080))
@@ -226,3 +228,42 @@ def gateway_config(gateway_info, tb_admin_headers):
 
     requests.delete(f"{TB_URL}/api/deviceProfile/{sub_device_info['deviceProfileId']['id']}",
                     headers=tb_admin_headers)
+
+
+@pytest.fixture
+def firmware_profile_and_package(tb_admin_headers, test_config):
+    firmware_name = 'pytest-firmware'
+    firmware_version = '1.0.0'
+    boundary = uuid.uuid4().hex
+    firmware_bytes = b'Firmware binary data for pytest'
+
+    multipart_body = (
+                         f"--{boundary}\r\n"
+                         f"Content-Disposition: form-data; name=\"file\"; filename=\"firmware.bin\"\r\n"
+                         f"Content-Type: application/octet-stream\r\n\r\n"
+                     ).encode() + firmware_bytes + f"\r\n--{boundary}--\r\n".encode()
+
+    firmware_info = {
+        "name": firmware_name,
+        "version": firmware_version,
+        "data": firmware_bytes
+    }
+
+    firmware_headers = {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(multipart_body))
+    }
+    firmware_headers["X-Authorization"] = tb_admin_headers["X-Authorization"]
+
+    device_profile, firmware = create_device_profile_and_firmware(
+        firmware_name, firmware_version, multipart_body, test_config['tb_url'], tb_admin_headers, firmware_headers
+    )
+
+    assert device_profile is not None, "Device profile should be created successfully"
+    assert firmware is not None, "Firmware should be created successfully"
+
+    yield device_profile, firmware, firmware_info
+
+    # Cleanup
+    requests.delete(f"{test_config['tb_url']}/api/deviceProfile/{device_profile['id']['id']}", headers=tb_admin_headers)
+    requests.delete(f"{test_config['tb_url']}/api/firmware/{firmware['id']['id']}", headers=tb_admin_headers)

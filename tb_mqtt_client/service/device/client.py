@@ -106,7 +106,7 @@ class DeviceClient(BaseClient):
 
         self._firmware_updater = FirmwareUpdater(self)
 
-    async def update_firmware(self, on_received_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+    async def update_firmware(self, on_received_callback: Optional[Callable[[bytes, dict], Awaitable[None]]] = None,
                               save_firmware: bool = True, firmware_save_path: Optional[str] = None):
         await self._firmware_updater.update(on_received_callback, save_firmware, firmware_save_path)
 

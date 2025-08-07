@@ -102,7 +102,7 @@ class FirmwareUpdater:
 
         topic = mqtt_topics.build_firmware_update_request_topic(self._firmware_request_id, self._current_chunk)
         mqtt_message = MqttPublishMessage(topic, payload)
-        await self._client._message_queue.publish(mqtt_message, wait_for_publish=True)
+        await self._client._message_queue.publish(mqtt_message)
 
     async def _verify_downloaded_firmware(self):
         self._log.info('Verifying downloaded firmware...')
@@ -111,8 +111,8 @@ class FirmwareUpdater:
         await self._send_current_firmware_info()
 
         verified = self.verify_checksum(self._firmware_data,
-                                        self._target_checksum,
-                                        self._target_checksum_alg)
+                                        self._target_checksum_alg,
+                                        self._target_checksum)
 
         if verified:
             self._log.debug('Checksum verified.')
@@ -201,8 +201,8 @@ class FirmwareUpdater:
 
                 self._firmware_request_id += 1
                 self._target_firmware_length = fetched_firmware_info[FW_SIZE_ATTR]
-                self._target_checksum = fetched_firmware_info[FW_CHECKSUM_ALG_ATTR]
-                self._target_checksum_alg = fetched_firmware_info[FW_CHECKSUM_ATTR]
+                self._target_checksum = fetched_firmware_info[FW_CHECKSUM_ATTR]
+                self._target_checksum_alg = fetched_firmware_info[FW_CHECKSUM_ALG_ATTR]
                 self._target_title = fetched_firmware_info[FW_TITLE_ATTR]
                 self._target_version = fetched_firmware_info[FW_VERSION_ATTR]
 
@@ -239,27 +239,28 @@ class FirmwareUpdater:
         checksum_of_received_firmware = None
 
         self._log.debug('Checksum algorithm is: %s' % checksum_alg)
-        if checksum_alg.lower() == "sha256":
+        lower_checksum_alg = checksum_alg.lower()
+        if lower_checksum_alg == "sha256":
             checksum_of_received_firmware = sha256(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "sha384":
+        elif lower_checksum_alg == "sha384":
             checksum_of_received_firmware = sha384(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "sha512":
+        elif lower_checksum_alg == "sha512":
             checksum_of_received_firmware = sha512(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "md5":
+        elif lower_checksum_alg == "md5":
             checksum_of_received_firmware = md5(firmware_data).digest().hex()
-        elif checksum_alg.lower() == "murmur3_32":
+        elif lower_checksum_alg == "murmur3_32":
             reversed_checksum = f'{hash(firmware_data, signed=False):0>2X}'
             if len(reversed_checksum) % 2 != 0:
                 reversed_checksum = '0' + reversed_checksum
             checksum_of_received_firmware = "".join(
                 reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-        elif checksum_alg.lower() == "murmur3_128":
+        elif lower_checksum_alg == "murmur3_128":
             reversed_checksum = f'{hash128(firmware_data, signed=False):0>2X}'
             if len(reversed_checksum) % 2 != 0:
                 reversed_checksum = '0' + reversed_checksum
             checksum_of_received_firmware = "".join(
                 reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
-        elif checksum_alg.lower() == "crc32":
+        elif lower_checksum_alg == "crc32":
             reversed_checksum = f'{crc32(firmware_data) & 0xffffffff:0>2X}'
             if len(reversed_checksum) % 2 != 0:
                 reversed_checksum = '0' + reversed_checksum
@@ -267,12 +268,5 @@ class FirmwareUpdater:
                 reversed([reversed_checksum[i:i + 2] for i in range(0, len(reversed_checksum), 2)])).lower()
         else:
             self._log.error('Client error. Unsupported checksum algorithm.')
-
-        self._log.debug(checksum_of_received_firmware)
-
-        random_value = randint(0, 5)
-        if random_value > 3:
-            self._log.debug('Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%')
-            return False
 
         return checksum_of_received_firmware == checksum
