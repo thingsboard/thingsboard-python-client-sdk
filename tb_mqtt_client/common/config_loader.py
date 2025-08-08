@@ -24,6 +24,17 @@ class DeviceConfig:
     """
 
     def __init__(self, config=None):
+        self.host = None
+        self.port = 1883
+        self.access_token: Optional[str] = None
+        self.username: Optional[str] = None
+        self.password: Optional[str] = None
+        self.client_id: Optional[str] = None
+        self.ca_cert: Optional[str] = None
+        self.client_cert: Optional[str] = None
+        self.private_key: Optional[str] = None
+        self.qos: int = 1
+
         if config is not None:
             self.host: str = config.get("host", "localhost")
             self.port: int = config.get("port", 1883)
@@ -35,24 +46,24 @@ class DeviceConfig:
             self.client_cert: Optional[str] = config.get("client_cert")
             self.private_key: Optional[str] = config.get("private_key")
 
-        self.host: str = os.getenv("TB_HOST")
-        self.port: int = int(os.getenv("TB_PORT", 1883))
+        self.host: str = os.getenv("TB_HOST", self.host)
+        self.port: int = int(os.getenv("TB_PORT", self.port))
 
         # Authentication options
-        self.access_token: Optional[str] = os.getenv("TB_ACCESS_TOKEN")
-        self.username: Optional[str] = os.getenv("TB_USERNAME")
-        self.password: Optional[str] = os.getenv("TB_PASSWORD")
+        self.access_token: Optional[str] = os.getenv("TB_ACCESS_TOKEN", self.access_token)
+        self.username: Optional[str] = os.getenv("TB_USERNAME", self.username)
+        self.password: Optional[str] = os.getenv("TB_PASSWORD", self.password)
 
         # Optional
-        self.client_id: Optional[str] = os.getenv("TB_CLIENT_ID")
+        self.client_id: Optional[str] = os.getenv("TB_CLIENT_ID", self.client_id)
 
         # TLS options
-        self.ca_cert: Optional[str] = os.getenv("TB_CA_CERT")
-        self.client_cert: Optional[str] = os.getenv("TB_CLIENT_CERT")
-        self.private_key: Optional[str] = os.getenv("TB_PRIVATE_KEY")
+        self.ca_cert: Optional[str] = os.getenv("TB_CA_CERT", self.ca_cert)
+        self.client_cert: Optional[str] = os.getenv("TB_CLIENT_CERT", self.client_cert)
+        self.private_key: Optional[str] = os.getenv("TB_PRIVATE_KEY", self.private_key)
 
         # Default values
-        self.qos: int = int(os.getenv("TB_QOS", 1))
+        self.qos: int = int(os.getenv("TB_QOS", self.qos))
 
     def use_tls_auth(self) -> bool:
         return all([self.ca_cert, self.client_cert, self.private_key])

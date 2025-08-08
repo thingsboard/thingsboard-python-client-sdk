@@ -30,7 +30,6 @@ class BackpressureController:
         self._consecutive_quota_exceeded = 0
         self._last_quota_exceeded = datetime.now(UTC)
         self._max_backoff_seconds = 3600  # 1 hour
-        self._can_process_messages_events: List[asyncio.Event] = []
         logger.debug("BackpressureController initialized with default pause duration of %s seconds",
                      self._default_pause_duration.total_seconds())
 
@@ -90,10 +89,6 @@ class BackpressureController:
         # Reset pause state
         self._pause_until = None
         logger.info("Backpressure released, resuming publishing")
-        for event in self._can_process_messages_events:
-            if not event.is_set():
-                event.set()
-                logger.debug("Set can-process event %s", event)
         return False
 
     def clear(self):
@@ -101,14 +96,3 @@ class BackpressureController:
             logger.info("Clearing backpressure pause")
         self._pause_until = None
         self._consecutive_quota_exceeded = 0
-
-    def register_can_process_event(self, event: Event):
-        """
-        Register an event that will be set when the controller can process messages again.
-        This is useful for other components to wait until the backpressure is lifted.
-        """
-        if not isinstance(event, Event):
-            raise ValueError("Expected an asyncio.Event instance")
-        self._can_process_messages_events.append(event)
-        logger.debug("Registered a new can-process event, total events: %d",
-                     len(self._can_process_messages_events))

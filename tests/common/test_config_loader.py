@@ -20,7 +20,32 @@ from tb_mqtt_client.common.config_loader import DeviceConfig, GatewayConfig
 
 class TestDeviceConfig(unittest.TestCase):
 
-    def loads_default_values_when_env_vars_missing(self):
+    def test_config_creation_from_dict(self):
+        config_dict = {
+            "host": "localhost",
+            "port": 1883,
+            "access_token": "test_token",
+            "username": "test_user",
+            "password": "test_pass",
+            "client_id": "test_client",
+            "ca_cert": "test_ca",
+            "client_cert": "test_cert",
+            "private_key": "test_key",
+            "qos": 1
+        }
+        config = DeviceConfig(config_dict)
+        self.assertEqual(config.host, "localhost")
+        self.assertEqual(config.port, 1883)
+        self.assertEqual(config.access_token, "test_token")
+        self.assertEqual(config.username, "test_user")
+        self.assertEqual(config.password, "test_pass")
+        self.assertEqual(config.client_id, "test_client")
+        self.assertEqual(config.ca_cert, "test_ca")
+        self.assertEqual(config.client_cert, "test_cert")
+        self.assertEqual(config.private_key, "test_key")
+        self.assertEqual(config.qos, 1)
+
+    def test_loads_default_values_when_env_vars_missing(self):
         os.environ.clear()
         config = DeviceConfig()
         self.assertEqual(config.host, None)
@@ -34,7 +59,7 @@ class TestDeviceConfig(unittest.TestCase):
         self.assertEqual(config.private_key, None)
         self.assertEqual(config.qos, 1)
 
-    def loads_values_from_env_vars(self):
+    def test_loads_values_from_env_vars(self):
         os.environ["TB_HOST"] = "test_host"
         os.environ["TB_PORT"] = "8883"
         os.environ["TB_ACCESS_TOKEN"] = "test_token"
@@ -58,14 +83,14 @@ class TestDeviceConfig(unittest.TestCase):
         self.assertEqual(config.private_key, "test_key")
         self.assertEqual(config.qos, 2)
 
-    def detects_tls_auth_correctly(self):
+    def test_detects_tls_auth_correctly(self):
         os.environ["TB_CA_CERT"] = "test_ca"
         os.environ["TB_CLIENT_CERT"] = "test_cert"
         os.environ["TB_PRIVATE_KEY"] = "test_key"
         config = DeviceConfig()
         self.assertTrue(config.use_tls_auth())
 
-    def detects_tls_correctly(self):
+    def test_detects_tls_correctly(self):
         os.environ["TB_CA_CERT"] = "test_ca"
         config = DeviceConfig()
         self.assertTrue(config.use_tls())
@@ -73,7 +98,7 @@ class TestDeviceConfig(unittest.TestCase):
 
 class TestGatewayConfig(unittest.TestCase):
 
-    def loads_gateway_specific_env_vars(self):
+    def test_loads_gateway_specific_env_vars(self):
         os.environ["TB_GW_HOST"] = "gw_host"
         os.environ["TB_GW_PORT"] = "8884"
         os.environ["TB_GW_ACCESS_TOKEN"] = "gw_token"
@@ -97,10 +122,14 @@ class TestGatewayConfig(unittest.TestCase):
         self.assertEqual(config.private_key, "gw_key")
         self.assertEqual(config.qos, 0)
 
-    def falls_back_to_device_config_when_gateway_env_vars_missing(self):
+    def test_falls_back_to_device_config_when_gateway_env_vars_missing(self):
         os.environ.clear()
         os.environ["TB_HOST"] = "device_host"
         os.environ["TB_PORT"] = "1884"
         config = GatewayConfig()
         self.assertEqual(config.host, "device_host")
         self.assertEqual(config.port, 1884)
+
+
+if __name__ == "__main__":
+    unittest.main()

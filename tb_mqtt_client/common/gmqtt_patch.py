@@ -122,8 +122,8 @@ class PatchUtils:
         properties_dict = defaultdict(list)
 
         try:
-            properties_len, _ = unpack_variable_byte_integer(packet)
-            props = packet[:properties_len]
+            properties_len, rest = unpack_variable_byte_integer(packet)
+            props = rest[:properties_len]  # slice out exactly the properties section
 
             while props:
                 property_identifier = props[0]
