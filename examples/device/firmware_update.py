@@ -1,37 +1,55 @@
-# Copyright 2025. ThingsBoard
+#  Copyright 2025 ThingsBoard
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
 #
-#  http://www.apache.org/licenses/LICENSE-2.0
+#       http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
-import time
+# Example script to update firmware using the DeviceClient
+
+import asyncio
 import logging
-from tb_device_mqtt import TBDeviceMqttClient, FW_STATE_ATTR
 
-logging.basicConfig(level=logging.INFO)
+from tb_mqtt_client.common.config_loader import DeviceConfig
+from tb_mqtt_client.common.logging_utils import configure_logging, get_logger
+from tb_mqtt_client.service.device.client import DeviceClient
+
+configure_logging()
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger("tb_mqtt_client").setLevel(logging.INFO)
+
+firmware_received = asyncio.Event()
+firmware_update_timeout = 30
+
+config = DeviceConfig()
+config.host = "localhost"
+config.access_token = "YOUR_ACCESS_TOKEN"
 
 
-def main():
-    client = TBDeviceMqttClient("127.0.0.1", username="A2_TEST_TOKEN")
-    client.connect()
-
-    client.get_firmware_update()
-
-    # Waiting for firmware to be delivered
-    while not client.current_firmware_info[FW_STATE_ATTR] == 'UPDATED':
-        time.sleep(1)
-
-    client.disconnect()
-    client.stop()
+async def firmware_update_callback(firmware_data, firmware_info):
+    logger.info(f"Firmware update payload received: {firmware_info}")
+    firmware_received.set()
 
 
-if __name__ == '__main__':
-    main()
+async def main():
+
+    client = DeviceClient(config)
+    await client.connect()
+
+    await client.update_firmware(on_received_callback=firmware_update_callback, save_firmware=False)  # Set save_firmware to True if you want to save the firmware data
+
+    await asyncio.wait_for(firmware_received.wait(), timeout=firmware_update_timeout)
+
+    await client.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

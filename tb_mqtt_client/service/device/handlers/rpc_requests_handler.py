@@ -1,0 +1,80 @@
+#  Copyright 2025 ThingsBoard
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+from typing import Awaitable, Callable, Optional
+
+from tb_mqtt_client.common.logging_utils import get_logger
+from tb_mqtt_client.entities.data.rpc_request import RPCRequest
+from tb_mqtt_client.entities.data.rpc_response import RPCResponse
+from tb_mqtt_client.service.device.message_adapter import MessageAdapter
+
+logger = get_logger(__name__)
+
+
+class RPCRequestsHandler:
+    """
+    Handles incoming RPC request messages for a device.
+    """
+
+    def __init__(self):
+        self._message_adapter = None
+        self._callback: Optional[Callable[[RPCRequest], Awaitable[RPCResponse]]] = None
+
+    def set_message_adapter(self, message_adapter: MessageAdapter):
+        """
+        Sets the message adapter for handling incoming messages.
+        This should be called before any callbacks are set.
+        :param message_adapter: An instance of MessageAdapter.
+        """
+        if not isinstance(message_adapter, MessageAdapter):
+            raise ValueError("message_adapter must be an instance of MessageAdapter.")
+        self._message_adapter = message_adapter
+        logger.debug("Message adapter set for RPCRequestsHandler.")
+
+    def set_callback(self, callback: Callable[[RPCRequest], Awaitable[RPCResponse]]):
+        """
+        Set the async callback to handle incoming RPC requests.
+        :param callback: A coroutine that takes an RPCRequest and returns an RPCResponse.
+        """
+        self._callback = callback
+
+    async def handle(self, topic: str, payload: bytes) -> Optional[RPCResponse]:
+        """
+        Process the RPC request and return the response payload and request ID (if possible).
+        :returns: (request_id, response_dict) or None if failed
+        """
+        if not self._callback:
+            logger.debug("No RPC request callback set. Skipping RPC handling. "
+                         "You can add set callback using client.set_rpc_request_callback(your_method)")
+            return None
+
+        if not self._message_adapter:
+            logger.error("Message adapter is not initialized. Cannot handle RPC request.")
+            return None
+
+        try:
+            rpc_request = self._message_adapter.parse_rpc_request(topic, payload)
+            logger.debug("Handling RPC method id: %i - %s with params: %s",
+                         rpc_request.request_id, rpc_request.method, rpc_request.params)
+            result = await self._callback(rpc_request)
+            if not isinstance(result, RPCResponse):
+                logger.error("RPC callback must return an instance of RPCResponse, got: %s", type(result))
+                return None
+            logger.debug("RPC response for method id: %i - %s with result: %s",
+                         result.request_id, rpc_request.method, result.result)
+            return result
+
+        except Exception as e:
+            logger.exception("Failed to process RPC request: %s", e)
+            return None

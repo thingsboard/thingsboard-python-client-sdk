@@ -1,0 +1,64 @@
+[project]
+name = "thingsboard-python-client-sdk"
+version = "2.0.0"
+description = "Python MQTT client SDK for ThingsBoard platform"
+authors = [
+    { name = "ThingsBoard Team", email = "info@thingsboard.io" },
+]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "uvloop>=0.21.0",
+    "gmqtt>=0.6.10",
+    "orjson>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "mypy>=1.8",
+    "black>=24.0",
+    "isort>=5.12",
+    "ruff>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*", "*Tests"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+exclude = '''
+/(
+    \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+disallow_untyped_defs = true
+strict_optional = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "F", "I", "B", "W"]
