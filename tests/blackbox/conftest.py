@@ -55,7 +55,7 @@ TB_HTTP_PROTOCOL: str = ENV("SDK_BLACKBOX_TB_HTTP_PROTOCOL", "http")
 TB_URL: str = ENV("SDK_BLACKBOX_TB_URL", f"{TB_HTTP_PROTOCOL}://{TB_HOST}:{TB_HTTP_PORT}")
 
 REQUEST_TIMEOUT: float = float(ENV("SDK_BLACKBOX_HTTP_TIMEOUT", "30"))
-DOCKER_START_TIMEOUT_S: int = int(ENV("SDK_BLACKBOX_TB_START_TIMEOUT", "180"))
+TB_START_TIMEOUT: int = int(ENV("SDK_BLACKBOX_TB_START_TIMEOUT", "180"))
 
 logger = logging.getLogger("blackbox")
 logger.setLevel(logging.INFO)
@@ -128,7 +128,7 @@ def _wait_for_tb_ready(http: requests.Session) -> None:
     start = time.time()
     delay = 1.0
     # Try login to ensure full readiness (DB + REST).
-    while time.time() - start < DOCKER_START_TIMEOUT_S:
+    while time.time() - start < TB_START_TIMEOUT:
         try:
             r = http.post(
                 f"{TB_URL}/api/auth/login",
@@ -152,6 +152,7 @@ def start_thingsboard(http: requests.Session) -> Generator[None, None, None]:
     Ensures instance is ready. If we start the container, we will stop it at session end.
     """
     if not RUN_BLACKBOX:
+        _wait_for_tb_ready(http)
         yield
         return
 
@@ -480,7 +481,7 @@ def device_profile_with_rpc_rule_chain(
         http: requests.Session,
 ) -> Generator[dict, None, None]:
     """
-    Creates a device profile that uses the RPC rule chain as default; cleans up afterwards.
+    Creates a device profile that uses the RPC rule chain as default; cleans up afterward.
     """
     rule_chain = rpc_rule_chain
     device_profile = get_default_device_profile(test_config["tb_url"], tb_admin_headers)
