@@ -1604,11 +1604,14 @@ class ProvisionClient(paho.Client):
         super().__init__()
         self._host = host
         self._port = port
-        self._username = "provision"
+        self._username = b"provision"
+        self.tls_set(tls_version=ssl.PROTOCOL_TLSv1_2,
+                     cert_reqs=ssl.CERT_NONE)
         self.__credentials = None
         self.on_connect = self.__on_connect
         self.on_message = self.__on_message
         self.__provision_request = provision_request
+        self._provisioned = False
 
     def __on_connect(self, client, _, __, rc):  # Callback for connect
         if rc == 0:
@@ -1630,13 +1633,22 @@ class ProvisionClient(paho.Client):
         else:
             log.error("[Provisioning client] Provisioning was unsuccessful with status %s and message: %s" % (
                 provision_device_status, decoded_message["errorMsg"]))
-        self.disconnect()
 
-    def provision(self):
+        self._provisioned = True
+
+    def provision(self, timeout=60):
         log.info("[Provisioning client] Connecting to ThingsBoard")
         self.__credentials = None
+        self._provisioned = False
         self.connect(self._host, self._port, 60)
-        self.loop_forever()
+        start_connection_time = monotonic()
+        self.loop_start()
+
+        while not self._provisioned and monotonic() - start_connection_time < timeout:
+            sleep(1)
+
+        self.loop_stop()
+        self.disconnect()
 
     def get_credentials(self):
         return self.__credentials
