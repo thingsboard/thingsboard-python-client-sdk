@@ -1605,8 +1605,9 @@ class ProvisionClient(paho.Client):
         self._host = host
         self._port = port
         self._username = b"provision"
-        self.tls_set(tls_version=ssl.PROTOCOL_TLSv1_2,
-                     cert_reqs=ssl.CERT_NONE)
+        if self._port == 8883:
+            self.tls_set(tls_version=ssl.PROTOCOL_TLSv1_2,
+                         cert_reqs=ssl.CERT_NONE)
         self.__credentials = None
         self.on_connect = self.__on_connect
         self.on_message = self.__on_message
