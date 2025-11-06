@@ -1215,17 +1215,17 @@ class TBDeviceMqttClient:
         return self._send_request(TBSendMethod.PUBLISH, {"topic": topic, "payload": data, "qos": qos}, timeout,
                                   device=device, msg_rate_limit=msg_rate_limit, dp_rate_limit=dp_rate_limit)
 
-    def send_telemetry(self, telemetry, quality_of_service=None, wait_for_publish=True):
+    def send_telemetry(self, telemetry, quality_of_service=None, timeout=DEFAULT_TIMEOUT):
         """Send telemetry to ThingsBoard. The telemetry can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
         if not isinstance(telemetry, list) and not (isinstance(telemetry, dict) and telemetry.get("ts") is not None):
             telemetry = [telemetry]
-        return self._publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, wait_for_publish)
+        return self._publish_data(telemetry, TELEMETRY_TOPIC, quality_of_service, timeout=timeout)
 
-    def send_attributes(self, attributes, quality_of_service=None, wait_for_publish=True):
+    def send_attributes(self, attributes, quality_of_service=None, timeout=DEFAULT_TIMEOUT):
         """Send attributes to ThingsBoard. The attributes can be a single dictionary or a list of dictionaries."""
         quality_of_service = quality_of_service if quality_of_service is not None else self.quality_of_service
-        return self._publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, wait_for_publish)
+        return self._publish_data(attributes, ATTRIBUTES_TOPIC, quality_of_service, timeout=timeout)
 
     def unsubscribe_from_attribute(self, subscription_id):
         """Unsubscribe from attribute updates for subscription_id."""
