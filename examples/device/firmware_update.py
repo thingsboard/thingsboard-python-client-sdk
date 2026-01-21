@@ -14,9 +14,25 @@
 
 import time
 import logging
-from tb_device_mqtt import TBDeviceMqttClient, FW_STATE_ATTR
+from random import randint
+from tb_device_mqtt import TBDeviceMqttClient, TBFirmwareState, FW_STATE_ATTR, FW_TITLE_ATTR
 
 logging.basicConfig(level=logging.INFO)
+
+def on_firmware_received_example(client, firmware_data, version_to):
+    client.update_firmware_info(state = TBFirmwareState.UPDATING)
+    time.sleep(1)
+
+    with open(client.firmware_info.get(FW_TITLE_ATTR), "wb") as firmware_file:
+        firmware_file.write(firmware_data)
+
+    random_value = randint(0, 5)
+    if random_value > 3:
+        logging.error('Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%')
+        client.update_firmware_info(state = TBFirmwareState.FAILED, error = "Dummy fail! Do not panic, just restart and try again the chance of this fail is ~20%")
+    else:
+        logging.info("Successfully updated!")
+        client.update_firmware_info(version = version_to, state = TBFirmwareState.UPDATED)
 
 
 def main():
@@ -26,7 +42,7 @@ def main():
     client.get_firmware_update()
 
     # Waiting for firmware to be delivered
-    while not client.current_firmware_info[FW_STATE_ATTR] == 'UPDATED':
+    while not client.current_firmware_info[FW_STATE_ATTR] == TBFirmwareState.UPDATED.value:
         time.sleep(1)
 
     client.disconnect()
