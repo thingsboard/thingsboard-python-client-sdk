@@ -51,7 +51,6 @@ result = client.send_telemetry(telemetry)
 success = result.get() == TBPublishInfo.TB_ERR_SUCCESS
 # Disconnect from ThingsBoard
 client.disconnect()
-
 ```
 
 ### MQTT using TLS
@@ -80,7 +79,6 @@ from tb_device_http import TBHTTPDevice
 client = TBHTTPDevice('https://thingsboard.example.com', 'secret-token')
 client.connect()
 client.send_telemetry({'temperature': 41.9})
-
 ````
 
 ## Using Device APIs
@@ -94,11 +92,8 @@ import time
 from tb_device_mqtt import TBDeviceMqttClient
 
 
-def on_attributes_change(client, result, exception):
-    if exception is not None:
-        print("Exception: " + str(exception))
-    else:
-        print(result)
+def on_attributes_change(result, *args):
+    print(result)
 
         
 client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
@@ -107,7 +102,6 @@ client.subscribe_to_attribute("uploadFrequency", on_attributes_change)
 client.subscribe_to_all_attributes(on_attributes_change)
 while True:
     time.sleep(1)
-
 ```
 
 ##### HTTP
@@ -126,7 +120,6 @@ def callback(data):
 client.subscribe('attributes', callback)
 # Unsubscribe
 client.unsubscribe('attributes')
-
 ```
 
 #### Telemetry pack sending
@@ -151,7 +144,6 @@ for tmp_result in results:
     result &= tmp_result.get() == TBPublishInfo.TB_ERR_SUCCESS
 print("Result " + str(result))
 client.disconnect()
-
 ```
 ##### HTTP
 Unsupported, the HTTP API does not allow the packing of values.
@@ -161,24 +153,24 @@ You can request attributes from the server. The following example demonstrates h
 
 ##### MQTT
 ```python
-
 import time
 from tb_device_mqtt import TBDeviceMqttClient
 
 
-def on_attributes_change(client,result, exception):
-    if exception is not None:
-        print("Exception: " + str(exception))
-    else:
-        print(result)
+IS_ATTR_RECEIVED = False
 
-        
+def on_attributes_change(result, *args):
+    global IS_ATTR_RECEIVED
+
+    print('Received attribute: ', result)
+    IS_ATTR_RECEIVED = True
+
+
 client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
 client.connect()
-client.request_attributes(["configuration","targetFirmwareVersion"], callback=on_attributes_change)
-while True:
+client.request_attributes(["configuration", "targetFirmwareVersion"], callback=on_attributes_change)
+while not IS_ATTR_RECEIVED:
     time.sleep(1)
-
 ```
 
 ##### HTTP
@@ -200,18 +192,18 @@ Please install psutil using 'pip install psutil' command before running the exam
 
 ##### MQTT
 ```python
+import time
+
+from tb_device_mqtt import TBDeviceMqttClient
 
 try:
     import psutil
 except ImportError:
     print("Please install psutil using 'pip install psutil' command")
     exit(1)
-import time
-import logging
-from tb_device_mqtt import TBDeviceMqttClient
 
 # dependently of request method we send different data back
-def on_server_side_rpc_request(client, request_id, request_body):
+def on_server_side_rpc_request(request_id, request_body):
     print(request_id, request_body)
     if request_body["method"] == "getCPULoad":
         client.send_rpc_reply(request_id, {"CPU percent": psutil.cpu_percent()})
@@ -223,7 +215,6 @@ client.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 client.connect()
 while True:
     time.sleep(1)
-
 ```
 
 ##### HTTP
@@ -301,6 +292,7 @@ Please install psutil using 'pip install psutil' command before running the exam
 import time
 
 from tb_gateway_mqtt import TBGatewayMqttClient
+
 try:
     import psutil
 except ImportError:
@@ -308,7 +300,7 @@ except ImportError:
     exit(1)
 
     
-def rpc_request_response(client, request_id, request_body):
+def rpc_request_response(request_id, request_body):
     # request body contains id, method and other parameters
     print(request_body)
     method = request_body["data"]["method"]
@@ -331,7 +323,6 @@ gateway.gw_set_server_side_rpc_request_handler(rpc_request_response)
 gateway.gw_connect_device("Test Device A1")
 while True:
     time.sleep(1)
-
 ```
 ## Other Examples
 
