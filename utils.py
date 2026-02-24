@@ -14,7 +14,7 @@
 
 from sys import executable
 from subprocess import check_call, CalledProcessError, DEVNULL
-from pkg_resources import get_distribution, DistributionNotFound
+from importlib import metadata
 
 
 def install_package(package, version="upgrade"):
@@ -35,10 +35,10 @@ def install_package(package, version="upgrade"):
             result = try_install(args)
     else:
         try:
-            installed_version = get_distribution(package).version
+            installed_version = metadata.version(package)
             if installed_version == version:
                 return True
-        except DistributionNotFound:
+        except metadata.PackageNotFoundError:
             pass
         install_version = f"{package}=={version}" if ">=" not in version else f"{package}{version}"
         args = ["install", install_version]
