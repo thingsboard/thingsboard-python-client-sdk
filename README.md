@@ -107,6 +107,7 @@ while True:
 ##### HTTP
 Note: The HTTP API only allows a subscription to updates for all attribute.
 ```python
+import time
 from tb_device_http import TBHTTPClient
 
 
@@ -118,8 +119,8 @@ def callback(data):
 
 # Subscribe
 client.subscribe('attributes', callback)
-# Unsubscribe
-client.unsubscribe('attributes')
+while True:
+    time.sleep(1)
 ```
 
 #### Telemetry pack sending
@@ -183,7 +184,7 @@ client = TBHTTPClient('https://thingsboard.example.com', 'secret-token')
 client_keys = ['attr1', 'attr2']
 shared_keys = ['shared1', 'shared2']
 data = client.request_attributes(client_keys=client_keys, shared_keys=shared_keys)
-
+print('Received attributes: ', data)
 ```
 
 #### Respond to server RPC call
@@ -220,6 +221,7 @@ while True:
 ##### HTTP
 You can use HTTP API client in case you want to use HTTP API instead of MQTT API. 
 ```python
+import time
 from tb_device_http import TBHTTPClient
 
 
@@ -233,9 +235,9 @@ def callback(data):
 
 # Subscribe
 client.subscribe('rpc', callback)
-# Unsubscribe
-client.unsubscribe('rpc')
 
+while True:
+    time.sleep(1)
 ```
 
 ## Using Gateway APIs
