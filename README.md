@@ -78,7 +78,7 @@ from tb_device_http import TBHTTPDevice
 
 client = TBHTTPDevice('https://thingsboard.example.com', 'secret-token')
 client.connect()
-client.send_telemetry({'temperature': 41.9})
+client.send_telemetry({'temperature': 41.9}, queued=False)
 ````
 
 ## Using Device APIs
