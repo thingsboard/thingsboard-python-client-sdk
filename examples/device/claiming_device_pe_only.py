@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import logging
+from time import sleep
 
 from tb_device_mqtt import TBDeviceMqttClient
+
 logging.basicConfig(level=logging.DEBUG)
 
 THINGSBOARD_HOST = "127.0.0.1"
@@ -25,12 +27,26 @@ DURATION = 30000  # In milliseconds (30 seconds)
 
 
 def main():
-    client = TBDeviceMqttClient(THINGSBOARD_HOST, username=DEVICE_ACCESS_TOKEN)
-    client.connect()
-    info = client.claim(secret_key=SECRET_KEY, duration=DURATION)
-    if info.rc() == 0:
-        print("Claiming request was sent.")
-    client.stop()
+    client = None
+    try:
+        client = TBDeviceMqttClient(THINGSBOARD_HOST, username=DEVICE_ACCESS_TOKEN)
+        client.connect()
+
+        info = client.claim(secret_key=SECRET_KEY, duration=DURATION)
+        if info.rc() == 0:
+            print("Claiming request was sent successfully.")
+        else:
+            print(f"Failed to send claiming request. Result code: {info.rc()}")
+
+        sleep(DURATION / 1000)
+
+    except Exception as e:
+        logging.exception("Failed to execute device claiming: %s", e)
+
+    finally:
+        if client is not None:
+            client.stop()
+        print("Connection closed.")
 
 
 if __name__ == '__main__':
