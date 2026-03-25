@@ -483,7 +483,7 @@ class TBDeviceMqttClient:
     def __init__(self, host, port=1883, username=None, password=None, quality_of_service=None, client_id="",
                  chunk_size=0, messages_rate_limit="DEFAULT_MESSAGES_RATE_LIMIT",
                  telemetry_rate_limit="DEFAULT_TELEMETRY_RATE_LIMIT",
-                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, on_firmware_received=None, **kwargs):
+                 telemetry_dp_rate_limit="DEFAULT_TELEMETRY_DP_RATE_LIMIT", max_payload_size=8196, **kwargs):
         # Added for compatibility with old versions
         if kwargs.get('rate_limit') is not None or kwargs.get('dp_rate_limit') is not None:
             messages_rate_limit = messages_rate_limit if kwargs.get('rate_limit') == "DEFAULT_RATE_LIMIT" else kwargs.get('rate_limit', messages_rate_limit) # noqa
@@ -539,7 +539,7 @@ class TBDeviceMqttClient:
         self.__firmware_request_id = 0
         self.__chunk_size = chunk_size
         self.firmware_received = False
-        self.set_on_firmware_received_function(on_firmware_received)
+        self.__on_firmware_received = self.__on_firmware_received_default
         self.rate_limits_received = False
         self.__request_service_configuration_required = False
         self.__service_loop = Thread(target=self.__service_loop, name="Service loop", daemon=True)
@@ -563,11 +563,8 @@ class TBDeviceMqttClient:
 
         self.send_telemetry(self.current_firmware_info)
 
-    def set_on_firmware_received_function(self, on_firmware_received):
-        if on_firmware_received is not None:
-            self.__on_firmware_received = on_firmware_received 
-        else:
-            self.__on_firmware_received = self.__on_firmware_received_default
+    def set_on_firmware_received_callback(self, on_firmware_received):
+        self.__on_firmware_received = on_firmware_received
 
     def __service_loop(self):
         while not self.stopped:
