@@ -1052,21 +1052,27 @@ class TBDeviceMqttClient:
     def _send_request(self, _type, kwargs, timeout=DEFAULT_TIMEOUT, device=None,
                       msg_rate_limit=None, dp_rate_limit=None):
         topic = kwargs['topic']
+
         if msg_rate_limit is None:
             if topic == TELEMETRY_TOPIC or topic ==ATTRIBUTES_TOPIC:
                 msg_rate_limit = self._telemetry_rate_limit
             else:
                 msg_rate_limit = self._messages_rate_limit
+
         if dp_rate_limit is None:
             if topic == TELEMETRY_TOPIC or topic ==ATTRIBUTES_TOPIC:
                 dp_rate_limit = self._telemetry_dp_rate_limit
             else:
                 dp_rate_limit = self.EMPTY_RATE_LIMIT
-        if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
-            msg_rate_limit.increase_rate_limit_counter()
-            is_reached = self._wait_for_rate_limit_released(timeout, msg_rate_limit, dp_rate_limit)
-            if is_reached:
-                return is_reached
+
+        # if the request is PUBLISH, rate limits will be checked for each split message
+        # in __send_publish_with_limitations method, so we can skip it here
+        if _type == TBSendMethod.SUBSCRIBE or _type == TBSendMethod.UNSUBSCRIBE:
+            if msg_rate_limit.has_limit() or dp_rate_limit.has_limit():
+                msg_rate_limit.increase_rate_limit_counter()
+                is_reached = self._wait_for_rate_limit_released(timeout, msg_rate_limit, dp_rate_limit)
+                if is_reached:
+                    return is_reached
 
         if _type == TBSendMethod.PUBLISH:
             self.__add_metadata_to_data_dict_from_device(kwargs["payload"])
