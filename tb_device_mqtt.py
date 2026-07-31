@@ -781,9 +781,9 @@ class TBDeviceMqttClient:
                 sleep(1)
 
                 self.__firmware_request_id = self.__firmware_request_id + 1
-                self.__target_firmware_length = self.firmware_info[FW_SIZE_ATTR]
+                self.__target_firmware_length = self.firmware_info.get(FW_SIZE_ATTR, 0)
                 self.__chunk_count = 0 if not self.__chunk_size else ceil(
-                    self.firmware_info[FW_SIZE_ATTR] / self.__chunk_size)
+                    self.firmware_info.get(FW_SIZE_ATTR, 0) / self.__chunk_size)
                 self.__get_firmware()
 
     def __process_firmware(self):
