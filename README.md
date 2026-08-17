@@ -84,6 +84,19 @@ client.send_telemetry({'temperature': 41.9}, queued=False)
 ## Using Device APIs
 
 **TBDeviceMqttClient** provides access to Device MQTT APIs of ThingsBoard platform. It allows to publish telemetry and attribute updates, subscribe to attribute changes, send and receive RPC commands, etc. Use **TBHTTPClient** for the Device HTTP API.
+#### Proxy configuration
+You can configure an MQTT proxy before connecting the client. The arguments are forwarded to the underlying Paho MQTT client.
+
+```python
+import socks
+from tb_device_mqtt import TBDeviceMqttClient
+
+
+client = TBDeviceMqttClient("127.0.0.1", username="A1_TEST_TOKEN")
+client.proxy_set(proxy_type=socks.HTTP, proxy_addr="proxy.example.com", proxy_port=3128)
+client.connect()
+```
+
 #### Subscription to attributes
 You can subscribe to attribute updates from the server. The following example demonstrates how to subscribe to attribute updates from the server.
 ##### MQTT
