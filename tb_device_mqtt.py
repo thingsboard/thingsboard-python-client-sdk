@@ -661,6 +661,10 @@ class TBDeviceMqttClient:
     def is_connected(self):
         return self.__is_connected
 
+    def proxy_set(self, **kwargs):
+        """Configure proxy settings for the underlying MQTT client."""
+        return self._client.proxy_set(**kwargs)
+
     def connect(self, callback=None, min_reconnect_delay=1, timeout=120, tls=False, ca_certs=None, cert_file=None,
                 key_file=None, keepalive=120):
         """Connect to ThingsBoard. The callback will be called when the connection is established."""
